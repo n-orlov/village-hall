@@ -214,7 +214,16 @@ for (const vp of viewports) {
       expect(await link.evaluate((k) => localStorage.getItem(k), KEY)).toBeNull();
       await goTo(link, 'Initiatives');
       await expect(link.getByTestId('initiative-row').first()).toBeVisible();
+      // The defaults list the whole shared board, many pages on a long run: wait for the unfiltered read's last page
+      // itself, then give the table its usual bound to draw it.
+      const wholeBoard = link.waitForResponse(async (response) => {
+        const url = new URL(response.url());
+        if (url.pathname !== '/api/v1/tasks' || url.searchParams.has('initiative') || url.searchParams.has('active')) return false;
+        const body = (await response.json().catch(() => null)) as { next_after?: string } | null;
+        return body !== null && body.next_after === undefined;
+      });
       await goTo(link, 'Tasks');
+      await wholeBoard;
       await expect(link.getByTestId('task-row').first()).toBeVisible();
       await expect(link).toHaveURL(/#\/tasks$/);
       await expectInitiatives(link, []);
@@ -411,7 +420,9 @@ for (const vp of viewports) {
       await post(zed, '/api/v1/leases', { task: b2, intent: 'cols sort', resources: [`repo:${prefix}-3`] }, 201);
       const byDefault = [b1, a1, b2, a2, b3];
 
-      await page.goto(`/#/tasks?status=all`);
+      // Scoped to the test's two initiatives (an OR of the chips), so the table it sorts is its own five rows: on a long
+      // run's shared board the whole list is thousands of rows, and reading and sorting that outran the poll's bound.
+      await page.goto(`/#/tasks?status=all&initiative=${slugA}&initiative=${slugB}`);
       const mine = async () => (await tableRefs(page)).filter((ref) => byDefault.includes(ref));
       await expect.poll(mine).toEqual(byDefault);
 
