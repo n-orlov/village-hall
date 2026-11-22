@@ -30,7 +30,7 @@
   <div class="flex gap-2" data-testid={testid}>
     {#each options as option (option.value)}
       <label
-        class="relative flex min-h-11 flex-1 cursor-pointer items-center justify-center rounded-md border border-border px-3 text-sm text-text has-[:checked]:border-accent has-[:checked]:bg-surface has-[:checked]:font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
+        class="relative flex min-h-11 min-w-11 flex-1 cursor-pointer items-center justify-center rounded-md border border-border px-3 text-sm text-text has-[:checked]:border-accent has-[:checked]:bg-surface has-[:checked]:font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
       >
         <input
           type="radio"
