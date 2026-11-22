@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_ATTENTION_FILTER } from './attention';
+import { DEFAULT_ATTENTION_FILTER, filterFromQuery } from './attention';
 import {
   AttentionApi,
   AttentionStore,
@@ -9,7 +9,10 @@ import {
   affectsTagSources,
   copyLabel,
   dropUnknown,
+  excludeClosedOf,
+  nowFragment,
   nowQuery,
+  nowViewQuery,
   nowTagChoices,
   forgetAttention,
   currentMarks,
@@ -544,7 +547,7 @@ describe('saved Attention filters', () => {
 
   it('restores a bare route in place, before any fetch, and reports it as restored', () => {
     const e = env(memory({ [KEY]: JSON.stringify({ v: 1, query: 'tag=work&initiative=aa' }) }));
-    expect(openAttention(e, '#/now')).toEqual({ filter: { tags: ['work'], initiatives: ['aa'] }, restored: true });
+    expect(openAttention(e, '#/now')).toEqual({ filter: { tags: ['work'], initiatives: ['aa'] }, restored: true, excludeClosed: false });
     expect(e.hashes).toEqual(['#/now?tag=work&initiative=aa']);
     // Any fragment the router sends to Attention is bare too.
     expect(openAttention(env(memory({ [KEY]: JSON.stringify({ v: 1, query: 'tag=work' }) })), '#/').restored).toBe(true);
@@ -553,7 +556,7 @@ describe('saved Attention filters', () => {
   it('lets a fragment with its own query win and saves it, without restoring', () => {
     const storage = memory({ [KEY]: JSON.stringify({ v: 1, query: 'tag=old' }) });
     const e = env(storage);
-    expect(openAttention(e, '#/now?tag=new')).toEqual({ filter: { tags: ['new'], initiatives: [] }, restored: false });
+    expect(openAttention(e, '#/now?tag=new')).toEqual({ filter: { tags: ['new'], initiatives: [] }, restored: false, excludeClosed: false });
     expect(e.hashes).toEqual([]);
     expect(JSON.parse(storage.data.get(KEY)!).query).toBe('tag=new');
   });
@@ -561,10 +564,34 @@ describe('saved Attention filters', () => {
   it('starts at the defaults with nothing saved, a malformed value, another version or no storage', () => {
     for (const raw of [undefined, 'nope', '{"v":2,"query":"tag=x"}', '{"v":1,"query":5}']) {
       const e = env(memory(raw === undefined ? {} : { [KEY]: raw }));
-      expect(openAttention(e, '#/now')).toEqual({ filter: DEFAULT_ATTENTION_FILTER, restored: false });
+      expect(openAttention(e, '#/now')).toEqual({ filter: DEFAULT_ATTENTION_FILTER, restored: false, excludeClosed: false });
       expect(e.hashes).toEqual([]);
     }
     expect(openAttention(env(undefined), '#/now').restored).toBe(false);
+  });
+
+  it('saves "Exclude closed" after the filter, alone too, and the default removes the key', () => {
+    const storage = memory();
+    saveAttention(storage, { tags: ['work'], initiatives: [] }, true);
+    expect(JSON.parse(storage.data.get(KEY)!)).toEqual({ v: 1, query: 'tag=work&exclude=closed' });
+    saveAttention(storage, DEFAULT_ATTENTION_FILTER, true);
+    expect(JSON.parse(storage.data.get(KEY)!)).toEqual({ v: 1, query: 'exclude=closed' });
+    saveAttention(storage, DEFAULT_ATTENTION_FILTER, false);
+    expect(storage.data.has(KEY)).toBe(false);
+  });
+
+  it('restores "Exclude closed" from a bare route in place; alone it needs no check against the board', () => {
+    const e = env(memory({ [KEY]: JSON.stringify({ v: 1, query: 'exclude=closed' }) }));
+    expect(openAttention(e, '#/now')).toEqual({ filter: DEFAULT_ATTENTION_FILTER, restored: false, excludeClosed: true });
+    expect(e.hashes).toEqual(['#/now?exclude=closed']);
+    const both = env(memory({ [KEY]: JSON.stringify({ v: 1, query: 'tag=work&exclude=closed' }) }));
+    expect(openAttention(both, '#/now')).toEqual({ filter: { tags: ['work'], initiatives: [] }, restored: true, excludeClosed: true });
+  });
+
+  it('reads "Exclude closed" from a link and saves it', () => {
+    const storage = memory();
+    expect(openAttention(env(storage), '#/now?initiative=aa&exclude=closed')).toEqual({ filter: { tags: [], initiatives: ['aa'] }, restored: false, excludeClosed: true });
+    expect(JSON.parse(storage.data.get(KEY)!).query).toBe('initiative=aa&exclude=closed');
   });
 
   it('forgets the saved filter', () => {
@@ -646,5 +673,30 @@ describe('affectsTagSources', () => {
   });
   it.each(['lease_renewed', 'lease_acked', 'ask_raised', 'ask_answered', 'note_posted', 'dep_added', 'check_recorded', 'milestone', 'key_created', 'catchup'])('%s changes none', (type) => {
     expect(affectsTagSources({ type })).toBe(false);
+  });
+});
+
+describe('"Exclude closed" in the query', () => {
+  it('is on only for exclude=closed, among other keys too', () => {
+    expect(excludeClosedOf('exclude=closed')).toBe(true);
+    expect(excludeClosedOf('tag=work&exclude=closed&initiative=aa')).toBe(true);
+    expect(excludeClosedOf('exclude=done&exclude=closed')).toBe(true);
+    expect(excludeClosedOf('')).toBe(false);
+    expect(excludeClosedOf('exclude=done')).toBe(false);
+    expect(excludeClosedOf('closed=exclude')).toBe(false);
+    expect(excludeClosedOf('exclude=Closed')).toBe(false);
+  });
+
+  it('joins the filter in the fragment, last, and is left out when off', () => {
+    expect(nowFragment(DEFAULT_ATTENTION_FILTER, false)).toBe('#/now');
+    expect(nowFragment(DEFAULT_ATTENTION_FILTER, true)).toBe('#/now?exclude=closed');
+    expect(nowFragment({ tags: ['work'], initiatives: ['aa'] }, false)).toBe('#/now?tag=work&initiative=aa');
+    expect(nowFragment({ tags: ['work'], initiatives: ['aa'] }, true)).toBe('#/now?tag=work&initiative=aa&exclude=closed');
+    expect(nowViewQuery({ tags: [], initiatives: ['aa'] }, true)).toBe('initiative=aa&exclude=closed');
+    expect(excludeClosedOf(nowViewQuery({ tags: ['x'], initiatives: [] }, true))).toBe(true);
+  });
+
+  it('is never sent to the server: the read keeps only the filter and the window', () => {
+    expect(nowQuery(filterFromQuery('tag=work&exclude=closed'))).toBe('tag=work');
   });
 });

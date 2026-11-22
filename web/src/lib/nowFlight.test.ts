@@ -6,8 +6,10 @@ import {
   flightRows,
   loadWindow,
   parseWindow,
+  recentEmptyText,
   recentRows,
   saveWindow,
+  withoutClosed,
   type InFlight,
   type Recent,
 } from './nowFlight';
@@ -130,5 +132,39 @@ describe('recentRows', () => {
       const rows = recentRows([ev('bot', 'alice'), ev('bot', 'bob'), ev('bot', 'bot')], NOW);
       expect(rows.map((r) => r.via)).toEqual(['via alice', 'via bob', '']);
     });
+  });
+});
+
+describe('withoutClosed ("Exclude closed")', () => {
+  const touched = (ref: string, status: 'open' | 'done' | 'closed'): Recent => ({
+    task: { ...task(ref), status },
+    last_event: { type: 'task_updated', summary: ref, actor: { handle: 'bob' }, at: '2026-01-01T11:48:00Z' },
+  });
+  const items = [touched('aa-1', 'closed'), touched('aa-2', 'done'), touched('aa-3', 'open'), touched('aa-4', 'closed')];
+
+  it('keeps every task, in the server order, when it is off', () => {
+    const kept = withoutClosed(items, false);
+    expect(kept.map((i) => i.task.task)).toEqual(['aa-1', 'aa-2', 'aa-3', 'aa-4']);
+    expect(kept).not.toBe(items);
+  });
+
+  it('drops only the closed tasks when it is on: a done task stays', () => {
+    expect(withoutClosed(items, true).map((i) => i.task.task)).toEqual(['aa-2', 'aa-3']);
+  });
+
+  it('leaves nothing when every task is closed, and an empty list empty', () => {
+    expect(withoutClosed([touched('aa-1', 'closed')], true)).toEqual([]);
+    expect(withoutClosed([], true)).toEqual([]);
+  });
+});
+
+describe('recentEmptyText', () => {
+  it('says nothing was touched when nothing is hidden', () => {
+    expect(recentEmptyText(0)).toBe('Nothing was touched in this window.');
+  });
+
+  it('counts the closed tasks "Exclude closed" hides', () => {
+    expect(recentEmptyText(1)).toBe('Nothing open or done was touched in this window; 1 closed task is hidden.');
+    expect(recentEmptyText(3)).toBe('Nothing open or done was touched in this window; 3 closed tasks are hidden.');
   });
 });

@@ -32,8 +32,8 @@
     affectsTagSources,
     copyLabel,
     currentMarks,
+    nowFragment,
     nowTagChoices,
-    forgetAttention,
     openAttention,
     saveAttention,
     startFilter,
@@ -73,7 +73,7 @@
   } from './lib/nowLayout';
   import { live } from './lib/live';
   import { NOW_CHOICES, NOW_COLUMNS, loadOrder, orderToSort, saveOrder, sortByOrder, sortToOrder, type NowOrder } from './lib/nowSort';
-  import { WINDOWS, flightRows, loadWindow, recentRows, saveWindow, type NowWindow } from './lib/nowFlight';
+  import { WINDOWS, flightRows, loadWindow, recentEmptyText, recentRows, saveWindow, withoutClosed, type NowWindow } from './lib/nowFlight';
   import { absoluteTime } from './lib/format';
   import { resolveRoute, ROUTES } from './lib/routes';
   import { currentBrowser } from './lib/session';
@@ -92,6 +92,8 @@
   const opened = openAttention(viewEnv, window.location.hash);
   const initial = opened.filter;
   const initialWindow = loadWindow(viewEnv.storage);
+  // "Exclude closed" on Recently touched: in the fragment and the saved query with the filter, applied in the browser.
+  let excludeClosed = $state(opened.excludeClosed);
   let view: AttentionState = $state({ attention: undefined, flight: undefined, recent: undefined, marks: {}, marksAt: 0, filter: initial, window: initialWindow, loading: true, error: undefined });
   let known: { slug: string; tags: string[] }[] = $state([]);
   // The lookup's answer, or undefined until it answers (or when it failed): an empty answer still drops restored values.
@@ -238,10 +240,17 @@
     };
   });
 
-  // The filter lives in the fragment and in the saved query: a change rewrites both in place (no history entry per choice).
+  // The filter (and "Exclude closed") lives in the fragment and in the saved query: a change rewrites both in place (no history
+  // entry per choice).
   function persist(filter: AttentionFilter) {
-    replaceHash(nowHash(filter));
-    saveAttention(viewEnv.storage, filter);
+    replaceHash(nowFragment(filter, excludeClosed));
+    saveAttention(viewEnv.storage, filter, excludeClosed);
+  }
+
+  // "Exclude closed": the fragment and the saved query follow; the rows are filtered in the browser, so nothing is read again.
+  function chooseExcludeClosed(on: boolean) {
+    excludeClosed = on;
+    persist(view.filter);
   }
 
   // A change is the newest navigation: it reads as its own the sources of every chosen tag whose newest read a superseded one
@@ -261,19 +270,20 @@
     else clear();
   }
 
-  // Clear chips: the defaults, and nothing saved.
+  // Clear chips: the default filter, and nothing saved but "Exclude closed" when it is on (it is not a chip).
   function clear() {
     turns.begin();
     turns.reading();
-    forgetAttention(viewEnv.storage);
-    replaceHash('#/now');
-    void store.setFilter({ initiatives: [], tags: [] });
+    const filter = { initiatives: [], tags: [] };
+    persist(filter);
+    void store.setFilter(filter);
   }
 
   // The fragment edited by hand, or the back button after a link with another query. A bare fragment restores the saved filter.
   async function hashChanged() {
     if (resolveRoute(window.location.hash, ROUTES).id !== 'now') return;
     const next = openAttention(viewEnv, window.location.hash);
+    excludeClosed = next.excludeClosed;
     const current = turns.begin();
     // A restored filter waits for the board's list like the first one does; a link's own query does not.
     let carried: Restored | undefined;
@@ -390,7 +400,7 @@
   // The tags of every task shown come with the board read (`task_marks`): Now makes no read of the tasks for them.
   const marks = $derived(view.marks);
   const flightList = $derived(sortByOrder(flightRows(view.flight ?? [], now), order, (r) => r));
-  const recentList = $derived(sortByOrder(recentRows(view.recent ?? [], now), order, (r) => r));
+  const recentList = $derived(sortByOrder(recentRows(withoutClosed(view.recent ?? [], excludeClosed), now), order, (r) => r));
   function widgetCount(key: WidgetKey, data: Attention): number {
     if (key === 'flight') return flightList.length;
     if (key === 'recent') return recentList.length;
@@ -487,9 +497,26 @@
 {/snippet}
 
 {#snippet recentBody()}
-  <SegmentedRadio legend="Window" name="now-window" options={WINDOWS} value={view.window} onchoose={chooseWindow} testid="now-window" />
+  <div class="flex flex-wrap items-end gap-3">
+    <SegmentedRadio legend="Window" name="now-window" options={WINDOWS} value={view.window} onchoose={chooseWindow} testid="now-window" />
+    <!-- The checkbox itself covers the whole 44 px pill (invisible, as in SegmentedRadio), so it is its own hit area. -->
+    <label
+      class="relative mb-4 flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-border px-3 text-sm text-text has-[:checked]:border-accent has-[:checked]:bg-surface has-[:checked]:font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
+      data-testid="exclude-closed-control"
+    >
+      <input
+        type="checkbox"
+        class="absolute -inset-px h-[calc(100%+2px)] w-[calc(100%+2px)] cursor-pointer text-base opacity-0"
+        data-testid="exclude-closed"
+        checked={excludeClosed}
+        onchange={(event) => chooseExcludeClosed(event.currentTarget.checked)}
+      />
+      <span aria-hidden="true" class="inline-flex h-5 w-5 items-center justify-center rounded border border-border text-xs {excludeClosed ? 'border-accent bg-accent text-surface-raised' : ''}">{excludeClosed ? '✓' : ''}</span>
+      Exclude closed
+    </label>
+  </div>
   {#if recentList.length === 0}
-    <p class="rounded-md border border-dashed border-border px-4 py-4 text-text-muted" data-testid="recent-empty">Nothing was touched in this window.</p>
+    <p class="rounded-md border border-dashed border-border px-4 py-4 text-text-muted" data-testid="recent-empty">{recentEmptyText((view.recent ?? []).length - recentList.length)}</p>
   {:else}
     <ul class="flex flex-col gap-3" aria-labelledby="band-toggle-recent" data-testid="recent-list">
       {#each recentList as row (row.task)}
