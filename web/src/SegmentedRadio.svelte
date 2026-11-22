@@ -1,6 +1,8 @@
 <script lang="ts" generics="T extends string">
   // One segmented choice drawn as a radio group (arrow keys move it, a label is the hit area): the theme and the density
   // switches share it. `name` must differ between two copies on one page (the sidebar foot and the account menu).
+  // `inline` puts the label left of the buttons, on one centre line with them, for a row of filter controls (the Timeline's
+  // "Touched within"); the legend then stays the group's accessible name and the visible label is its copy.
   let {
     legend,
     name,
@@ -8,6 +10,7 @@
     value,
     onchoose,
     testid,
+    inline = false,
   }: {
     legend: string;
     name: string;
@@ -15,11 +18,15 @@
     value: T;
     onchoose: (next: T) => void;
     testid: string;
+    inline?: boolean;
   } = $props();
 </script>
 
-<fieldset class="mb-4 min-w-0">
-  <legend class="mb-2 text-sm text-text-muted">{legend}</legend>
+<fieldset class={inline ? 'flex min-w-0 flex-wrap items-center gap-2' : 'mb-4 min-w-0'}>
+  <legend class={inline ? 'sr-only' : 'mb-2 text-sm text-text-muted'}>{legend}</legend>
+  {#if inline}
+    <span aria-hidden="true" class="text-sm text-text-muted" data-testid="{testid}-label">{legend}</span>
+  {/if}
   <div class="flex gap-2" data-testid={testid}>
     {#each options as option (option.value)}
       <label

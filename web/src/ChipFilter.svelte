@@ -46,7 +46,7 @@
   <div id="chip-filter-body" class="flex flex-col gap-2 {shown ? '' : 'hidden'} md:flex">
     {#if tags.length > 0}
       <div role="group" aria-label="Tags, a task must have all of them" class="flex flex-wrap items-center gap-1.5" data-testid="chip-tags">
-        <span class="w-20 shrink-0 text-xs text-text-muted" title="A task must carry every tag chosen">Tags <span>all of</span></span>
+        <span class="w-20 shrink-0 text-xs text-text-muted md:w-28 md:whitespace-nowrap" title="A task must carry every tag chosen">Tags <span class="whitespace-nowrap">all of</span></span>
         {#each tags as t (t.tag)}
           <button
             type="button"
@@ -66,7 +66,7 @@
     {/if}
     {#if withInitiatives && slugs.length > 0}
       <div role="group" aria-label="Initiatives, a task in any of them" class="flex flex-wrap items-center gap-1.5" data-testid="chip-initiatives">
-        <span class="w-20 shrink-0 text-xs text-text-muted" title="A task in any initiative chosen">Initiatives <span>any of</span></span>
+        <span class="w-20 shrink-0 text-xs text-text-muted md:w-28 md:whitespace-nowrap" title="A task in any initiative chosen">Initiatives <span class="whitespace-nowrap">any of</span></span>
         {#each slugsShown as slug (slug)}
           <button
             type="button"
