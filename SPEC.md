@@ -1920,7 +1920,7 @@ once the schema is ready (`version`, `revision`, `protocol`, `listen`, `db` dial
 (`addr`, the bound address) once the listener is open; `shutting down` when SIGINT or SIGTERM arrives; and
 `stopped` when it exits 0. Every response with a status of 500 or more is one `request failed` line at level
 `ERROR` (`method`, `path` without the query string, `status`, `duration_ms`, and `error` when an operation
-failed), and a handler panic is one `panic recovered` line with its stack: before anything was written the
+failed), except for a request whose client went away first (its context canceled: nothing is delivered), and a handler panic is one `panic recovered` line with its stack: before anything was written the
 response is a 500, after that the connection is aborted. The `http.Server`'s own errors are logged at level
 `ERROR`. There is no access log: a response below 500 logs nothing. No line carries the database URL, a header,
 a cookie, an API key, an OIDC token, a query string or a request or response body. A start failure is still

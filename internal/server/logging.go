@@ -78,12 +78,16 @@ func (s *statusWriter) Write(b []byte) (int, error) {
 func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 // done logs the request once it is answered: recovered is what recover()
-// returned in the deferred call (nil without a panic).
+// returned in the deferred call (nil without a panic). A panic is logged
+// even when the client has gone.
 func (s *statusWriter) done(l *slog.Logger, r *http.Request, f *opError, recovered any) {
 	if recovered != nil {
 		s.recovered(l, r, recovered)
 	}
-	if s.status < http.StatusInternalServerError {
+	// A request whose client went away (its context is canceled) fails with
+	// "context canceled" and an undelivered 500: that is the client's doing,
+	// not a server failure, so it logs nothing.
+	if s.status < http.StatusInternalServerError || r.Context().Err() != nil {
 		return
 	}
 	attrs := []any{"method", r.Method, "path", r.URL.Path, "status", s.status,

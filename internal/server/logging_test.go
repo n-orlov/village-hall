@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -166,6 +167,20 @@ func TestStatusWriterRecordsTheFinalStatus(t *testing.T) {
 		if sw.status != tc.want {
 			t.Errorf("%s: status %d, want %d", name, sw.status, tc.want)
 		}
+	}
+}
+
+func TestLoggedSkipsAFailureWhoseClientWentAway(t *testing.T) {
+	var buf bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil).WithContext(ctx)
+	logged(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		noteOpError(r, r.Context().Err())
+		w.WriteHeader(http.StatusInternalServerError)
+	}), slog.New(slog.NewJSONHandler(&buf, nil))).ServeHTTP(httptest.NewRecorder(), req)
+	if logs := logRecords(t, &buf); len(logs) != 0 {
+		t.Errorf("a canceled request logged %v", logs)
 	}
 }
 
