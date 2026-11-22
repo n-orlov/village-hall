@@ -4091,7 +4091,7 @@ and E2E is that step alone, in parallel, with its own 120-minute bound). Then **
 nightly timer) and **Mutation** (only with `MUTATION=true`, `MUTATION_FULL=true` or the nightly of `main`)
 run side by side; **Perf** follows them, alone, when the Stability unit passed. A nightly build with
 full mutation takes about 130 minutes, an incremental one about an hour, Core about 33 of them. Each unit attempt removes
-the sibling containers it labelled, by exact ID (a Mutation unit's Postgres testcontainers carry the attempt label too: `ci/mutation.sh` hands `BOARD_CI_RUN_ID` to gremlins, so they are reaped; each parallel unit has its own attempt id, so none removes another's); a unit that fails its command is rerun once (a pass
+the sibling containers it labelled, by exact ID (a Mutation unit's Postgres testcontainers carry the attempt label too: `ci/mutation.sh` hands `BOARD_CI_RUN_ID` to gremlins, so they are reaped; each parallel unit has its own attempt id, so none removes another's; the id names the job as well as the build number, so another branch's build with the same number never matches); a unit that fails its command is rerun once (a pass
 there marks the build UNSTABLE), an infrastructure failure gets another attempt, and a unit that runs out its own time bound on a node fails without a retry. The
 `Jenkinsfile`'s header comment is the authoritative description:
 

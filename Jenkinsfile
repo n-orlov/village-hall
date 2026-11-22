@@ -25,7 +25,8 @@
 // Each unit checks out the build's commit in its own workspace, builds
 // board-ci:local (ci/jenkins-image.sh; cached by the Docker daemon), runs,
 // removes the sibling containers it labelled (ralphd.run=<attempt id>, by
-// exact ID) and stashes its ci-results. Quality waits for Suite (coverage),
+// exact ID; the id names the job, so another branch's build with the same
+// number never matches) and stashes its ci-results. Quality waits for Suite (coverage),
 // E2E (Playwright's results) and Image (the image tar). The report runs once
 // at the end over every unit's stash.
 //
@@ -204,7 +205,9 @@ def runUnit(Map u) {
   while (true) {
     def a = [n: attempts.size() + 1, label: AMD, node: null, queued: nowMs(), start: 0L, end: 0L, outcome: null]
     attempts << a
-    String runId = "jenkins-${env.BUILD_NUMBER}-${slug(u.name)}-${a.n}"
+    // The job (branch) is part of the id: build numbers repeat across branches,
+    // and PR-1 #3's cleanup once removed PR-2 #3's running E2E container.
+    String runId = "jenkins-${slug(env.JOB_NAME)}-${env.BUILD_NUMBER}-${slug(u.name)}-${a.n}"
     try {
       // Queue wait (no free executor) is capped too: 45 minutes.
       timeout(time: 45 + u.minutes, unit: 'MINUTES') {

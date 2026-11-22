@@ -107,7 +107,7 @@ label), builds `board-ci:local` (`ci/jenkins-image.sh`, cached by the Docker
 daemon; cache volumes `board-go-cache-jenkins` and `board-npm-cache-jenkins`,
 each chowned to the agent's uid once), runs, and removes the sibling and
 Testcontainers containers its attempt labelled (`ralphd.run=<attempt id>`, by
-exact ID). The Mutation units are no exception (each parallel unit has its own attempt id, so none reaps another's containers): `ci/mutation.sh` scrubs every `BOARD_*`
+exact ID; the id names the job and the build number, so a build of another branch with the same number never matches). The Mutation units are no exception (each parallel unit has its own attempt id, so none reaps another's containers): `ci/mutation.sh` scrubs every `BOARD_*`
 variable but hands `BOARD_CI_RUN_ID` (the attempt id `ci/run.sh` forwards from
 `RALPHD_RUN_ID`) to gremlins, so the Postgres testcontainers of every mutant's
 test run carry the attempt label and the cleanup reaps the ones a killed mutant
