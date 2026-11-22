@@ -50,7 +50,8 @@ describe('checkModules', () => {
   });
 });
 
-describe('the mutation CLI judging an existing report', () => {
+// Spawns the CLI: bounded generously so a loaded CI agent cannot time it out (crap.test.ts, the same case).
+describe('the mutation CLI judging an existing report', { timeout: 60_000 }, () => {
   const script = path.resolve(import.meta.dirname, 'mutation.ts');
   const dirs: string[] = [];
   afterEach(() => {

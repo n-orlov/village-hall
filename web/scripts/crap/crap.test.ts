@@ -56,7 +56,11 @@ function gate(root: string, extra: string[] = []) {
   return { status: run.status, out: `${run.stdout}${run.stderr}` };
 }
 
-describe('TS CRAP gate', () => {
+// Each case spawns the CLI (a fresh node + TypeScript compile), about 0.5 s on an idle machine but well past
+// Vitest's 5 s default on a loaded CI agent: give the subprocess its own bound rather than the default.
+const spawnTimeout = 60_000;
+
+describe('TS CRAP gate', { timeout: spawnTimeout }, () => {
   it('fails a planted function over the ceiling, naming it and its score', () => {
     const { status, out } = gate(plant(branchy, 0));
     expect(status).toBe(1);
