@@ -199,6 +199,48 @@ for (const vp of viewports) {
       await api.dispose();
     });
 
+    test('the filter row shares one centre line: selects, Only active, Touched within (label inline) and Clear filters', async ({ page, playwright, baseURL }) => {
+      const api = await apiAs(playwright, baseURL);
+      const s = await seed(api, `align-${vp.name}`);
+      await open(page, s.slug, '&active=1');
+      await expect(page.getByTestId('timeline-window-control')).toBeVisible(FIVE_SECONDS);
+      const box = async (target: ReturnType<Page['getByTestId']>) => (await target.boundingBox())!;
+      const centre = (b: { y: number; height: number }) => b.y + b.height / 2;
+      // "Touched within" is beside its buttons, not above them, on both viewports.
+      const label = await box(page.getByTestId('timeline-window-label'));
+      const buttons = await page.getByTestId('timeline-window').locator('label').all();
+      for (const button of buttons) expect(Math.abs(centre(await box(button)) - centre(label))).toBeLessThanOrEqual(2);
+      expect(label.x + label.width).toBeLessThanOrEqual((await box(buttons[0]!)).x);
+      // The chip labels stay on one line at desktop width (12 px text: one line is under 20 px).
+      if (vp.name === 'desktop') {
+        // The tags row shows only when the board has tags; the initiatives row is always there (this test seeds one).
+        const chipLabels = page.getByTestId('chip-filter').locator('[role=group] > span[title]');
+        await expect(chipLabels.first()).toBeVisible();
+        for (const chipLabel of await chipLabels.all()) {
+          expect((await box(chipLabel)).height, await chipLabel.textContent()).toBeLessThan(20);
+        }
+        // Every control of the row: one height, and one centre line with every control it shares a line with (the row wraps
+        // when the board's longest actor handle widens the Actor select, so the lines are compared, not the row as one).
+        const controls = [
+          page.getByTestId('actor-filter'),
+          page.getByTestId('closed-filter'),
+          page.getByTestId('timeline-sort'),
+          page.getByTestId('only-active').locator('..'),
+          ...buttons.map((b) => b as ReturnType<Page['getByTestId']>),
+          page.getByTestId('clear-filters'),
+        ];
+        const boxes = await Promise.all(controls.map(box));
+        for (const a of boxes) {
+          expect(Math.abs(a.height - boxes[0]!.height)).toBeLessThanOrEqual(1);
+          for (const b of boxes.filter((o) => o.y < a.y + a.height && a.y < o.y + o.height)) {
+            expect(Math.abs(centre(a) - centre(b))).toBeLessThanOrEqual(2);
+          }
+        }
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await api.dispose();
+    });
+
     for (const theme of ['light', 'dark'] as const) {
       test(`the sort, the checkbox and the window control pass axe in the ${theme} theme`, async ({ page, playwright, baseURL }) => {
         const api = await apiAs(playwright, baseURL);

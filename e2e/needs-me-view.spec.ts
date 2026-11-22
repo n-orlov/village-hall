@@ -56,6 +56,18 @@ async function holdLookups(page: Page) {
   return { release, held: () => held, answered };
 }
 
+// Resolves once a read of the initiatives catalog has ended whose last page (`next_after` absent) lists `slug`. The list is
+// in creation order, so a new initiative is on the last page. On a long run's shared board the catalog takes many pages,
+// and the tag chips and the restored filter both wait for it, so the test waits for that read itself before it gives the
+// page its usual bound to draw the result.
+function catalogWith(page: Page, slug: string) {
+  return page.waitForResponse(async (response) => {
+    if (new URL(response.url()).pathname !== '/api/v1/initiatives' || response.request().method() !== 'GET') return false;
+    const body = (await response.json().catch(() => null)) as { items: { slug: string }[]; next_after?: string } | null;
+    return body !== null && body.next_after === undefined && body.items.some((i) => i.slug === slug);
+  });
+}
+
 for (const vp of viewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
@@ -66,7 +78,9 @@ for (const vp of viewports) {
       const tag = `av-restore-${vp.name}`;
       await post(api, '/api/v1/initiatives', { slug, title: `Attention view ${vp.name}`, tags: [tag] }, 201);
 
+      const firstCatalog = catalogWith(page, slug);
       await page.goto('/#/now');
+      await firstCatalog;
       await openChips(page);
       await expect(tagChip(page, tag)).toBeVisible(FIVE_SECONDS);
       await pickTag(page, tag);
@@ -79,7 +93,9 @@ for (const vp of viewports) {
       await goTo(page, 'Initiatives');
       await expect(page.getByTestId('initiative-row').first()).toBeVisible();
       const reads = attentionReads(page);
+      const backCatalog = catalogWith(page, slug);
       await goTo(page, 'Now');
+      await backCatalog;
       await expect(page).toHaveURL(new RegExp(`#/now\\?${query}$`));
       await expect(tagChip(page, tag)).toHaveAttribute('aria-pressed', 'true', FIVE_SECONDS);
       await expect(initiativeChip(page, slug)).toHaveAttribute('aria-pressed', 'true');
@@ -90,7 +106,9 @@ for (const vp of viewports) {
       // A new page of the same context opens `#/now` bare and gets the same filters, again with one fetch.
       const second = await page.context().newPage();
       const secondReads = attentionReads(second);
+      const secondCatalog = catalogWith(second, slug);
       await second.goto('/#/now');
+      await secondCatalog;
       await expect(tagChip(second, tag)).toHaveAttribute('aria-pressed', 'true', FIVE_SECONDS);
       await expect(initiativeChip(second, slug)).toHaveAttribute('aria-pressed', 'true');
       await expect(second.locator('[data-testid=now-bands], [data-testid=now-dock]')).toBeVisible(FIVE_SECONDS);

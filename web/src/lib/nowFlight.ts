@@ -109,6 +109,20 @@ export interface RecentRow {
   by: string;
 }
 
+/**
+ * The Recently touched items with "Exclude closed" applied: without the closed tasks when `exclude` is set, else all of them.
+ * A done task stays (it waits for the operator to verify and close it). The server's order is kept.
+ */
+export function withoutClosed(items: readonly Recent[], exclude: boolean): Recent[] {
+  return exclude ? items.filter((item) => item.task.status !== 'closed') : [...items];
+}
+
+/** What an empty Recently touched says: `hidden` is the number of closed tasks "Exclude closed" took out of it. */
+export function recentEmptyText(hidden: number): string {
+  if (hidden === 0) return 'Nothing was touched in this window.';
+  return `Nothing open or done was touched in this window; ${hidden} closed ${hidden === 1 ? 'task is' : 'tasks are'} hidden.`;
+}
+
 /** The Recently touched rows in the server's order (latest event first). */
 export function recentRows(items: readonly Recent[], now: Date): RecentRow[] {
   return items.map((item) => {

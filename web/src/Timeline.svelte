@@ -491,13 +491,16 @@
       Only active
     </label>
     {#if showWindow}
-      <div class="flex flex-wrap items-center gap-x-3" data-testid="timeline-window-control">
-        <SegmentedRadio legend="Touched within" name="timeline-window" options={WINDOWS} value={view.activeWindow} onchoose={chooseActiveWindow} testid="timeline-window" />
-        <p class="text-xs text-text-muted" data-testid="timeline-window-hint">{WINDOW_HINT}</p>
+      <div data-testid="timeline-window-control">
+        <SegmentedRadio legend="Touched within" name="timeline-window" options={WINDOWS} value={view.activeWindow} onchoose={chooseActiveWindow} testid="timeline-window" inline />
       </div>
     {/if}
     {#if isFiltered(view.filter)}
       <button type="button" class="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text" data-testid="clear-filters" onclick={clear}>Clear filters</button>
+    {/if}
+    {#if showWindow}
+      <!-- Its own line under the controls, so they keep one row (one centre line) on a desktop. -->
+      <p class="w-full text-xs text-text-muted" data-testid="timeline-window-hint">{WINDOW_HINT}</p>
     {/if}
   </div>
   {#if view.error !== ''}

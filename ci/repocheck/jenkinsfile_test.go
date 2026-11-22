@@ -288,7 +288,9 @@ func shapeProblems(jf string) []string {
 		"BOARD_CI_CACHE_VOLUME = 'board-go-cache-jenkins'",
 		"BOARD_CI_NPM_VOLUME = 'board-npm-cache-jenkins'",
 		// Each attempt's containers carry the attempt id and are removed by exact ID.
-		`String runId = "jenkins-${env.BUILD_NUMBER}-${slug(u.name)}-${a.n}"`,
+		// The id names the job: build numbers repeat across branches, so without it
+		// one branch's cleanup removes another branch's containers.
+		`String runId = "jenkins-${slug(env.JOB_NAME)}-${env.BUILD_NUMBER}-${slug(u.name)}-${a.n}"`,
 		`withEnv(["RALPHD_RUN_ID=${runId}"`,
 		`ids=\$(docker ps -aq --filter label=ralphd.run=${runId})`,
 		`docker rm -f \$ids`,

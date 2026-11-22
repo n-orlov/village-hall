@@ -315,6 +315,30 @@ export const ATTENTION_VIEW = 'attention';
 export interface OpenedAttention {
   filter: AttentionFilter;
   restored: boolean;
+  /** Whether Recently touched hides closed tasks (`exclude=closed` in the query). */
+  excludeClosed: boolean;
+}
+
+/** The query key and value of "Exclude closed" on Recently touched: `#/now?exclude=closed`. Never sent to the server. */
+export const EXCLUDE_PARAM = 'exclude';
+export const EXCLUDE_CLOSED = 'closed';
+
+/** Whether a fragment query asks Recently touched to hide closed tasks. */
+export function excludeClosedOf(query: string): boolean {
+  return new URLSearchParams(query).getAll(EXCLUDE_PARAM).includes(EXCLUDE_CLOSED);
+}
+
+/** The whole query of the view, for the fragment and the saved state: the filter's, then `exclude=closed` when it is on. */
+export function nowViewQuery(filter: AttentionFilter, excludeClosed: boolean): string {
+  const params = new URLSearchParams(filterToQuery(filter));
+  if (excludeClosed) params.append(EXCLUDE_PARAM, EXCLUDE_CLOSED);
+  return params.toString();
+}
+
+/** The fragment of the view: `#/now`, or `#/now?...` when a filter or "Exclude closed" is set. */
+export function nowFragment(filter: AttentionFilter, excludeClosed: boolean): string {
+  const query = nowViewQuery(filter, excludeClosed);
+  return query === '' ? '#/now' : `#/now?${query}`;
 }
 
 /**
@@ -326,12 +350,14 @@ export function openAttention(env: ViewEnv, hash: string): OpenedAttention {
   const at = hash.indexOf('?');
   const own = at < 0 ? '' : hash.slice(at + 1);
   const query = openView(env, ATTENTION_VIEW, '#/now', own);
-  return { filter: filterFromQuery(query), restored: own === '' && query !== '' };
+  const filter = filterFromQuery(query);
+  // Only a restored filter that names something is checked against the board; "Exclude closed" alone needs no check.
+  return { filter, restored: own === '' && filterToQuery(filter) !== '', excludeClosed: excludeClosedOf(query) };
 }
 
-/** Saves the filter's query after a change (the empty filter is the default and removes the key). */
-export function saveAttention(storage: ViewStorage | undefined, filter: AttentionFilter): void {
-  saveViewQuery(storage, ATTENTION_VIEW, filterToQuery(filter));
+/** Saves the view's query after a change (the empty filter with "Exclude closed" off is the default and removes the key). */
+export function saveAttention(storage: ViewStorage | undefined, filter: AttentionFilter, excludeClosed = false): void {
+  saveViewQuery(storage, ATTENTION_VIEW, nowViewQuery(filter, excludeClosed));
 }
 
 /** Clear filters: forgets the saved query. */
@@ -366,7 +392,7 @@ export function dropUnknown(
  * is kept as it is, and the sections show the server's answer for it.
  */
 export function startFilter(
-  opened: OpenedAttention,
+  opened: Pick<OpenedAttention, 'filter' | 'restored'>,
   known: readonly { slug: string; tags: readonly string[] }[] | undefined,
   carried: ReadonlySet<string> = NO_TAGS,
 ): AttentionFilter {
