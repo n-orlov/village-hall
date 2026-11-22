@@ -98,6 +98,12 @@ func TestLoggedAnswers500ToAPanicBeforeAnyWrite(t *testing.T) {
 	}
 }
 
+// isAbort reports whether v, a recovered panic, is http.ErrAbortHandler.
+func isAbort(v any) bool {
+	err, ok := v.(error)
+	return ok && errors.Is(err, http.ErrAbortHandler)
+}
+
 // recoverPanic runs f and returns what it panicked with.
 func recoverPanic(f func()) (v any) {
 	defer func() { v = recover() }()
@@ -112,7 +118,7 @@ func TestLoggedAbortsAResponseAlreadyUnderWay(t *testing.T) {
 		panic("boom")
 	}), slog.New(slog.NewJSONHandler(&buf, nil)))
 	got := recoverPanic(func() { h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil)) })
-	if got != http.ErrAbortHandler {
+	if !isAbort(got) {
 		t.Fatalf("panic = %v, want http.ErrAbortHandler", got)
 	}
 	if logs := logRecords(t, &buf); len(logs) != 1 || logs[0]["msg"] != "panic recovered" {
@@ -125,7 +131,7 @@ func TestLoggedPassesErrAbortHandlerOnUnlogged(t *testing.T) {
 	h := logged(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) }),
 		slog.New(slog.NewJSONHandler(&buf, nil)))
 	got := recoverPanic(func() { h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil)) })
-	if got != http.ErrAbortHandler || buf.Len() != 0 {
+	if !isAbort(got) || buf.Len() != 0 {
 		t.Fatalf("panic = %v, log %q", got, buf.String())
 	}
 }

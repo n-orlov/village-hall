@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -97,7 +98,7 @@ func (s *statusWriter) done(l *slog.Logger, r *http.Request, f *opError, recover
 // way. http.ErrAbortHandler is re-raised unlogged: it is how a handler asks
 // net/http to drop the connection.
 func (s *statusWriter) recovered(l *slog.Logger, r *http.Request, v any) {
-	if v == http.ErrAbortHandler {
+	if err, ok := v.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 		panic(v)
 	}
 	l.Error("panic recovered", "method", r.Method, "path", r.URL.Path, "panic", fmt.Sprint(v), "stack", string(debug.Stack()))
