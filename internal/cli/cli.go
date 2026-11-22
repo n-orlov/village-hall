@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -42,7 +43,7 @@ const (
 const DefaultDBURL = "sqlite:///data/board.db"
 
 // Usage is the single line printed to stderr for a usage error.
-const Usage = "usage: vh <serve|version|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>"
+const Usage = "usage: vh <serve|version|healthcheck|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>"
 
 // Env looks up an environment variable.
 type Env func(string) string
@@ -57,6 +58,8 @@ func Run(args []string, stdout, stderr io.Writer, env Env) int {
 		return versionCmd(args[1:], stdout, stderr)
 	case "serve":
 		return serveCmd(args[1:], stderr, env)
+	case "healthcheck":
+		return healthcheckCmd(args[1:], stdout, stderr, env)
 	case "update":
 		return updateCmd(args[1:], stdout, stderr, env)
 	case "help":
@@ -210,16 +213,19 @@ func validateNotifySettings(env Env) error {
 }
 
 // serveUntil opens the database, migrates it when migrate is set, and serves
-// on addr until ctx ends.
+// on addr until ctx ends. It logs to stderr as JSON lines (SPEC §8): each
+// migration it applies, a start line, and the stop.
 func serveUntil(ctx context.Context, stderr io.Writer, env Env, url, addr string, migrate bool) int {
+	logger := slog.New(slog.NewJSONHandler(stderr, nil))
 	st, err := store.Open(url)
 	if err != nil {
 		return fail(stderr, err)
 	}
 	defer func() { _ = st.Close() }()
-	if err := startupSteps(ctx, st, env, migrate); err != nil {
+	if err := startupSteps(ctx, st, env, migrate, logger); err != nil {
 		return fail(stderr, err)
 	}
+	announce(ctx, logger, st, addr)
 	login, err := loginFromEnv(env, st)
 	if err != nil {
 		return fail(stderr, err)
@@ -236,17 +242,18 @@ func serveUntil(ctx context.Context, stderr io.Writer, env Env, url, addr string
 		return fail(stderr, err)
 	}
 	defer stopFeed()
-	if err := server.Serve(ctx, addr, st.Ready, (&auth.Verifier{Store: st}).Verify, login, &auth.Keys{Store: st}, server.WithInitiatives(&initiatives.Store{Store: st}), server.WithTasks(&tasks.Store{Store: st}, &leases.Store{Store: st}), server.WithEvents(&events.Store{Store: st}), server.WithLeases(&leases.Store{Store: st}), server.WithAsks(&asks.Store{Store: st}), server.WithNotes(&notes.Store{Store: st}), server.WithNotifications(&notify.Store{Store: st}), server.WithAttention(&attention.Store{Store: st}), server.WithTimeline(&timeline.Store{Store: st}, &leases.Store{Store: st}, &attention.Store{Store: st}), server.WithActors(&roster.Store{Store: st, Leases: &leases.Store{Store: st}, Asks: &asks.Store{Store: st}}), server.WithCursors(&cursors.Store{Store: st}), server.WithIdempotency(&idempotency.Store{Store: st}), server.WithMeta(server.Build{Version: version.Current(), Revision: version.Revision(), Protocol: ProtocolVersion()}, &actors.Store{Store: st}), stream); err != nil {
+	if err := server.Serve(ctx, addr, st.Ready, (&auth.Verifier{Store: st}).Verify, login, &auth.Keys{Store: st}, server.WithInitiatives(&initiatives.Store{Store: st}), server.WithTasks(&tasks.Store{Store: st}, &leases.Store{Store: st}), server.WithEvents(&events.Store{Store: st}), server.WithLeases(&leases.Store{Store: st}), server.WithAsks(&asks.Store{Store: st}), server.WithNotes(&notes.Store{Store: st}), server.WithNotifications(&notify.Store{Store: st}), server.WithAttention(&attention.Store{Store: st}), server.WithTimeline(&timeline.Store{Store: st}, &leases.Store{Store: st}, &attention.Store{Store: st}), server.WithActors(&roster.Store{Store: st, Leases: &leases.Store{Store: st}, Asks: &asks.Store{Store: st}}), server.WithCursors(&cursors.Store{Store: st}), server.WithIdempotency(&idempotency.Store{Store: st}), server.WithMeta(server.Build{Version: version.Current(), Revision: version.Revision(), Protocol: ProtocolVersion()}, &actors.Store{Store: st}), server.WithLogger(logger), stream); err != nil {
 		return fail(stderr, err)
 	}
+	logger.Info("stopped")
 	return ExitOK
 }
 
 // startupSteps readies the store before serve listens: the schema, the alert
 // settings, the leases a crash left behind and the inbox, in that order, stopping
 // at the first error.
-func startupSteps(ctx context.Context, st *store.Store, env Env, migrate bool) error {
-	if err := prepareSchema(ctx, st, migrate); err != nil {
+func startupSteps(ctx context.Context, st *store.Store, env Env, migrate bool, logger *slog.Logger) error {
+	if err := prepareSchema(ctx, st, migrate, logger); err != nil {
 		return err
 	}
 	if err := configureNotify(st, env); err != nil {
@@ -330,15 +337,34 @@ func bootstrapInbox(ctx context.Context, st *store.Store, env Env) error {
 }
 
 // prepareSchema refuses a database ahead of this binary whatever
-// VH_MIGRATE says, then migrates when asked to.
-func prepareSchema(ctx context.Context, st *store.Store, migrate bool) error {
+// VH_MIGRATE says, then migrates when asked to, logging each migration applied.
+func prepareSchema(ctx context.Context, st *store.Store, migrate bool, logger *slog.Logger) error {
 	if err := st.CheckSchema(ctx); err != nil {
 		return err
 	}
-	if migrate {
-		return st.Migrate(ctx)
+	if !migrate {
+		return nil
 	}
-	return nil
+	applied, err := st.MigrateApplied(ctx)
+	for _, m := range applied {
+		logger.Info("migration applied", "version", m.Version, "source", m.Source, "duration_ms", m.Duration.Milliseconds())
+	}
+	return err
+}
+
+// announce logs the start line: the build (version, revision, protocol), the
+// listen address, the database dialect and the schema version the database is
+// at once migrations ran (-1 with the error when it cannot be read). It never
+// names the database URL, which may carry a password.
+func announce(ctx context.Context, logger *slog.Logger, st *store.Store, addr string) {
+	attrs := []any{"version", version.Current(), "revision", version.Revision(), "protocol", ProtocolVersion(),
+		"listen", addr, "db", st.Dialect().Name()}
+	schema, err := st.SchemaVersion(ctx)
+	if err != nil {
+		schema = -1
+		attrs = append(attrs, "schema_error", err.Error())
+	}
+	logger.Info("starting", append(attrs, "schema", schema)...)
 }
 
 // startCheckpointer checkpoints a SQLite write-ahead log every

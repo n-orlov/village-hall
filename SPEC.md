@@ -1899,7 +1899,7 @@ binary (a tag or pseudo-version, or `devel+<short commit>` for a plain checkout 
 when the build came from a modified tree, and `devel` when there is neither. The first field is always the
 version. A subcommand the binary does not know, a missing
 subcommand, or extra arguments to `serve` or `version` exit 2 and print exactly one usage line on stderr,
-`usage: vh <serve|version|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>`.
+`usage: vh <serve|version|healthcheck|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>`.
 
 `vh serve` opens the database named by `VH_DB_URL` (default `sqlite:///data/board.db`) and, unless
 `VH_MIGRATE=off`, applies the embedded goose migrations before it listens; a migration failure exits 1.
@@ -1913,11 +1913,33 @@ embeds (a newer board migrated it): whatever `VH_MIGRATE` says, it exits 1 befor
 one stderr line that names both versions (`vh: database schema is newer than this binary: database is at
 version 9999, this binary embeds up to 2: upgrade board`). `GET /readyz` also answers 503 for such a database.
 
+`vh serve` logs to stderr as JSON lines (`log/slog`, one object per line with `time`, `level` and `msg`):
+`migration applied` for each migration it applies (`version`, `source` file name, `duration_ms`); `starting`
+once the schema is ready (`version`, `revision`, `protocol`, `listen`, `db` dialect `sqlite` or `postgres`, and
+`schema`, the goose version the database is at, `-1` with `schema_error` when it cannot be read); `listening`
+(`addr`, the bound address) once the listener is open; `shutting down` when SIGINT or SIGTERM arrives; and
+`stopped` when it exits 0. Every response with a status of 500 or more is one `request failed` line at level
+`ERROR` (`method`, `path` without the query string, `status`, `duration_ms`, and `error` when an operation
+failed), and a handler panic is one `panic recovered` line with its stack: before anything was written the
+response is a 500, after that the connection is aborted. The `http.Server`'s own errors are logged at level
+`ERROR`. There is no access log: a response below 500 logs nothing. No line carries the database URL, a header,
+a cookie, an API key, an OIDC token, a query string or a request or response body. A start failure is still
+one plain `vh: …` stderr line (above), after whatever JSON lines were already written (a configuration
+error found after the migrations follows their `migration applied` lines), and the background loops keep their plain `vh: sweep:`-style lines.
+
+`vh healthcheck [--url <url>]` is the container health probe: it needs no key, no database and no shell. It
+GETs `--url`, by default the local server's `/healthz` (`http://127.0.0.1:<port>/healthz`, the port from
+`VH_LISTEN`, default `:8080`; a listen address naming a host other than a wildcard is used as it is), once,
+ignoring proxy settings, with a 3-second timeout. A 200 prints `ok healthz 200` on stdout and exits 0; any other
+status, a connection error or a timeout prints one stderr line starting `vh: healthcheck: ` and exits 1.
+Positional arguments, an unknown flag, or `--url` without a value or given twice are the exit-2 usage error
+`usage: vh healthcheck [--url <url>]`. A Compose service runs it as `["CMD", "/vh", "healthcheck"]`.
+
 `vh admin migrate` opens `VH_DB_URL` (default `sqlite:///data/board.db`), applies every embedded migration
 that is not applied yet, and prints `ok migrated, schema version <N>` on stdout (exit 0); running it again is a
 no-op that prints the same line. It refuses a newer schema the same way `serve` does (one stderr line, exit 1),
 and any other failure is one stderr line and exit 1. `vh admin` with no subcommand, a subcommand other than
-`migrate` and `keys`, or extra arguments to `migrate`, is the exit-2 usage error (`usage: vh <serve|version|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>`).
+`migrate` and `keys`, or extra arguments to `migrate`, is the exit-2 usage error (`usage: vh <serve|version|healthcheck|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>`).
 
 `vh admin keys` opens `VH_DB_URL` (default `sqlite:///data/board.db`), needs no server and no key, and
 refuses a database that is not migrated (one stderr line ending `→ vh admin migrate`, exit 1). A key name is
@@ -2292,7 +2314,7 @@ anything else is 1, except a 409 of `init close`, `init reopen`, `init edit`, `t
 - `vh whoami` prints `you: <handle> (key <name>)  way back: <way back>  server ok` and exits 0. The key name is
   the one of the key whose display prefix matches `VH_API_KEY` in `GET /api/v1/keys`; the call also proves the
   server answers and accepts the key. A revoked or unknown key exits 5, an unreachable server exits 1.
-- The usage line for an unknown subcommand is `usage: vh <serve|version|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>`.
+- The usage line for an unknown subcommand is `usage: vh <serve|version|healthcheck|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>`.
 
 ```
 vh version | update [--check] [--version vX.Y.Z]

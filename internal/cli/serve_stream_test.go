@@ -86,7 +86,7 @@ func TestServeServesTheStreamWithTheConfiguredHeartbeat(t *testing.T) {
 	cancel()
 	select {
 	case code := <-exit:
-		if code != ExitOK || errb.String() != "" {
+		if code != ExitOK || withoutLogLines(t, errb.String()) != "" {
 			t.Errorf("serve ended with code=%d err=%q", code, errb.String())
 		}
 	case <-time.After(15 * time.Second):

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,7 +26,7 @@ import (
 	_ "modernc.org/sqlite" // the driver the schema-version step writes through
 )
 
-const usageLine = "usage: vh <serve|version|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>"
+const usageLine = "usage: vh <serve|version|healthcheck|update|help|whoami|init|task|lease|start|new|finish|block|ping|catchup|now|milestone|check|events|ask|answer|note|notes|attention|admin>"
 
 // dbLeg returns the database leg named by BOARD_DB_LEG.
 func dbLeg() (string, error) {
@@ -493,6 +494,9 @@ func registerSteps(sc *godog.ScenarioContext, h *harness) {
 	registerIdempotencySteps(sc, h)
 	sc.Step(`^I run "([^"]*)"$`, h.run)
 	sc.Step(`^I run "([^"]*)" with (BOARD_[A-Z_]+)=(\w+)$`, h.runWithVar)
+	sc.Step(`^I run "([^"]*)" against the server's listen address$`, func(ctx context.Context, line string) error {
+		return h.runWith(ctx, line, "BOARD_LISTEN="+h.addr)
+	})
 	sc.Step(`^the exit code is (\d+)$`, func(want int) error {
 		if h.exit != want {
 			return fmt.Errorf("exit code %d, want %d (stderr %q)", h.exit, want, h.stderr)
@@ -529,8 +533,9 @@ func registerSteps(sc *godog.ScenarioContext, h *harness) {
 	sc.Step(`^the database is stopped$`, h.databaseStopped)
 	sc.Step(`^the database records schema version (\d+) as applied$`, h.recordSchemaVersion)
 	sc.Step(`^stderr is exactly one line containing "([^"]*)"$`, func(want string) error {
-		if strings.Count(h.stderr, "\n") != 1 || !strings.HasSuffix(h.stderr, "\n") || !strings.Contains(h.stderr, want) {
-			return fmt.Errorf("stderr %q is not exactly one line containing %q", h.stderr, want)
+		plain := withoutLogLines(h.stderr)
+		if strings.Count(plain, "\n") != 1 || !strings.HasSuffix(plain, "\n") || !strings.Contains(plain, want) {
+			return fmt.Errorf("stderr %q is not exactly one line containing %q (JSON log lines aside)", h.stderr, want)
 		}
 		return nil
 	})
@@ -585,4 +590,21 @@ func endServerWithin(cmd *exec.Cmd, grace time.Duration) {
 		_ = cmd.Process.Kill()
 		<-done
 	}
+}
+
+// withoutLogLines drops the JSON log lines `vh serve` writes (SPEC §8: objects
+// with time, level and msg) from stderr, leaving the plain lines a failed start
+// or a client command prints.
+func withoutLogLines(stderr string) string {
+	var rest strings.Builder
+	for _, line := range strings.SplitAfter(stderr, "\n") {
+		var rec struct {
+			Time, Level, Msg *string
+		}
+		if json.Unmarshal([]byte(line), &rec) == nil && rec.Time != nil && rec.Level != nil && rec.Msg != nil {
+			continue
+		}
+		rest.WriteString(line)
+	}
+	return rest.String()
 }
