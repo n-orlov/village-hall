@@ -2800,7 +2800,9 @@ phone top bar, at the foot of the tablet icon rail (word under the dot) and abov
 The **Initiatives list** subscribes with every event but notes and keys (`affectsInitiatives`: a row shows status, tags,
 task counts and live leases) and refreshes through `InitiativesStore.refresh`, which swaps the rows in place: the list is
 never `loading`, so no skeleton replaces it and the scroll position holds; a failed refresh keeps the rows and shows its
-error. The **initiative page** subscribes with the events that name its initiative (`concerns(slug)`) and reads the
+error. A refresh is a quiet fetch in every such store (`Fetches.begin(true)`, `web/src/lib/fetches.ts`): it takes part in
+newest-wins but never keeps a list loading, so live events that arrive faster than a read lands cannot hold a first load's
+skeleton on screen after that load has landed. The **initiative page** subscribes with the events that name its initiative (`concerns(slug)`) and reads the
 initiative, its tasks, its open asks and its notes again without the skeleton, so the scroll position, an expanded note
 body and an open dialog with what was typed in it all stay.
 
@@ -2943,8 +2945,8 @@ filters** button shows while any control differs from the default. The filter is
 (`filterFromHash`, `tasksHash`): choosing a control rewrites the fragment in place with `history.replaceState` (no history
 entry per choice) and fetches the list again, so a reload or a copied link shows the same controls and rows; editing
 the fragment by hand re-reads the filter. A filter that keeps none says "No tasks match these filters." (or "No tasks
-yet." with the default filter); a failed fetch shows its problem detail in an alert; while any fetch is pending the
-view shows skeleton cards, and of overlapping fetches the newest outcome to land is shown (`TasksStore`,
+yet." with the default filter); a failed fetch shows its problem detail in an alert; while any load (the first, a filter change) is pending the
+view shows skeleton cards (a live refresh never holds them, however often refreshes overlap), and of overlapping fetches the newest outcome to land is shown (`TasksStore`,
 `web/src/lib/tasks.ts`). **New task** is a button beside the heading from 768 px up and a primary button anchored above
 the tab bar below it.
 

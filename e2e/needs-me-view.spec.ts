@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
-import { initiativeChip, openChips, pickInitiative, pickTag, revealInitiative, tagChip } from './chips';
+import { catalogRead, initiativeChip, openChips, pickInitiative, pickTag, revealInitiative, tagChip } from './chips';
 
 // The Now view's saved filters (PRD R16, SPEC 11): the tag and initiative filters are saved under
 // `vh.view.v1.attention`, a bare `#/now` restores them before the first fetch (one `GET /attention/now`), a fragment
@@ -56,18 +56,6 @@ async function holdLookups(page: Page) {
   return { release, held: () => held, answered };
 }
 
-// Resolves once a read of the initiatives catalog has ended whose last page (`next_after` absent) lists `slug`. The list is
-// in creation order, so a new initiative is on the last page. On a long run's shared board the catalog takes many pages,
-// and the tag chips and the restored filter both wait for it, so the test waits for that read itself before it gives the
-// page its usual bound to draw the result.
-function catalogWith(page: Page, slug: string) {
-  return page.waitForResponse(async (response) => {
-    if (new URL(response.url()).pathname !== '/api/v1/initiatives' || response.request().method() !== 'GET') return false;
-    const body = (await response.json().catch(() => null)) as { items: { slug: string }[]; next_after?: string } | null;
-    return body !== null && body.next_after === undefined && body.items.some((i) => i.slug === slug);
-  });
-}
-
 for (const vp of viewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
@@ -78,7 +66,7 @@ for (const vp of viewports) {
       const tag = `av-restore-${vp.name}`;
       await post(api, '/api/v1/initiatives', { slug, title: `Attention view ${vp.name}`, tags: [tag] }, 201);
 
-      const firstCatalog = catalogWith(page, slug);
+      const firstCatalog = catalogRead(page, slug);
       await page.goto('/#/now');
       await firstCatalog;
       await openChips(page);
@@ -93,7 +81,7 @@ for (const vp of viewports) {
       await goTo(page, 'Initiatives');
       await expect(page.getByTestId('initiative-row').first()).toBeVisible();
       const reads = attentionReads(page);
-      const backCatalog = catalogWith(page, slug);
+      const backCatalog = catalogRead(page, slug);
       await goTo(page, 'Now');
       await backCatalog;
       await expect(page).toHaveURL(new RegExp(`#/now\\?${query}$`));
@@ -106,7 +94,7 @@ for (const vp of viewports) {
       // A new page of the same context opens `#/now` bare and gets the same filters, again with one fetch.
       const second = await page.context().newPage();
       const secondReads = attentionReads(second);
-      const secondCatalog = catalogWith(second, slug);
+      const secondCatalog = catalogRead(second, slug);
       await second.goto('/#/now');
       await secondCatalog;
       await expect(tagChip(second, tag)).toHaveAttribute('aria-pressed', 'true', FIVE_SECONDS);
@@ -126,20 +114,26 @@ for (const vp of viewports) {
       await post(api, '/api/v1/initiatives', { slug: a, title: `Own a ${vp.name}` }, 201);
       await post(api, '/api/v1/initiatives', { slug: b, title: `Own b ${vp.name}` }, 201);
 
+      const firstCatalog = catalogRead(page, b);
       await page.goto(`/#/now?initiative=${b}`);
+      await firstCatalog;
       await expect(initiativeChip(page, b)).toHaveAttribute('aria-pressed', 'true', FIVE_SECONDS);
       expect((await saved(page)).query).toBe(`initiative=${b}`);
 
       // A new page opens a link with its own query: that one wins and is what is saved from now on.
       const link = await page.context().newPage();
+      const linkCatalog = catalogRead(link, b);
       await link.goto(`/#/now?initiative=${a}`);
+      await linkCatalog;
       await expect(initiativeChip(link, a)).toHaveAttribute('aria-pressed', 'true', FIVE_SECONDS);
       await expect(await revealInitiative(link, b)).toHaveAttribute('aria-pressed', 'false');
       expect((await saved(link)).query).toBe(`initiative=${a}`);
 
       await goTo(link, 'Initiatives');
       await expect(link.getByTestId('initiative-row').first()).toBeVisible();
+      const backCatalog = catalogRead(link, b);
       await goTo(link, 'Now');
+      await backCatalog;
       await expect(initiativeChip(link, a)).toHaveAttribute('aria-pressed', 'true', FIVE_SECONDS);
       await expect(await revealInitiative(link, b)).toHaveAttribute('aria-pressed', 'false');
 
@@ -153,7 +147,9 @@ for (const vp of viewports) {
       await goTo(link, 'Initiatives');
       await expect(link.getByTestId('initiative-row').first()).toBeVisible();
       const reads = attentionReads(link);
+      const clearedCatalog = catalogRead(link, b);
       await goTo(link, 'Now');
+      await clearedCatalog;
       await expect(link.locator('[data-testid=now-bands], [data-testid=now-dock]')).toBeVisible(FIVE_SECONDS);
       await expect(link).toHaveURL(/#\/now$/);
       await expect(await revealInitiative(link, a)).toHaveAttribute('aria-pressed', 'false');

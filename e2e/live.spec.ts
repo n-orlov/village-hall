@@ -1,4 +1,5 @@
 import { expect, test as base, type APIRequestContext, type PlaywrightTestArgs } from '@playwright/test';
+import { catalogRead } from './chips';
 
 // The live indicator in the shell (SPEC 11): `live` while the stream is open, `offline` while the browser
 // is offline, `live` again once it is back. Signs in through the mock provider like shell.spec.ts, so no
@@ -53,23 +54,33 @@ for (const vp of viewports) {
     test('the Initiatives list shows an initiative and its task counts changed through the API, without a reload', async ({ page, playwright, baseURL }) => {
       const api = await apiAs(playwright, baseURL);
       const slug = `e2e-live-list-${vp.name}`;
+      // Each step waits for the live re-read of the whole catalog (a long run's shared board is many pages) to land with the
+      // change before the usual bound for drawing it, so the bound never covers the read itself.
+      const first = catalogRead(page);
       await page.goto('/#/initiatives');
+      await first;
       await expect(page.getByTestId('initiatives-skeleton')).toBeHidden(FIVE_SECONDS);
       await expect(page.locator(`[data-testid="initiative-row"][data-slug="${slug}"]`)).toHaveCount(0);
       // The page is never reloaded: a marker set on it must survive to the end.
       await page.evaluate(() => ((window as unknown as { liveMark: boolean }).liveMark = true));
 
+      const created = catalogRead(page, slug);
       await post(api, '/api/v1/initiatives', { slug, title: `Live list ${vp.name}` }, 201);
+      await created;
       const row = page.locator(`[data-testid="initiative-row"][data-slug="${slug}"]`);
       await expect(row).toBeVisible(FIVE_SECONDS);
       await expect(row.getByTestId('initiative-counts')).toHaveText('No tasks', FIVE_SECONDS);
       const before = await row.getByTestId('initiative-counts').innerText();
 
+      const counted = catalogRead(page, (items) => items.some((i) => i.slug === slug && (i.counts?.open ?? 0) > 0));
       await post(api, '/api/v1/tasks', { initiative: slug, title: 'Counted through the API' }, 201);
+      await counted;
       await expect(row.getByTestId('initiative-counts')).not.toHaveText(before, FIVE_SECONDS);
       expect(await page.evaluate(() => (window as unknown as { liveMark?: boolean }).liveMark)).toBe(true);
 
+      const closed = catalogRead(page, (items) => !items.some((i) => i.slug === slug));
       await post(api, `/api/v1/initiatives/${slug}/close`, { force: true }, 200);
+      await closed;
       await expect(row).toBeHidden(FIVE_SECONDS);
     });
 
@@ -232,7 +243,9 @@ for (const vp of viewports) {
       const slug = `e2e-live-now-${vp.name}`;
       await post(api, '/api/v1/initiatives', { slug, title: `Live now ${vp.name}` }, 201);
       const { ref } = await post<{ ref: string }>(api, '/api/v1/tasks', { initiative: slug, title: 'Leased through the API' }, 201);
-      await page.goto('/#/tasks');
+      // The Tasks view under the test's own initiative: unfiltered it lists the whole shared board (thousands of rows on a
+      // long run), whose reads and redraws, again on each live event, compete with the panel's own within its bound.
+      await page.goto(`/#/tasks?initiative=${slug}`);
       await expect(page.getByTestId('now-panel')).toBeVisible(FIVE_SECONDS);
       // Below 768 px the panel starts folded to its summary line.
       const toggle = page.getByTestId('now-toggle');
