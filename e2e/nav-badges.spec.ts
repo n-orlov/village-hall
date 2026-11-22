@@ -3,8 +3,9 @@ import { expect, test as base, type Locator, type Page } from '@playwright/test'
 import { actorApi, created } from './now';
 
 // R5: the Now navigation item's two badges, the red count of Needs me items and the green count of open tasks with a live
-// lease. The shared server's other specs start and end leases and raise asks at the same time, so every assertion is a delta
-// against the count read first, never an absolute number, and the page is never reloaded after the first read.
+// lease. The shared server's other specs start and end leases and raise asks at the same time, so no assertion compares a
+// count with an earlier one: each checks the badge against what the page was told after the test's own write, and the
+// page is never reloaded after the first read.
 // Signs in through the mock provider, so no API key rides along.
 const test = base;
 
@@ -92,6 +93,32 @@ for (const vp of viewports) {
       const held = (await created(api, '/api/v1/tasks', { initiative: slug, title: 'Gets a lease' })).ref;
       const ask = (await created(api, '/api/v1/asks', { question: `Which way for ${vp.name}?`, task, mode: 'poll' })).ref;
 
+      // The two counts are the whole board's, which the other specs move at the same time (asks raised, leases started,
+      // ended and expiring), so a delta against a count read first is a race. Each step is instead checked against what
+      // the page itself was told after the test's own write: the green badge against the newest live-tasks read the
+      // page made, which must hold the leased task, and the red one against the newest `attention` message, which
+      // must have arrived after the answer (the server sends one whenever the counts differ, and the answer changes
+      // `open_asks`). The real stream is kept; the init script only records the messages it delivers.
+      await page.addInitScript(() => {
+        const w = window as unknown as { __attention: { total: number }[]; EventSource: typeof EventSource };
+        w.__attention = [];
+        const Real = w.EventSource;
+        w.EventSource = class extends Real {
+          constructor(url: string | URL, init?: EventSourceInit) {
+            super(url, init);
+            super.addEventListener('attention', (e) => w.__attention.push(JSON.parse((e as MessageEvent<string>).data)));
+          }
+        };
+      });
+      const reads: { refs: string[]; whole: boolean }[] = [];
+      page.on('response', async (response) => {
+        const url = new URL(response.url());
+        if (url.pathname !== '/api/v1/tasks' || url.searchParams.get('active') !== 'true' || url.searchParams.has('after')) return;
+        const body = (await response.json().catch(() => null)) as { items: { ref: string }[]; next_after?: string } | null;
+        if (body !== null) reads.push({ refs: body.items.map((i) => i.ref), whole: body.next_after === undefined });
+      });
+      const attention = () => page.evaluate(() => (window as unknown as { __attention: { total: number }[] }).__attention);
+
       await page.goto('/#/initiatives');
       await expect(page.getByTestId('initiatives-skeleton')).toBeHidden(FIVE_SECONDS);
       await page.evaluate(() => ((window as unknown as { navMark: boolean }).navMark = true));
@@ -100,19 +127,32 @@ for (const vp of viewports) {
       const green = nav.getByTestId('live-badge');
       // The red count has our own open ask in it by now; wait for the stream to say so (it never reads 0 after the ask).
       await expect.poll(() => count(link, 'red'), FIVE_SECONDS).toBeGreaterThan(0);
-      const redBefore = await count(link, 'red');
-      const greenBefore = await count(link, 'green');
 
       await created(api, '/api/v1/leases', { task: held, intent: `badge ${vp.name}` });
-      await expect.poll(async () => (await count(link, 'green')) - greenBefore, FIVE_SECONDS).toBeGreaterThanOrEqual(1);
+      // The page reads the live tasks again on the lease's event; the badge shows the newest read, which holds our task.
+      await expect
+        .poll(async () => {
+          const newest = reads.at(-1);
+          if (newest === undefined || !newest.whole || !newest.refs.includes(held)) return 'no read holding the lease yet';
+          return (await count(link, 'green')) === newest.refs.length ? 'shown' : 'not shown yet';
+        }, FIVE_SECONDS)
+        .toBe('shown');
       await expect(green).toBeVisible();
       const label = await link.getAttribute('aria-label');
       expect(label).toBeNull(); // the words ride in the content so the name keeps the visible text
       await expect(link).toHaveAccessibleName(/^Now .*open tasks? (has|have) a live lease$/);
 
+      const before = (await attention()).length;
       const answered = await api.post(`/api/v1/asks/${ask}/answer`, { data: { answer: 'left' } });
       expect(answered.status(), await answered.text()).toBe(200);
-      await expect.poll(async () => (await count(link, 'red')) - redBefore, FIVE_SECONDS).toBeLessThanOrEqual(-1);
+      // A message sent after the answer, and the badge showing the newest one's total.
+      await expect
+        .poll(async () => {
+          const messages = await attention();
+          if (messages.length <= before) return 'no message since the answer';
+          return (await count(link, 'red')) === messages.at(-1)!.total ? 'shown' : 'not shown yet';
+        }, FIVE_SECONDS)
+        .toBe('shown');
       expect(await page.evaluate(() => (window as unknown as { navMark?: boolean }).navMark)).toBe(true);
       await api.dispose();
     });
