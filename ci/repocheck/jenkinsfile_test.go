@@ -909,7 +909,7 @@ func fullMutationProblems(jf string) []string {
 		"selected.each { m ->",
 		"String lanes = plan == null ? m.lanes : plan['group.' + m.dir]",
 		"def u = [name: m.name, minutes: 110, maxAttempts: 1,",
-		"body: { sh(returnStatus: true, script: fullTune + \" ci/run.sh ci/mutation.sh ci-results/mutation-units/${m.dir} ci/quality.json '${lanes}'\") }]",
+		"body: { unitSh(script: fullTune + \" ci/run.sh ci/mutation.sh ci-results/mutation-units/${m.dir} ci/quality.json '${lanes}'\") }]",
 		"parallel branches",
 		"def gate = [name: 'Mutation gate', minutes: 15,",
 		"unstash 'res-' + slug(name)",

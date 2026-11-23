@@ -122,6 +122,35 @@ node (`infra:no-node`, capped at 45 minutes beyond the unit's bound) keeps its
 retries. The build page carries a per-unit timing table
 (`ci-results/distributed/timing.md`).
 
+### Unit runs: `ci/unitrun.sh`
+
+The Suite and E2E units and the three full mutation units run their command
+through `unitSh` in the `Jenkinsfile`, which calls `ci/unitrun.sh <unit name>
+<bound seconds> <results dir> -- <command>`. The script runs the command under
+`timeout(1)` with a bound a little inside the attempt's own limit (`runUnit`
+passes the limit less the time checkout and the image build used, less 2
+minutes; the bound is only ever lower than the unit's limit). A command that
+outlives it is killed with its process group (TERM, then KILL 15 s later), the
+sibling containers of the attempt are removed by exact ID (label
+`ralphd.run=<attempt id>` and `ralphd.role=sibling`, never the job's own
+container), and the script exits 124, which `runUnit` takes as the unit's own
+timeout: `fail:timeout`, a failure that is not retried. Any other exit status
+passes through.
+
+Nothing is deleted: every `junit-*.xml`, log, `flaky-*.txt` and finished
+mutation report the command wrote before it failed or was cut stays in
+`ci-results`, where the unit's stash and the cut-off archive take it, and
+`unit-kept-<unit>.txt` lists them. On a failure or a cut the script writes
+`unit-failure-<unit>.txt` and prints the same text: how the unit ended (`cut at
+N min`, or `failed with exit status N`), then every failing test read from the
+results directory's `junit-*.xml`, one line each, grouped by file (the test's
+classname and name: spec file and title for Playwright and Vitest, package and
+test for Go, feature file and scenario for Godog). `unitSh` echoes it to the
+console and appends its first lines to the build description. A pass writes no
+summary. `ci/repocheck/unitrun_test.go` runs the script against a stub command
+that writes a failing junit case and finished reports and is killed by a short
+bound, and fails for a plain pass-through.
+
 The pipeline runs Core, then Stability and Mutation side by side, then Perf; the
 units of a phase run in parallel, and a phase runs only if every earlier one
 passed (UNSTABLE counts as passed; Perf needs only the Stability unit to pass).

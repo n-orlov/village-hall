@@ -31,6 +31,18 @@
 // at the end over every unit's stash. An attempt cut off before its stash (its
 // own bound, a lost agent) archives the logs and JUnit files written so far.
 //
+// Unit runs: the Suite and E2E units and the three full mutation units run
+// their command through unitSh, which runs it under ci/unitrun.sh with a bound
+// a little inside the attempt's own limit (the limit less the time checkout
+// and the image build used and 2 minutes). A command that outlives it is
+// killed by the script (exit 124, an attempt outcome fail:timeout, never
+// retried) instead of by the Jenkins timeout; one that fails or is cut keeps
+// every junit-*.xml, log, flaky list and finished report in ci-results, and
+// the script's failure summary (how the unit ended, then each failing test
+// read from the junit files: spec file and title, or package and test) goes
+// to the console and the build description and to
+// ci-results/unit-failure-<unit>.txt in the unit's stash.
+//
 // Phases; each phase's units run in parallel:
 //   1. Core (every build): Lint, Suite, E2E, Image, Allure smoke, then
 //      Quality (4 executors: Quality waits for Suite, E2E and Image without
@@ -191,6 +203,28 @@ String classify(Throwable e, Map a) {
   return 'infra:' + e.toString().take(80)
 }
 
+// Runs a unit's command through ci/unitrun.sh (see the header): under a bound
+// a little inside the attempt's own limit, so a command that outlives it is
+// killed by the script, which then writes the failure summary, instead of by
+// the Jenkins timeout with nothing said. The command is written to a file
+// first, so quotes and newlines in it reach sh unchanged. A failed or cut
+// command's summary (the failing tests read from its junit-*.xml) goes to the
+// console and the build description; the results it wrote so far stay in
+// ci-results, which runUnit stashes and archives. Returns the command's exit
+// status (124: cut by the bound). Only runUnit's units call it.
+int unitSh(Map m) {
+  writeFile file: '.unit-command', text: m.script + '\n'
+  int rc = sh(returnStatus: true,
+              script: 'ci/unitrun.sh "$BOARD_UNIT_NAME" "$BOARD_UNIT_BOUND_SECONDS" "$BOARD_CI_OUT" -- sh -xe .unit-command')
+  String summary = "${env.BOARD_CI_OUT}/unit-failure-${slug(env.BOARD_UNIT_NAME)}.txt"
+  if (rc != 0 && fileExists(summary)) {
+    String text = readFile(summary).trim()
+    echo text
+    currentBuild.description = (currentBuild.description ?: '') + ' | ' + text.split('\n').take(5).join('; ')
+  }
+  return rc
+}
+
 // Runs one unit on int21h-ws (AMD; every attempt asks for the same label,
 // which matches that one node). u: name, minutes (the attempt's hard limit),
 // body (closure on the node, returns the command's exit status), needs
@@ -236,12 +270,18 @@ def runUnit(Map u) {
                 return
               }
               (u.needs ?: []).each { unstash it }
+              // The command's bound (unitSh): the attempt's limit less what
+              // checkout and the image build used and 2 minutes for the summary.
+              int left = u.minutes * 60 - (int) ((nowMs() - a.start) / 1000) - 120
               withEnv(["RALPHD_RUN_ID=${runId}", "BOARD_CI_SHA=${commitSha}",
-                       "BOARD_IMAGE_REVISION=${commitSha}", "BOARD_IMAGE_VERSION=${imageVersion}"]) {
+                       "BOARD_IMAGE_REVISION=${commitSha}", "BOARD_IMAGE_VERSION=${imageVersion}",
+                       "BOARD_UNIT_NAME=${u.name}", "BOARD_UNIT_BOUND_SECONDS=${left > 60 ? left : 60}"]) {
                 int rc = u.body()
                 // -1: the durable-task wrapper died (agent restart killed its
-                // process group), so the command never finished.
-                a.outcome = rc == 0 ? 'pass' : rc == -1 ? 'infra:process-lost' : "fail:${rc}"
+                // process group), so the command never finished. 124: the
+                // command outlived its bound and ci/unitrun.sh cut it: the
+                // unit's own timeout, with its results kept.
+                a.outcome = rc == 0 ? 'pass' : rc == -1 ? 'infra:process-lost' : rc == 124 ? 'fail:timeout' : "fail:${rc}"
               }
               stash name: 'res-' + slug(u.name), includes: 'ci-results/**',
                     excludes: 'ci-results/board-image.tar,ci-results/board-image-oci.tar', allowEmpty: true
@@ -426,7 +466,7 @@ def runFullMutation(Map plan) {
   selected.each { m ->
     String lanes = plan == null ? m.lanes : plan['group.' + m.dir]
     def u = [name: m.name, minutes: 110, maxAttempts: 1,
-             body: { sh(returnStatus: true, script: fullTune + " ci/run.sh ci/mutation.sh ci-results/mutation-units/${m.dir} ci/quality.json '${lanes}'") }]
+             body: { unitSh(script: fullTune + " ci/run.sh ci/mutation.sh ci-results/mutation-units/${m.dir} ci/quality.json '${lanes}'") }]
     // 4 executors: Stability holds one, the three units the rest.
     branches[u.name] = unitBranch(u)
   }
@@ -556,12 +596,12 @@ pipeline {
           // Everything but Playwright: the web build and Vitest, the Go passes
           // and the merged files (BOARD_CI_PLAYWRIGHT=skip, ci/suite.sh header).
           units << [name: 'Suite', minutes: nightly ? 120 : 45, signal: 'Suite',
-                    body: { sh(returnStatus: true, script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh') }]
+                    body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh') }]
           // Playwright alone (BOARD_CI_PLAYWRIGHT=only): every spec, one worker,
           // the script's one repeat of a failed run. 120 minutes on every build:
           // the repeat repeats the whole run, so the bound holds two of them.
           units << [name: 'E2E', minutes: 120, signal: 'E2E',
-                    body: { sh(returnStatus: true, script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
+                    body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
           // Both platforms cross-built and never pushed; the amd64 image is run
           // and probed.
           units << [name: 'Image', minutes: 30, signal: 'Image',
