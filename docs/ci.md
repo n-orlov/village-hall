@@ -107,7 +107,7 @@ label), builds `board-ci:local` (`ci/jenkins-image.sh`, cached by the Docker
 daemon; cache volumes `board-go-cache-jenkins` and `board-npm-cache-jenkins`,
 each chowned to the agent's uid once), runs, and removes the sibling and
 Testcontainers containers its attempt labelled (`ralphd.run=<attempt id>`, by
-exact ID; the id names the job and the build number, so a build of another branch with the same number never matches). The Mutation units are no exception (each parallel unit has its own attempt id, so none reaps another's containers): `ci/mutation.sh` scrubs every `BOARD_*`
+exact ID; the id comes from `ci/attempt-id.sh` (job, build number, unit and attempt, tested by `ci/repocheck/attemptid_test.go`), so a build of another branch with the same number never matches). The Mutation units are no exception (each parallel unit has its own attempt id, so none reaps another's containers): `ci/mutation.sh` scrubs every `BOARD_*`
 variable but hands two on to gremlins: `BOARD_CI_RUN_ID` (the attempt id `ci/run.sh`
 forwards from `RALPHD_RUN_ID`, so any container a mutant's test run labels is
 reaped by the cleanup) and `BOARD_DB_LEG=sqlite`. Mutation runs the SQLite leg
@@ -647,6 +647,8 @@ The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
 - `ci/rerun-decision.sh`, `ci/flakygate.sh` (tested by `ci/repocheck/rerun_test.go`):
   the infrastructure-only rerun decision and the build failure on a non-empty
   flaky or leg-divergence list.
+- `ci/attempt-id.sh` (tested by `ci/repocheck/attemptid_test.go`): the cleanup id
+  of a unit attempt, unique per job, build, unit and attempt.
 - `ci/junit2allure`, `ci/junitflaky`, `ci/allureverify`: JUnit to Allure
   conversion, the flaky-test list, and the check that the Allure report keeps
   the Godog steps and issue links.

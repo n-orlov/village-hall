@@ -24,6 +24,8 @@
 //     ruling 001-WAVE: three 45-minute attempts of a Suite that cannot fit
 //     cost a push build 2 h 15 min). Only a wait with no node stays infra.
 // A unit may cap its attempts (maxAttempts: each full mutation unit has one).
+// Each attempt labels its containers with the id ci/attempt-id.sh prints (job,
+// build, unit, attempt) and removes them by it.
 // Each attempt reports node, queue wait and run time; the build page gets a
 // per-unit timing table (ci-results/distributed/timing.md).
 //
@@ -247,9 +249,12 @@ def runUnit(Map u) {
   while (true) {
     def a = [n: attempts.size() + 1, label: AMD, node: null, queued: nowMs(), start: 0L, end: 0L, outcome: null]
     attempts << a
-    // The job (branch) is part of the id: build numbers repeat across branches,
-    // and PR-1 #3's cleanup once removed PR-2 #3's running E2E container.
-    String runId = "jenkins-${slug(env.JOB_NAME)}-${env.BUILD_NUMBER}-${slug(u.name)}-${a.n}"
+    // The cleanup id comes from ci/attempt-id.sh (tested by ci/repocheck): it
+    // names the job, because build numbers repeat across branches and PR-1 #3's
+    // cleanup once removed PR-2 #3's running E2E container. It is set on the node
+    // once the checkout has the script; until then the attempt has started no
+    // container, so a null id means there is nothing to clean up.
+    String runId = null
     try {
       // Queue wait (no free executor) is capped too: 45 minutes.
       timeout(time: 45 + u.minutes, unit: 'MINUTES') {
@@ -276,6 +281,7 @@ def runUnit(Map u) {
                 a.outcome = 'infra:ci-image'
                 return
               }
+              runId = sh(returnStdout: true, script: "ci/attempt-id.sh '${env.JOB_NAME}' '${env.BUILD_NUMBER}' '${u.name}' '${a.n}'").trim()
               (u.needs ?: []).each { unstash it }
               // The command's bound (unitSh): the attempt's limit less what
               // checkout and the image build used and 2 minutes for the summary.
@@ -307,10 +313,12 @@ def runUnit(Map u) {
             // ID. Bounded: on a lost agent this would wait for it forever.
             try {
               timeout(time: 3, unit: 'MINUTES') {
-                sh(returnStatus: true, script: """
-                  ids=\$(docker ps -aq --filter label=ralphd.run=${runId})
-                  [ -z "\$ids" ] || { echo "removing leftover containers: \$ids"; docker rm -f \$ids; }
-                """)
+                if (runId) {
+                  sh(returnStatus: true, script: """
+                    ids=\$(docker ps -aq --filter label=ralphd.run=${runId})
+                    [ -z "\$ids" ] || { echo "removing leftover containers: \$ids"; docker rm -f \$ids; }
+                  """)
+                }
               }
             } catch (Throwable c) {
               echo "unit ${u.name}: container cleanup on ${a.node} skipped: ${c}"

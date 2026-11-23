@@ -290,7 +290,8 @@ func shapeProblems(jf string) []string {
 		// Each attempt's containers carry the attempt id and are removed by exact ID.
 		// The id names the job: build numbers repeat across branches, so without it
 		// one branch's cleanup removes another branch's containers.
-		`String runId = "jenkins-${slug(env.JOB_NAME)}-${env.BUILD_NUMBER}-${slug(u.name)}-${a.n}"`,
+		// ci/attempt-id.sh (tested by attemptid_test.go) computes it from the job, build, unit and attempt.
+		`runId = sh(returnStdout: true, script: "ci/attempt-id.sh '${env.JOB_NAME}' '${env.BUILD_NUMBER}' '${u.name}' '${a.n}'").trim()`,
 		`withEnv(["RALPHD_RUN_ID=${runId}"`,
 		`ids=\$(docker ps -aq --filter label=ralphd.run=${runId})`,
 		`docker rm -f \$ids`,
