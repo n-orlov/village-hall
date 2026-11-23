@@ -176,7 +176,7 @@ for (const vp of viewports) {
       await api.dispose();
     });
 
-    test('a fragment with its own query overrides the saved one, and Clear filters then nav away and back shows the defaults', async ({ page, playwright, baseURL }) => {
+    test('a fragment with its own query overrides the saved one, and nav away and back restores it', async ({ page, playwright, baseURL }) => {
       const api = await apiContext(playwright, baseURL);
       const a = await seed(api, `e2e-tv-own-a-${vp.name}`);
       const b = await seed(api, `e2e-tv-own-b-${vp.name}`);
@@ -202,6 +202,21 @@ for (const vp of viewports) {
       await expectInitiatives(link, [a.slug]);
       await expect(link.getByTestId('kind-filter')).toHaveValue('watch');
       await expect.poll(() => tableRefs(link)).toEqual([a.refs[1]]);
+      await link.close();
+      await api.dispose();
+    });
+
+    // Its own test, not the end of the one above: away and back to the defaults lists the whole shared board and the
+    // Initiatives list twice, which a long run grows to many pages each; with the link steps before it the one test's
+    // budget held work that grows with the store (28 s of 30 on the agent near the end of a run).
+    test('Clear filters shows the defaults at once, saves nothing, and nav away and back shows the defaults', async ({ page, playwright, baseURL }) => {
+      const api = await apiContext(playwright, baseURL);
+      const a = await seed(api, `e2e-tv-clear-${vp.name}`);
+      const link = page;
+      await link.goto(`/#/tasks?initiative=${a.slug}&kind=watch&status=all&sort=ref&dir=desc`);
+      await expectInitiatives(link, [a.slug]);
+      await expect(link.getByTestId('kind-filter')).toHaveValue('watch');
+      await expect.poll(() => tableRefs(link)).toEqual([a.refs[1]]);
 
       // Clear filters: the defaults at once, nothing saved, and the defaults again after nav away and back.
       await link.getByTestId('clear-filters').click();
@@ -218,7 +233,7 @@ for (const vp of viewports) {
       // itself, then give the table its usual bound to draw it.
       const wholeBoard = link.waitForResponse(async (response) => {
         const url = new URL(response.url());
-        if (url.pathname !== '/api/v1/tasks' || url.searchParams.has('initiative') || url.searchParams.has('active')) return false;
+        if (url.pathname !== '/api/v1/tasks' || url.searchParams.has('initiative') || url.searchParams.has('active') || url.searchParams.has('attention')) return false;
         const body = (await response.json().catch(() => null)) as { next_after?: string } | null;
         return body !== null && body.next_after === undefined;
       });
@@ -232,7 +247,6 @@ for (const vp of viewports) {
       await expect(link.getByTestId('sort-select')).not.toHaveValue(/^ref:/);
       if (phone) await expect(link.getByTestId('sort-select')).toHaveValue('');
       expect(await link.evaluate((k) => localStorage.getItem(k), KEY)).toBeNull();
-      await link.close();
       await api.dispose();
     });
 
