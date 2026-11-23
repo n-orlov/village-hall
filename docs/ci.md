@@ -268,7 +268,7 @@ minutes with full mutation, Core about 33 of them:
 
 | phase | units | runs |
 |---|---|---|
-| Core | Lint (`ci/run.sh ci/lint.sh`), Web UI (`ci/run.sh ci/web-build.sh`: `npm ci` and the one web build of the whole CI build, stashed as `web-dist`), Suite (`BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh`: everything but Playwright), E2E (`BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh`: Playwright alone), Image (`ci/image-build.sh` then `ci/image-check.sh`, then the release dry run `ci/release-check.sh`), Allure smoke (the Godog formatter fixture, then `ci/allure-smoke.sh`), and Quality (`ci/run.sh ci/quality.sh ci-results ci/quality.json --mutation-deferred`, then `ci/run.sh go run ./ci/pkgtime`), which waits for Suite (its coverage), E2E (Playwright's results) and Image (the tar) without holding an executor; Suite and E2E wait for Web UI the same way, and Suite, E2E and Quality unstash `web-dist` | every build |
+| Core | Lint (`ci/run.sh ci/lint.sh`), Web UI (`ci/run.sh ci/web-build.sh`: `npm ci` and the one web build of the whole CI build, stashed as `web-dist`), Suite (`BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh`: everything but Playwright), E2E (`BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh`: Playwright alone), Image (`ci/image-build.sh` then `ci/image-check.sh`, then the release dry run `ci/release-check.sh`), Allure smoke (the Godog formatter fixture, then `ci/allure-smoke.sh`), and Quality (`ci/run.sh ci/quality.sh ci-results ci/quality.json --mutation-deferred`, then `ci/run.sh go run ./ci/pkgtime`), which waits for Suite (its coverage), E2E (Playwright's results) and Image (the tar) without holding an executor; Suite, E2E and Image wait for Web UI the same way, and Suite, E2E, Image and Quality unstash `web-dist` | every build |
 | Stability | one unit (one executor) running `ci/stability.sh 1` three times side by side, each run in its own clone of the checkout and its own stage (`Stability 1` to `3`), beside Mutation | `EXTENDED=true` or the nightly timer |
 | Mutation | one unit (diff), three units and a gate (full), or a plan, the units it gives work and a gate (incremental), beside Stability (below) | `MUTATION=true` or `MUTATION_FULL=true` or the nightly of `main` |
 | Perf | the Perf unit (`ci/run.sh ci/perf.sh ci-results`, 30 minutes), alone, when the Stability unit passed | `EXTENDED=true` or the nightly timer |
@@ -286,19 +286,20 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   `ci/web-build.sh` (`npm ci` and `npm run build` in `web/`, which write
   `internal/webui/dist`, then a marker file `dist/.ci-stashed-build`, written only
   after a successful build) and stashes `internal/webui/dist` as `web-dist`.
-  Suite, E2E and Quality unstash it (`needs: ['web-dist']`); Suite and E2E also
+  Suite, E2E, Image and Quality unstash it (`needs: ['web-dist']`); Suite, E2E and Image also
   wait for the unit's signal without holding an executor, and do not run when it
   did not pass (Quality then reports their missing results). With the marker and
-  an `index.html` present, `ci/suite.sh` runs no `npm run build`: Suite still
+  an `index.html` present, `ci/suite.sh` and the release dry run in the Image unit
+  (`ci/release-build.sh`, whose release binaries embed the unstashed build) run no `npm run build`: Suite still
   runs `npm ci` in `web/` because Vitest needs `web/node_modules`, E2E runs no
   web npm command at all (the specs import only dependency-free files of
   `web/src/lib`), and Quality runs `npm ci` only because the crap-ts and OpenAPI
   gates read `web/node_modules` (a comment in the `Jenkinsfile` says so). With no
   marker (a local run, a dist built another way) the script builds as before, so
-  a stale local dist is never taken for the stashed one. The Image unit's
-  `Dockerfile` still builds the UI inside the image. `ci/repocheck`
+  a stale local dist is never taken for the stashed one, and a real release
+  builds the UI once. The Image unit's `Dockerfile` still builds the UI inside the image. `ci/repocheck`
   `webbuildonce_test.go` pins the single build and the stash dependencies of
-  Suite, E2E and Quality against doctored Jenkinsfiles and runs `ci/web-build.sh`
+  Suite, E2E, Image and Quality against doctored Jenkinsfiles and runs `ci/web-build.sh`
   against a stub `npm`; `ci/suitecheck` `webstash_test.go` runs `ci/suite.sh` with
   a stub `npm` and asserts no build with the stash present and one without it.
 - **E2E** is the Playwright suite in a unit of its own, in parallel with Suite,

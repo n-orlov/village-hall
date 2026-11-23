@@ -26,6 +26,8 @@
 # image. Run it on the CI agent outside ci/run.sh (the image build needs the
 # docker CLI); the Go, npm, tar and Trivy parts go through ci/run.sh, so <outdir>
 # must be inside this checkout. ci/release-check.sh runs it as the dry run.
+# The web UI is built here only when no build of this CI run is stashed beside
+# the source (internal/webui/dist/.ci-stashed-build, ci/web-build.sh).
 #
 #   ci/release-build.sh <version> <outdir>    # version: vMAJOR.MINOR.PATCH[-pre]
 #
@@ -61,8 +63,15 @@ trap 'rm -rf "$outdir/.work"' EXIT INT TERM
 targets="linux_amd64 linux_arm64 darwin_amd64 darwin_arm64"
 ldflags="-s -w -X github.com/n-orlov/village-hall/internal/version.version=$version -X github.com/n-orlov/village-hall/internal/version.revision=$revision"
 
-echo "ci/release-build.sh: the web UI, embedded into every binary"
-ci/run.sh sh -c '[ -d web/node_modules ] || (cd web && npm ci --no-audit --no-fund); cd web && npm run build'
+# The web UI is built once per CI build (ci/web-build.sh, the Jenkins Web UI unit):
+# the Image unit unstashes that build, and the marker ci/web-build.sh leaves beside
+# it means the dry run builds none. A release (no marker) builds it here.
+if [ -f internal/webui/dist/.ci-stashed-build ] && [ -f internal/webui/dist/index.html ]; then
+	echo "ci/release-build.sh: the web UI, embedded into every binary (the stashed build, no second web build)"
+else
+	echo "ci/release-build.sh: the web UI, embedded into every binary"
+	ci/run.sh sh -c '[ -d web/node_modules ] || (cd web && npm ci --no-audit --no-fund); cd web && npm run build'
+fi
 
 for target in $targets; do
 	os=${target%_*}

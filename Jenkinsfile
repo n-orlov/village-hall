@@ -73,13 +73,14 @@
 //
 // The web UI is built once per build (R9 l): the Web UI unit runs
 // ci/web-build.sh (`npm ci`, `npm run build` into internal/webui/dist, a marker
-// file beside it) and stashes dist as web-dist. Suite, E2E and Quality unstash
-// it (`needs`); Suite and E2E also wait for the unit's signal without holding
-// an executor (`after`) and do not run when it failed. ci/suite.sh finds the
-// marker and runs no `npm run build`; Suite still runs `npm ci` in web/ for
-// Vitest, and Quality runs `npm ci` only because crap-ts and the openapi gates
-// read web/node_modules. Only the Image unit's Dockerfile builds the UI again,
-// inside the image (ci/repocheck webbuildonce_test.go pins the stash reuse).
+// file beside it) and stashes dist as web-dist. Suite, E2E, Image and Quality
+// unstash it (`needs`); Suite, E2E and Image also wait for the unit's signal
+// without holding an executor (`after`) and do not run when it failed.
+// ci/suite.sh and the release dry run (ci/release-build.sh) find the marker and
+// run no `npm run build`. Suite still runs `npm ci` in web/ for Vitest, and
+// Quality runs `npm ci` only because crap-ts and the openapi gates read
+// web/node_modules. Only the Image unit's Dockerfile builds the UI again, inside
+// the image (ci/repocheck webbuildonce_test.go pins the stash reuse).
 //
 // Quality waits for Suite (coverage),
 // E2E (Playwright's results) and Image (the image tar; the Image unit builds the
@@ -875,8 +876,10 @@ pipeline {
           // and probed. The root Dockerfile is built once per architecture, by the
           // one ci/image-build.sh below: the release dry run (ci/release-check.sh)
           // reuses that build's OCI tar and docker-save tar and builds no image of
-          // its own (ci/repocheck imagebuildonce_test.go).
-          units << [name: 'Image', minutes: 30, signal: 'Image',
+          // its own (ci/repocheck imagebuildonce_test.go). It also unstashes the Web UI
+          // unit's build, so the dry run's release binaries embed it and build no UI
+          // (ci/release-build.sh); only the Dockerfile builds the UI again.
+          units << [name: 'Image', minutes: 30, signal: 'Image', after: 'Web UI', needs: ['web-dist'],
                     body: {
                       int rc = sh(returnStatus: true, script: 'ci/image-build.sh "$BOARD_CI_OUT/board-image.tar" && ci/image-check.sh "$BOARD_CI_OUT"')
                       if (rc != 0) {

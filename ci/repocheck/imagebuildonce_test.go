@@ -135,6 +135,13 @@ type imageOnceRun struct {
 
 func runImageOnce(t *testing.T, buildScript, checkScript string, withTars bool, entry string, args ...string) *imageOnceRun {
 	t.Helper()
+	return runImageOnceWeb(t, false, buildScript, checkScript, withTars, entry, args...)
+}
+
+// runImageOnceWeb is runImageOnce with the web build a CI unit unstashed (dist's
+// index.html and the marker ci/web-build.sh leaves) laid down first when webStashed.
+func runImageOnceWeb(t *testing.T, webStashed bool, buildScript, checkScript string, withTars bool, entry string, args ...string) *imageOnceRun {
+	t.Helper()
 	dir := t.TempDir()
 	r := &imageOnceRun{dir: dir, log: filepath.Join(dir, "calls.log"), keep: filepath.Join(dir, "keep")}
 	bin := filepath.Join(dir, "bin")
@@ -154,6 +161,10 @@ func runImageOnce(t *testing.T, buildScript, checkScript string, withTars bool, 
 		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if webStashed {
+		write("internal/webui/dist/index.html", "<html></html>", 0o644)
+		write("internal/webui/dist/.ci-stashed-build", "", 0o644)
 	}
 	write("ci/run.sh", imageOnceRunSh, 0o755)
 	write("ci/image-build.sh", imageOnceImageBuild, 0o755)

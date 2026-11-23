@@ -46,7 +46,7 @@ func webBuildOnceProblems(jf string) []string {
 			problems = append(problems, "the Web UI unit raises no signal for the units that wait for it")
 		}
 	}
-	for _, name := range []string{"Suite", "E2E"} {
+	for _, name := range []string{"Suite", "E2E", "Image"} {
 		decl, ok := coreUnitDecl(core, name)
 		if !ok {
 			problems = append(problems, "Core has no "+name+" unit")
@@ -92,6 +92,10 @@ func TestWebUIIsBuiltOnceAndStashedForSuiteE2EAndQuality(t *testing.T) {
 			"sample: true, after: 'Web UI', needs: ['web-dist'],", "sample: true, after: 'Web UI',"),
 		"an E2E that does not wait for the web build": replaceOnce(t, jf,
 			"sample: true, after: 'Web UI', needs: ['web-dist'],", "sample: true, needs: ['web-dist'],"),
+		"an Image unit that does not unstash the web build": replaceOnce(t, jf,
+			"signal: 'Image', after: 'Web UI', needs: ['web-dist'],", "signal: 'Image', after: 'Web UI',"),
+		"an Image unit that does not wait for the web build": replaceOnce(t, jf,
+			"signal: 'Image', after: 'Web UI', needs: ['web-dist'],", "signal: 'Image', needs: ['web-dist'],"),
 		"a Quality that does not unstash the web build": replaceOnce(t, jf,
 			"'res-image', 'image', 'web-dist'],", "'res-image', 'image'],"),
 		"a Web UI unit that stashes nothing": replaceOnce(t, jf,
@@ -177,5 +181,39 @@ func TestWebBuildScriptLeavesNoMarkerOnAFailedBuild(t *testing.T) {
 		if _, statErr := os.Stat(filepath.Join(dir, "internal", "webui", "dist", ".ci-stashed-build")); statErr == nil {
 			t.Errorf("%s: the marker was written", name)
 		}
+	}
+}
+
+// The release dry run runs in the Image unit, which unstashes the web build: with
+// the build's marker beside it ci/release-build.sh runs no npm build, and a real
+// release (no marker) builds the UI once.
+func TestReleaseBuildRunsNoWebBuildWhenTheStashedBuildIsPresent(t *testing.T) {
+	build, check := readRepoFile(t, "ci", "release-build.sh"), readRepoFile(t, "ci", "release-check.sh")
+	builds := func(r *imageOnceRun) int {
+		n := 0
+		for _, c := range r.calls("npm ") {
+			if strings.Contains(c, "run build") {
+				n++
+			}
+		}
+		return n
+	}
+	with := runImageOnceWeb(t, true, build, check, true, "release-check.sh", "ci-results")
+	if with.err != nil {
+		t.Fatalf("the dry run failed: %v\n%s", with.err, with.failure())
+	}
+	if n := builds(with); n != 0 {
+		t.Errorf("the dry run ran %d web build(s) with the stashed build present", n)
+	}
+	without := runImageOnceWeb(t, false, build, check, false, "release-build.sh", dryRunVersion, "out")
+	if without.err != nil {
+		t.Fatalf("the release build failed: %v\n%s", without.err, without.failure())
+	}
+	if n := builds(without); n != 1 {
+		t.Errorf("a release with no stashed build ran %d web builds, want one", n)
+	}
+	always := replaceOnce(t, build, "if [ -f internal/webui/dist/.ci-stashed-build ]", "if false")
+	if r := runImageOnceWeb(t, true, always, check, true, "release-check.sh", "ci-results"); builds(r) == 0 {
+		t.Error("a release-build.sh that always builds the UI was not caught")
 	}
 }
