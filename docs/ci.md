@@ -457,10 +457,16 @@ causes are a branch push event or branch indexing, it has no timer cause, and `E
 and `MUTATION_FULL` are all false). Jenkins reads the option from the build that is running, so a push
 queued behind main's nightly (the timer) or a parameterized build finds it false and waits: neither is
 ever stopped by a push. A manual build (no push cause) is not stopped either. A superseded build ends
-ABORTED, not FAILURE: `classify` lets the ABORTED interruption propagate (no attempt is retried) and
-each attempt's `finally` removes its containers by the attempt id. A queued nightly or parameterized
-build does stop a push build that was running before it. `ci/repocheck/supersede_test.go` pins the
-option, the three exclusions and the abort handling against doctored copies.
+ABORTED, not FAILURE or NOT_BUILT. Jenkins stops it with the result NOT_BUILT and a `CancelledCause`
+("Superseded by #N"): `supersededBy` recognises that cause, `classify` lets it propagate (no attempt
+is retried), and the attempt that sees it sets the result ABORTED (`endSuperseded`), as `post {
+always }` does for a NOT_BUILT build when no unit saw it; ABORTED is the worst result, so nothing that
+runs after it lowers it. Each attempt's `finally` removes its containers by the attempt id, and the
+report still runs, so the Allure history carries on. The pipeline never reads the interruption's
+result: the script sandbox refuses `FlowInterruptedException.getResult`. A queued nightly or
+parameterized build does stop a push build that was running before it.
+`ci/repocheck/supersede_test.go` pins the option, the three exclusions and the ABORTED end against
+doctored copies.
 
 `ci/repocheck/jenkinsfile_test.go` pins all of it: Core, then Stability and
 Mutation side by side, then Perf, with the Core units and Quality's wait for

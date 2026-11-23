@@ -35,9 +35,14 @@
 // property is the one the running build set, so a push queued behind main's
 // nightly (the timer) or a parameterized build finds abortPrevious false and
 // waits: neither is ever stopped by a push. A superseded build ends ABORTED,
-// not FAILURE: classify() lets an abort propagate, no unit retries it, and
-// every attempt's finally removes its containers by the attempt id. (A queued
-// nightly or parameterized build does stop a push build running before it.)
+// not FAILURE or NOT_BUILT: Jenkins stops it with NOT_BUILT and a
+// CancelledCause ("Superseded by #N"), which supersededBy() recognises;
+// classify() lets it propagate, so no unit retries it; the attempt that sees
+// it, or post { always } when no unit did, sets ABORTED (endSuperseded(); the
+// worst result, so nothing later lowers it); and every attempt's finally
+// removes its containers by the attempt id. Nothing reads the interruption's
+// result, which the script sandbox refuses. (A queued nightly or parameterized
+// build does stop a push build running before it.)
 // Each attempt reports node, queue wait and run time; the build page gets a
 // per-unit timing table (ci-results/distributed/timing.md).
 //
@@ -163,6 +168,7 @@ import groovy.transform.Field
 @Field String imageVersion = ''
 @Field String mutationBase = ''  // diff mode: the commit the mutation diff starts from
 @Field String mutationPlanText = ''  // incremental mode: ci/mutation-plan.sh's plan file
+@Field boolean superseded = false  // a newer push build of this branch stopped this one (R8)
 @Field final String AMD = 'board-test && amd64 && docker'
 // Full mutation's units (see the header): every lane of ci/quality.json's
 // mutation_go.lanes in exactly one unit (ci/repocheck checks the union), and
@@ -215,6 +221,35 @@ boolean supersedable() {
   }
 }
 
+// The causes of an interruption as text, 'unknown' when they cannot be read.
+String interruptionCauses(Throwable e) {
+  try {
+    return e.causes.collect { it.toString() }.join(' ')
+  } catch (Throwable ignored) {
+    return 'unknown'
+  }
+}
+
+// Whether a newer push build of this branch stopped this one (R8): Jenkins'
+// abortPrevious interrupts it with DisableConcurrentBuildsJobProperty's
+// CancelledCause ("Superseded by #N") and the result NOT_BUILT.
+boolean supersededBy(Throwable e) {
+  if (!(e instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException)) {
+    return false
+  }
+  String causes = interruptionCauses(e)
+  return causes.contains('CancelledCause') || causes.contains('Superseded by')
+}
+
+// A superseded build ends ABORTED, not NOT_BUILT (Jenkins' result for it) or
+// FAILURE (R8). ABORTED is the worst result, so it holds whatever a catchError
+// or the interruption itself sets after it.
+def endSuperseded() {
+  superseded = true
+  currentBuild.result = 'ABORTED'
+  echo 'superseded by a newer push build of this branch: this build ends ABORTED'
+}
+
 @NonCPS
 String slug(String s) { s.toLowerCase().replaceAll('[^a-z0-9]+', '-') }
 
@@ -224,11 +259,11 @@ String slug(String s) { s.toLowerCase().replaceAll('[^a-z0-9]+', '-') }
 String classify(Throwable e, Map a) {
   if (e instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException) {
     // getCauses needs a script approval; without it, treat as an abort.
-    String causes = ''
-    try {
-      causes = e.causes.collect { it.toString() }.join(' ')
-    } catch (Throwable ignored) {
-      causes = 'unknown'
+    String causes = interruptionCauses(e)
+    // A newer push build stopped this one (abortPrevious, R8): an abort of the
+    // whole build, never an attempt to repeat.
+    if (supersededBy(e)) {
+      return null
     }
     if (causes.contains('ExceededTimeout') || causes.contains('Timeout')) {
       // On a node, the unit ran out its own bound: a failure that is not
@@ -239,11 +274,6 @@ String classify(Throwable e, Map a) {
       return 'infra:agent-lost'
     }
     if (causes.contains('UserInterruption') || causes == 'unknown') {
-      return null
-    }
-    // abortPrevious stops the build with Result.ABORTED and a cause of its own:
-    // that is an abort of the whole build, never an attempt to repeat.
-    if (e.result?.toString() == 'ABORTED') {
       return null
     }
     return 'infra:interrupted'
@@ -403,6 +433,9 @@ def runUnit(Map u) {
       if (why == null) {
         a.outcome = 'aborted'
         a.end = nowMs()
+        if (supersededBy(e)) {
+          endSuperseded()
+        }
         throw e
       }
       a.outcome = why
@@ -607,7 +640,8 @@ pipeline {
     timestamps()
     buildDiscarder(logRotator(numToKeepStr: '30'))
     // Never two builds of a branch at once: a newer push build stops a running
-    // push build (ABORTED), and waits behind a nightly or parameterized one.
+    // push build (it ends ABORTED, endSuperseded()), and waits behind a
+    // nightly or parameterized one.
     disableConcurrentBuilds(abortPrevious: supersedable())
     // A backstop only: every unit has its own bound. Core (Suite's or E2E's 120
     // minutes at worst, then Quality), the mutation plan, a 110-minute
@@ -868,6 +902,13 @@ pipeline {
   post {
     always {
       script {
+        // Superseded (R8) with the interruption caught outside a unit: NOT_BUILT
+        // is the result Jenkins stops a superseded build with, and nothing else
+        // here sets it. The report still runs, so the Allure history the next
+        // build copies from its last completed build carries on.
+        if (!superseded && currentBuild.currentResult == 'NOT_BUILT') {
+          endSuperseded()
+        }
         // The report on one pool node over every unit's stash.
         try {
           timeout(time: 30, unit: 'MINUTES') {
