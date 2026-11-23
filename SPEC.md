@@ -3775,7 +3775,12 @@ zero violations of impact `serious` or `critical`, with no rule disabled and no 
 every one of ten states: the Initiatives view, the initiative page, the Settings -> API keys view, the Signed out view,
 the new-initiative sheet, the new-key sheet, the revoke confirmation, the account menu and the initiative
 page's Edit and Close sheets opened over them. Each is scanned at 390x844 and 1440x900 in the light and the dark theme (the browser's
-colour scheme drives the System setting), in `e2e/a11y.spec.ts`. The same spec holds the Phase 1 views and
+colour scheme drives the System setting), in `e2e/a11y.spec.ts`. **The light scan runs axe's full rule set** (no rule or tag
+restriction) on every state at both viewports; **the dark scan runs colour contrast only** (`color-contrast`, plus axe's other colour rule
+`link-in-text-block`), because the theme changes colours and not the document, so every other rule gives the same answer in the dark
+theme as in the light one. No rule is disabled and no element is excluded in either scan, and `ci/suitecheck` fails on a spec whose dark
+scan runs the full set or whose light scan is restricted. The spec seeds its board once per worker (a `beforeAll`) and every test makes
+exactly the page loads its own state makes. The same spec holds the Phase 1 views and
 dialogs to the bar as a finite, named list (`PHASE1_STATES`): the views `#/tasks`, `#/i/<slug>` and `#/t/<ref>`, and the
 9 dialogs edit initiative, close initiative, new task, edit task, close task, milestone, record check, add dependency and
 end lease, each opened over a seeded initiative with a watch task, a link, a dependency, a milestone, a check, an

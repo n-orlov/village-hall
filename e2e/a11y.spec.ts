@@ -20,6 +20,8 @@ const viewports = [
   { name: 'desktop', size: { width: 1440, height: 900 } },
 ] as const;
 const themes = ['light', 'dark'] as const;
+/** The dark pass's rules: axe's two colour rules. The light pass is unrestricted. */
+const DARK_PASS_RULES = ['color-contrast', 'link-in-text-block'];
 
 /** Wait until every running animation or transition has finished, so a scan never reads a mid-fade colour. */
 const settle = (page: Page) =>
@@ -28,7 +30,12 @@ const settle = (page: Page) =>
 async function scan(page: Page, effectiveTheme: string) {
   await expect(page.locator('html')).toHaveAttribute('data-theme', effectiveTheme);
   await settle(page);
-  const { violations } = await new AxeBuilder({ page }).analyze();
+  // The light pass runs the full axe rule set; the dark pass runs the colour rules only (R9 g): the other rules read the
+  // DOM, which the theme does not change, so the light pass of the same state already covers them.
+  const { violations } =
+    effectiveTheme === 'dark'
+      ? await new AxeBuilder({ page }).withRules(DARK_PASS_RULES).analyze()
+      : await new AxeBuilder({ page }).analyze();
   const blocking = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   const report = blocking.map((v) => ({
     rule: v.id,
@@ -38,6 +45,12 @@ async function scan(page: Page, effectiveTheme: string) {
   }));
   expect(report, 'serious or critical axe violations').toEqual([]);
 }
+
+/** The one page load of the states that start from the Initiatives view. */
+const openInitiatives = async (page: Page) => {
+  await page.goto('/#/initiatives');
+  await expect(page.getByTestId('initiative-row').first()).toBeVisible();
+};
 
 type State = { name: string; open: (page: Page) => Promise<void> };
 
@@ -80,12 +93,13 @@ const states: State[] = [
   {
     name: 'Initiatives view',
     open: async (page) => {
-      await expect(page.getByTestId('initiative-row').first()).toBeVisible();
+      await openInitiatives(page);
     },
   },
   {
     name: 'Initiative page',
     open: async (page) => {
+      await openInitiatives(page);
       await page.getByTestId('initiative-row').locator('[data-testid=initiative-link]').getByText('Accessibility').click();
       await expect(page.locator('[data-testid=task-row], [data-testid=needs-row]')).toHaveCount(1); // the task is in Needs attention or the table
       await expect(page.getByTestId('initiative-description').getByRole('link')).toHaveCount(1);
@@ -94,6 +108,7 @@ const states: State[] = [
   {
     name: 'edit-initiative sheet',
     open: async (page) => {
+      await openInitiatives(page);
       await page.getByTestId('initiative-row').locator('[data-testid=initiative-link]').getByText('Accessibility').click();
       await page.getByRole('button', { name: 'Edit' }).click();
       await expect(page.getByRole('dialog', { name: 'Edit initiative' })).toBeVisible();
@@ -102,6 +117,7 @@ const states: State[] = [
   {
     name: 'close-initiative sheet',
     open: async (page) => {
+      await openInitiatives(page);
       await page.getByTestId('initiative-row').locator('[data-testid=initiative-link]').getByText('Accessibility').click();
       await page.getByRole('button', { name: 'Close', exact: true }).click();
       await expect(page.getByRole('dialog', { name: 'Close initiative' })).toBeVisible();
@@ -197,6 +213,7 @@ const states: State[] = [
   {
     name: 'Signed out view',
     open: async (page) => {
+      await openInitiatives(page);
       await page.getByRole('button', { name: 'Account menu' }).click();
       await page.getByRole('dialog', { name: 'Account' }).getByRole('button', { name: 'Sign out' }).click();
       await expect(page).toHaveURL(/#\/signed-out$/);
@@ -206,6 +223,7 @@ const states: State[] = [
   {
     name: 'new-initiative sheet',
     open: async (page) => {
+      await openInitiatives(page);
       await page.getByRole('button', { name: 'New initiative' }).locator('visible=true').click();
       await expect(page.getByRole('dialog', { name: 'New initiative' })).toBeVisible();
     },
@@ -231,6 +249,7 @@ const states: State[] = [
   {
     name: 'account menu',
     open: async (page) => {
+      await openInitiatives(page);
       await page.getByRole('button', { name: 'Account menu' }).click();
       await expect(page.getByRole('dialog', { name: 'Account' })).toBeVisible();
     },
@@ -832,49 +851,46 @@ const WIDE_STATES: { name: string; open: (page: Page, seed: Seed, seed2: Seed2) 
 
 const LIVE_STATES = ['live', 'offline', 'reconnecting'] as const;
 
+// The board every state of `states` and the live indicator tests read, seeded once per worker (a 409 is the same
+// worker's store seen again). The tests make their own page loads: nothing navigates beforehand.
+test.beforeAll(async ({ playwright, workerServer }) => {
+  const seed = await apiContext(playwright, workerServer.baseURL);
+  const res = await seed.post('/api/v1/initiatives', {
+    data: { slug: 'e2e-a11y', title: 'Accessibility', tags: ['a11y', 'axe'], description: '## Scope\n\nSee [the docs](https://example.com/docs).' },
+  });
+  expect([201, 409]).toContain(res.status());
+  if (res.status() === 201) {
+    const task = await seed.post('/api/v1/tasks', { data: { initiative: 'e2e-a11y', title: 'Scan the page' } });
+    expect(task.status()).toBe(201);
+    const { ref } = (await task.json()) as { ref: string };
+    expect((await seed.post('/api/v1/leases', { data: { task: ref, intent: 'scanning', resources: ['repo:a11y'] } })).status()).toBe(201);
+    // An open ask by an actor with a way back, for the Now view.
+    const ask = await seed.post('/api/v1/asks', {
+      data: { question: 'Is the page readable?', task: ref, blocking: true },
+      headers: { 'Board-Actor': 'a11y-asker', 'Board-Actor-Way-Back': 'ralphctl status a11y-asker' },
+    });
+    expect(ask.status()).toBe(201);
+    // A note with a body, for the Notes view.
+    expect((await seed.post('/api/v1/notes', { data: { task: ref, summary: 'Scan started', body: 'Using **axe**.' } })).status()).toBe(201);
+    // Something the Add dependency sheet can offer as a blocker.
+    expect((await seed.post('/api/v1/initiatives', { data: { slug: 'e2e-a11y-blockers', title: 'Blockers' } })).status()).toBe(201);
+    const blocker = await seed.post('/api/v1/tasks', { data: { initiative: 'e2e-a11y-blockers', title: 'Possible blocker' } });
+    expect(blocker.status()).toBe(201);
+    // A second actor holds the same resource, so the Now panel and the task page show a conflict.
+    const other = ((await blocker.json()) as { ref: string }).ref;
+    const lease = await seed.post('/api/v1/leases', {
+      data: { task: other, intent: 'also scanning', resources: ['repo:a11y'] },
+      headers: { 'Board-Actor': 'a11y-other' },
+    });
+    expect(lease.status()).toBe(201);
+  }
+  await seed.dispose();
+});
+
 for (const vp of viewports) {
   for (const theme of themes) {
     test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}, ${theme} theme`, () => {
       test.use({ viewport: vp.size, colorScheme: theme });
-
-      test.beforeEach(async ({ page, playwright, baseURL }) => {
-        const seed = await playwright.request.newContext({
-          baseURL,
-          extraHTTPHeaders: { Authorization: `Bearer ${process.env.E2E_API_KEY}`, 'Board-Actor': 'playwright' },
-        });
-        const res = await seed.post('/api/v1/initiatives', {
-          data: { slug: 'e2e-a11y', title: 'Accessibility', tags: ['a11y', 'axe'], description: '## Scope\n\nSee [the docs](https://example.com/docs).' },
-        });
-        expect([201, 409]).toContain(res.status());
-        if (res.status() === 201) {
-          const task = await seed.post('/api/v1/tasks', { data: { initiative: 'e2e-a11y', title: 'Scan the page' } });
-          expect(task.status()).toBe(201);
-          const { ref } = (await task.json()) as { ref: string };
-          expect((await seed.post('/api/v1/leases', { data: { task: ref, intent: 'scanning', resources: ['repo:a11y'] } })).status()).toBe(201);
-          // An open ask by an actor with a way back, for the Now view.
-          const ask = await seed.post('/api/v1/asks', {
-            data: { question: 'Is the page readable?', task: ref, blocking: true },
-            headers: { 'Board-Actor': 'a11y-asker', 'Board-Actor-Way-Back': 'ralphctl status a11y-asker' },
-          });
-          expect(ask.status()).toBe(201);
-          // A note with a body, for the Notes view.
-          expect((await seed.post('/api/v1/notes', { data: { task: ref, summary: 'Scan started', body: 'Using **axe**.' } })).status()).toBe(201);
-          // Something the Add dependency sheet can offer as a blocker.
-          expect((await seed.post('/api/v1/initiatives', { data: { slug: 'e2e-a11y-blockers', title: 'Blockers' } })).status()).toBe(201);
-          const blocker = await seed.post('/api/v1/tasks', { data: { initiative: 'e2e-a11y-blockers', title: 'Possible blocker' } });
-          expect(blocker.status()).toBe(201);
-          // A second actor holds the same resource, so the Now panel and the task page show a conflict.
-          const other = ((await blocker.json()) as { ref: string }).ref;
-          const lease = await seed.post('/api/v1/leases', {
-            data: { task: other, intent: 'also scanning', resources: ['repo:a11y'] },
-            headers: { 'Board-Actor': 'a11y-other' },
-          });
-          expect(lease.status()).toBe(201);
-        }
-        await seed.dispose();
-        await page.goto('/#/initiatives');
-        await expect(page.getByTestId('initiative-row').first()).toBeVisible();
-      });
 
       for (const state of states) {
         test(`${state.name} has no serious or critical axe violation`, async ({ page }) => {
@@ -928,8 +944,7 @@ for (const vp of viewports) {
               (window as unknown as { EventSource: unknown }).EventSource = Silent;
             });
           }
-          await page.goto('/#/now');
-          if (word === 'reconnecting') await page.reload(); // beforeEach already loaded the app: the stand-in applies to a fresh document
+          await page.goto('/#/now'); // the first load of the page: the stand-in applies to this document
           const indicator = page.getByRole('status', { name: /^Live updates:/ });
           await expect(indicator).toBeVisible();
           if (word === 'offline') await context.setOffline(true);

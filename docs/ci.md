@@ -840,7 +840,11 @@ Scripts, each run through `ci/run.sh` unless noted:
   cost follows the size of their store (an unfiltered Timeline or Initiatives list,
   a Tab walk past it), so what the other specs add never lengthens it; `chromium`
   holds every other spec. It is store isolation, not an order: no project waits for
-  another except on `worker-isolation`, and the specs run in any order. `e2e/run-dir-reporter.ts` removes the run's directory
+  another except on `worker-isolation`, and the specs run in any order.
+  `a11y.spec.ts` seeds its board once per worker (a `beforeAll`), loads one page per
+  test, runs axe's full rule set in the light pass and colour contrast only
+  (`color-contrast` and `link-in-text-block`) in the dark pass (R9 g);
+  `TestA11ySpecRunsFullSetLightAndColourRulesDark` in `ci/suitecheck` pins it. `e2e/run-dir-reporter.ts` removes the run's directory
   of worker directories when the run ends. Playwright runs once and
   the script does not repeat a failed run: a failure fails the suite.
   `junit-playwright.xml` and the HTML, Allure and JSON output (`playwright/`)
