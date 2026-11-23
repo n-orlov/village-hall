@@ -63,7 +63,8 @@ func gremlinsBoardEnv(t *testing.T, env ...string) []string {
 }
 
 // TestMutationScriptHandsTheAttemptLabelToGremlins: the tests gremlins runs see
-// the attempt's run id, and no other BOARD_* variable.
+// the attempt's run id and BOARD_DB_LEG=sqlite (whatever leg the caller named),
+// and no other BOARD_* variable.
 func TestMutationScriptHandsTheAttemptLabelToGremlins(t *testing.T) {
 	got := gremlinsBoardEnv(t,
 		"BOARD_CI_RUN_ID=attempt-7",
@@ -71,16 +72,19 @@ func TestMutationScriptHandsTheAttemptLabelToGremlins(t *testing.T) {
 		"BOARD_DB_LEG=postgres",
 		"BOARD_STRAY=1",
 	)
-	if len(got) != 1 || got[0] != "BOARD_CI_RUN_ID=attempt-7" {
-		t.Errorf("gremlins saw BOARD_* variables %q, want exactly [BOARD_CI_RUN_ID=attempt-7]", got)
+	want := []string{"BOARD_CI_RUN_ID=attempt-7", "BOARD_DB_LEG=sqlite"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("gremlins saw BOARD_* variables %q, want exactly %q", got, want)
 	}
 }
 
-// TestMutationScriptWithoutAnAttemptLabelPassesNoBoardVariable: a local run has
-// no run id, so nothing is invented and the scrub stays total.
-func TestMutationScriptWithoutAnAttemptLabelPassesNoBoardVariable(t *testing.T) {
-	if got := gremlinsBoardEnv(t, "BOARD_STRAY=1"); len(got) != 0 {
-		t.Errorf("gremlins saw BOARD_* variables %q, want none", got)
+// TestMutationScriptWithoutAnAttemptLabelPassesNoOtherBoardVariable: a local run
+// has no run id, so none is invented and the scrub stays total: the one variable
+// gremlins sees is BOARD_DB_LEG=sqlite.
+func TestMutationScriptWithoutAnAttemptLabelPassesNoOtherBoardVariable(t *testing.T) {
+	got := gremlinsBoardEnv(t, "BOARD_STRAY=1")
+	if len(got) != 1 || got[0] != "BOARD_DB_LEG=sqlite" {
+		t.Errorf("gremlins saw BOARD_* variables %q, want exactly [BOARD_DB_LEG=sqlite]", got)
 	}
 }
 
@@ -101,5 +105,63 @@ func TestJenkinsfileMutationUnitRunsUnderTheAttemptRunID(t *testing.T) {
 	}
 	if !strings.Contains(jf, " ci/run.sh ci/mutation.sh ci-results/mutation ci/quality.json all") {
 		t.Error("the Mutation unit no longer runs ci/mutation.sh through ci/run.sh")
+	}
+}
+
+const stubGoRecordingTests = `#!/bin/sh
+# ci/mutationgate -list prints one package; go test records the BOARD_DB_LEG it
+# runs with; every other go command succeeds.
+case "$*" in
+*" -list "*) echo internal/stub ;;
+"test "*) echo "BOARD_DB_LEG=${BOARD_DB_LEG-unset}" >> "$STUB_GO_TEST_ENV" ;;
+esac
+exit 0
+`
+
+const stubGremlinsRecordingLeg = `#!/bin/sh
+echo "BOARD_DB_LEG=${BOARD_DB_LEG-unset}" >> "$STUB_GREMLINS_ENV"
+exit 0
+`
+
+// TestMutationScriptRunsTheSQLiteLegOnly: both test runs ci/mutation.sh starts,
+// the covered run it times (go test) and the mutant runs (gremlins), get
+// BOARD_DB_LEG=sqlite, even when the caller asked for the Postgres leg, so no
+// mutant of internal/server, internal/store or internal/feed starts a Postgres
+// container. The Suite unit's matrix runs both legs.
+func TestMutationScriptRunsTheSQLiteLegOnly(t *testing.T) {
+	for _, caller := range []string{"BOARD_DB_LEG=postgres", "BOARD_STRAY=1"} {
+		root, err := repositoryRoot()
+		if err != nil {
+			t.Fatalf("repositoryRoot: %v", err)
+		}
+		bin := t.TempDir()
+		for name, body := range map[string]string{"go": stubGoRecordingTests, "gremlins": stubGremlinsRecordingLeg} {
+			if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+				t.Fatalf("write stub %s: %v", name, err)
+			}
+		}
+		goRec := filepath.Join(bin, "go.env")
+		gremRec := filepath.Join(bin, "gremlins.env")
+		cmd := exec.Command("sh", filepath.Join(root, "ci", "mutation.sh"), t.TempDir(), "ci/quality.json", "stub")
+		cmd.Dir = root
+		cmd.Env = []string{
+			"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+			"HOME=" + t.TempDir(),
+			"STUB_GO_TEST_ENV=" + goRec,
+			"STUB_GREMLINS_ENV=" + gremRec,
+			caller,
+		}
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("ci/mutation.sh failed: %v\n%s", err, b)
+		}
+		for what, path := range map[string]string{"the covered run (go test)": goRec, "the mutant run (gremlins)": gremRec} {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("%s: the stub never ran (caller %s): %v", what, caller, err)
+			}
+			if got := strings.TrimSpace(string(raw)); got != "BOARD_DB_LEG=sqlite" {
+				t.Errorf("%s ran with %q (caller %s), want BOARD_DB_LEG=sqlite", what, got, caller)
+			}
+		}
 	}
 }

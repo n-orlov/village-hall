@@ -108,10 +108,14 @@ daemon; cache volumes `board-go-cache-jenkins` and `board-npm-cache-jenkins`,
 each chowned to the agent's uid once), runs, and removes the sibling and
 Testcontainers containers its attempt labelled (`ralphd.run=<attempt id>`, by
 exact ID; the id names the job and the build number, so a build of another branch with the same number never matches). The Mutation units are no exception (each parallel unit has its own attempt id, so none reaps another's containers): `ci/mutation.sh` scrubs every `BOARD_*`
-variable but hands `BOARD_CI_RUN_ID` (the attempt id `ci/run.sh` forwards from
-`RALPHD_RUN_ID`) to gremlins, so the Postgres testcontainers of every mutant's
-test run carry the attempt label and the cleanup reaps the ones a killed mutant
-run leaves. An infrastructure failure (agent lost, Docker unavailable, a wait
+variable but hands two on to gremlins: `BOARD_CI_RUN_ID` (the attempt id `ci/run.sh`
+forwards from `RALPHD_RUN_ID`, so any container a mutant's test run labels is
+reaped by the cleanup) and `BOARD_DB_LEG=sqlite`. Mutation runs the SQLite leg
+only: gremlins' covered run and every mutant's test run for `internal/server`,
+`internal/store` and `internal/feed` start no Postgres container (one per mutant
+was a large share of a mutant's time). The Postgres leg of those packages, and
+both legs of `features/TestFeatures`, run in the Suite unit (`ci/suite.sh`),
+where the Go matrix still runs both legs. An infrastructure failure (agent lost, Docker unavailable, a wait
 with no free node) gets another attempt, up to three; a failing command is rerun
 once, and a pass there marks the build UNSTABLE ("flaky"). A unit that runs on a
 node and hits its own time bound (`timeout(time: u.minutes)`) is a failure, not

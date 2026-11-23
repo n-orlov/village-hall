@@ -12,6 +12,12 @@
 # stryker.break (whole run) or stryker.module_break (any one module). The
 # thresholds live in ci/quality.json only.
 #
+# The tests gremlins runs (its covered run and every mutant's) run on the
+# SQLite leg only: this script sets BOARD_DB_LEG=sqlite for them, so no mutant
+# of internal/server, internal/store or internal/feed starts a Postgres
+# container. The Postgres leg of those packages and of features/TestFeatures
+# runs in the Suite unit (ci/suite.sh), which still runs both legs.
+#
 #   ci/run.sh ci/mutation.sh                  # reports in ci-results/mutation
 #   ci/run.sh ci/mutation.sh /tmp/m [config]  # a test's own outdir and config
 #   ci/run.sh ci/mutation.sh ci-results/mutation ci/quality.json logic
@@ -71,7 +77,8 @@ ci_run_id=${BOARD_CI_RUN_ID:-}
 
 # Same scrub as ci/suite.sh and ci/quality.sh: a stray BOARD_* variable must
 # never reach the tests gremlins runs.
-# The one exception is BOARD_CI_RUN_ID, handed to gremlins explicitly below.
+# The exceptions, handed to gremlins explicitly below: BOARD_CI_RUN_ID, and
+# BOARD_DB_LEG=sqlite (the Postgres leg is not run here, see the header).
 for board_var in $(env | sed -n -e 's/^\(BOARD_[A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' -e 's/^\(VH_[A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort -u); do
     unset "$board_var"
 done
@@ -115,7 +122,7 @@ coefficient_for() {
     start=$(date +%s)
     # Its verdict is gremlins' to give: a failing suite fails gremlins' own
     # covered run, so only the time counts here.
-    env ${ci_run_id:+BOARD_CI_RUN_ID=$ci_run_id} ${test_cpu:+GOMAXPROCS=$test_cpu} \
+    env ${ci_run_id:+BOARD_CI_RUN_ID=$ci_run_id} BOARD_DB_LEG=sqlite ${test_cpu:+GOMAXPROCS=$test_cpu} \
         nice -n 10 go test -cover "./$1/..." >/dev/null 2>&1 || true
     took=$(( $(date +%s) - start ))
     [ "$took" -ge 1 ] || took=1
@@ -186,7 +193,7 @@ for pkg in $packages; do
     echo "ci/mutation.sh: gremlins unleash ./$pkg ($# exclude flags, --timeout-coefficient $timeout_coefficient)"
     # nice: a full run takes every core for hours; other jobs on the host win.
     # The GOMAXPROCS cap applies only here, never to the gate's own go run.
-    env ${ci_run_id:+BOARD_CI_RUN_ID=$ci_run_id} ${test_cpu:+GOMAXPROCS=$test_cpu} ${diff_ref:+PATH="$shim:$PATH" MUTATION_DIFF_RELATIVE="$dir"} \
+    env ${ci_run_id:+BOARD_CI_RUN_ID=$ci_run_id} BOARD_DB_LEG=sqlite ${test_cpu:+GOMAXPROCS=$test_cpu} ${diff_ref:+PATH="$shim:$PATH" MUTATION_DIFF_RELATIVE="$dir"} \
         nice -n 10 gremlins unleash "./$dir" \
         --timeout-coefficient "$timeout_coefficient" ${workers:+--workers "$workers"} \
         ${diff_ref:+--diff "$diff_ref"} "$@" -o "$outdir/$name.json"
