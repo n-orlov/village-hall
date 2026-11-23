@@ -12,8 +12,13 @@
 //   - infrastructure failure (agent lost, Docker unavailable, checkout or CI
 //     image build failed, the attempt went silent, no executor free for the
 //     whole wait): another attempt, up to 3 infrastructure failures;
-//   - the unit's command fails: one rerun; a pass there marks the build
-//     UNSTABLE ("flaky"), a second failure fails it;
+//   - the unit's command fails (an attempt outcome fail:<exit status>): the
+//     unit fails and is not rerun, and nothing marks a build UNSTABLE for a
+//     flake: a rerun that passed would only hide a test that cannot be
+//     trusted. ci/rerun-decision.sh makes the call: only infra:* outcomes
+//     rerun. A non-empty flaky list (ci-results/flaky-*.txt) or leg-divergence
+//     list (ci-results/leg-divergence.txt) fails the build in the report
+//     (ci/flakygate.sh);
 //   - the unit runs out its own time bound on a node (its minutes below): a
 //     failure, not an infrastructure failure, and never retried (operator
 //     ruling 001-WAVE: three 45-minute attempts of a Suite that cannot fit
@@ -121,7 +126,7 @@
 import groovy.transform.Field
 
 // Units' results and attempts, shared by the parallel branches.
-@Field def results = [:]        // unit -> 'pass' | 'flaky' | 'fail'
+@Field def results = [:]        // unit -> 'pass' | 'fail'
 @Field def attemptLog = [:]     // unit -> [attempt maps]
 @Field def signals = [:]        // 'Suite' / 'E2E' / 'Image' -> true once the unit ended (pass or fail)
 @Field def stashedUnits = [:]   // unit -> true once an attempt stashed its results
@@ -234,8 +239,6 @@ def runUnit(Map u) {
   def attempts = []
   attemptLog[u.name] = attempts
   int infra = 0
-  boolean rerun = false
-  String firstFail = null
   int maxAttempts = u.maxAttempts ?: 4
   while (true) {
     def a = [n: attempts.size() + 1, label: AMD, node: null, queued: nowMs(), start: 0L, end: 0L, outcome: null]
@@ -282,6 +285,10 @@ def runUnit(Map u) {
                 // command outlived its bound and ci/unitrun.sh cut it: the
                 // unit's own timeout, with its results kept.
                 a.outcome = rc == 0 ? 'pass' : rc == -1 ? 'infra:process-lost' : rc == 124 ? 'fail:timeout' : "fail:${rc}"
+                if (a.outcome != 'pass') {
+                  // ci/rerun-decision.sh: exit 0 only for an infra:* outcome.
+                  a.rerun = sh(returnStatus: true, script: "ci/rerun-decision.sh '${a.outcome}'") == 0
+                }
               }
               stash name: 'res-' + slug(u.name), includes: 'ci-results/**',
                     excludes: 'ci-results/board-image.tar,ci-results/board-image-oci.tar', allowEmpty: true
@@ -333,12 +340,7 @@ def runUnit(Map u) {
     }
     a.end = nowMs()
     if (a.outcome == 'pass') {
-      if (firstFail) {
-        results[u.name] = 'flaky'
-        unstable("${u.name}: flaky on ${firstFail} (passed on ${a.node})")
-      } else {
-        results[u.name] = 'pass'
-      }
+      results[u.name] = 'pass'
       return
     }
     if (a.outcome == 'fail:timeout') {
@@ -346,15 +348,14 @@ def runUnit(Map u) {
       results[u.name] = 'fail'
       error("${u.name}: timed out after ${u.minutes} minutes on ${a.node}, not retried (" + attemptSummary(attempts) + ')')
     }
-    if (a.outcome.startsWith('fail')) {
-      if (!rerun && attempts.size() < maxAttempts) {
-        rerun = true
-        firstFail = a.node
-        echo "unit ${u.name}: failed on ${a.node}; one rerun"
-        continue
-      }
+    // ci/rerun-decision.sh already answered for an outcome reached on the
+    // node. One classified off a node (no node, agent lost: the exception
+    // path) has nothing to run it on, and is rerun only if infrastructure.
+    boolean again = a.rerun != null ? a.rerun : a.outcome.startsWith('infra')
+    if (!again) {
+      // A failed command is a result, not an accident: no rerun, no UNSTABLE.
       results[u.name] = 'fail'
-      error("${u.name}: failed" + (firstFail ? ' twice' : '') + ' (' + attemptSummary(attempts) + ')')
+      error("${u.name}: failed, not rerun (" + attemptSummary(attempts) + ')')
     }
     infra++
     if (infra >= 3 || attempts.size() >= maxAttempts) {
@@ -675,8 +676,8 @@ pipeline {
               // each in its own clone of the checkout (its own tree and
               // TMPDIR; Postgres testcontainers get random host ports), each
               // its own stage and log (ci-results/stability/run-<i>/). The
-              // unit fails when any run fails, and its one rerun repeats all
-              // three; stability.sh prints only at the end (11 min each).
+              // unit fails when any run fails, with no rerun of the three runs;
+              // stability.sh prints only at the end (11 min each).
               def u = [name: 'Stability runs', minutes: 40,
                        body: {
                          sh '''
@@ -715,7 +716,7 @@ pipeline {
                          return failed ? 1 : 0
                        }]
               unitBranch(u).call()
-              env.STABILITY_RESULT = results['Stability runs'] == 'pass' || results['Stability runs'] == 'flaky' ? 'passing' : 'failing'
+              env.STABILITY_RESULT = results['Stability runs'] == 'pass' ? 'passing' : 'failing'
             }
           }
         }
@@ -801,6 +802,11 @@ pipeline {
                   echo "no results stashed for ${name}"
                 }
               }
+              // A flaky list or a leg-divergence list with a line in it fails
+              // the build (ci/flakygate.sh), whatever else the report does.
+              catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                sh 'ci/flakygate.sh "$BOARD_CI_OUT"'
+              }
               writeFile file: 'ci-results/distributed/timing.md', text: timingReport()
               echo timingReport()
               junit testResults: 'ci-results/junit-merged/*.xml', allowEmptyResults: true,
@@ -848,11 +854,9 @@ pipeline {
                                    '<a href="' + env.BUILD_URL + 'CI_20summary/">CI summary</a>)')
                 }
               }
-              def flaky = results.findAll { it.value == 'flaky' }.collect { it.key }
               addSummary(icon: 'symbol-time-outline plugin-ionicons-api',
                          text: 'Distributed: ' + attemptLog.size() + ' units on ' +
                                attemptLog.values().flatten().collect { it.node }.findAll { it }.unique().sort().join(', ') +
-                               (flaky ? '; flaky: ' + flaky.join(', ') : '') +
                                ' (<a href="' + env.BUILD_URL + 'artifact/ci-results/distributed/timing.md">timing</a>)')
               // The commit, for a later incremental mutation run that reuses
               // this build's reports (ci/mutation-plan.sh).

@@ -119,8 +119,17 @@ for Postgres (two servers or two feeds on one Postgres database) runs as a
 Postgres helpers fail a test that asks for a container on `BOARD_DB_LEG=sqlite`. The Postgres leg of those packages, and
 both legs of `features/TestFeatures`, run in the Suite unit (`ci/suite.sh`),
 where the Go matrix still runs both legs. An infrastructure failure (agent lost, Docker unavailable, a wait
-with no free node) gets another attempt, up to three; a failing command is rerun
-once, and a pass there marks the build UNSTABLE ("flaky"). A unit that runs on a
+with no free node) gets another attempt, up to three. A failing command is not
+rerun and nothing marks the build UNSTABLE for a flake (an attempt outcome
+`fail:<exit status>` fails the unit at once): `runUnit` asks
+`ci/rerun-decision.sh <outcome>`, which answers rerun only for `infra:*`
+(`fail:1` and `fail:timeout` no rerun, `infra:no-node` and `infra:agent-lost`
+rerun; an outcome classified off a node, where nothing can run the script, is
+rerun only when it starts with `infra`). A flaky list (`ci-results/flaky-*.txt`)
+or a leg-divergence list (`ci-results/leg-divergence.txt`) with a line in it
+fails the build: the report runs `ci/flakygate.sh ci-results` over every unit's
+unstashed results and sets the build to FAILURE (no list, or only empty ones,
+passes). A unit that runs on a
 node and hits its own time bound (`timeout(time: u.minutes)`) is a failure, not
 an infrastructure failure, and is not retried: the attempt's outcome is
 `fail:timeout` and the unit fails at once (three 45-minute attempts of a Suite
@@ -205,8 +214,8 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   every other parallel test of its package, so a test that takes a wall-clock
   instant before it queues sees it pass (the race in `askwait_test.go` that
   failed #240's `streams+cli` mutation unit, which runs at `-parallel 2` under
-  load, and failed every `-parallel 1` run of `internal/server`). Any run failing fails the unit, whose one
-  rerun repeats all three. Until #238 each run was a unit of its own, and the
+  load, and failed every `-parallel 1` run of `internal/server`). Any run failing fails the unit, which is
+  not rerun. Until #238 each run was a unit of its own, and the
   three executors they held kept the mutation units waiting.
   - The **Perf** unit runs the SPEC 14 harness (`ci/perf.sh`, build tag `perf`) after
     the stability and mutation units, alone on the agent so their load is not part of what it
@@ -594,6 +603,9 @@ The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
   merge-base copy of the file. A table-driven test (`completeness_test.go`)
   holds the real file to SPEC section 15.4 and proves that removing,
   disabling or loosening any gate is noticed.
+- `ci/rerun-decision.sh`, `ci/flakygate.sh` (tested by `ci/repocheck/rerun_test.go`):
+  the infrastructure-only rerun decision and the build failure on a non-empty
+  flaky or leg-divergence list.
 - `ci/junit2allure`, `ci/junitflaky`, `ci/allureverify`: JUnit to Allure
   conversion, the flaky-test list, and the check that the Allure report keeps
   the Godog steps and issue links.

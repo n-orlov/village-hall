@@ -111,7 +111,7 @@ func TestJenkinsfileRunsPlaywrightInItsOwnUnit(t *testing.T) {
 }
 
 // timeoutPolicyProblems: a unit that ran out its own bound on a node is a
-// failure that runUnit does not retry, before it reaches the rerun-once branch;
+// failure that runUnit does not retry, before it reaches the branch that decides on a rerun;
 // a wait with no node is infrastructure and keeps its retries.
 func timeoutPolicyProblems(jf string) []string {
 	var problems []string
@@ -124,7 +124,7 @@ func timeoutPolicyProblems(jf string) []string {
 	}
 	run := functionBody(jf, "def runUnit(Map u) {")
 	own := strings.Index(run, "if (a.outcome == 'fail:timeout') {")
-	rerun := strings.Index(run, "if (a.outcome.startsWith('fail')) {")
+	rerun := strings.Index(run, "if (!again) {")
 	if own < 0 {
 		problems = append(problems, "runUnit has no branch for a unit's own timeout")
 	} else {
