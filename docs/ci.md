@@ -141,8 +141,15 @@ attempt's node block under `queueCapped`, a watcher that cancels a node request
 still queued at the cap, and asks `ci/queue-cap.sh <seconds waited> <cap minutes>`
 once the node is taken (exit 1 past the cap, `queue-wait` on stdout, exit 0 and
 `within-cap` otherwise; plain sh, tested by `ci/repocheck`). Either way the
-attempt's outcome is `infra:queue-wait`, the build summary says "queue wait over
-30 min", and the attempt keeps its infrastructure retries (up to three). The cap
+attempt's outcome is `infra:queue-wait`, and the attempt keeps its infrastructure
+retries (up to three). The published summaries name it: `ci/attempts-summary.sh
+<timing.md>` (plain sh and awk, tested by `ci/suitecheck`) reads the timing table, and
+`ci/jenkins-report.sh` ends the CI summary page (`ci-summary/summary.md` and
+`index.html`) with its "Unit attempts" section, a table of every infrastructure
+attempt (unit, attempt, node, queue minutes, outcome) whose reason reads "queue wait
+over 30 min" for a queue wait, and writes its count line (`--line`: "3 infrastructure
+attempts (2 queue waits over 30 min)", or "no infrastructure attempt") to
+`ci-summary/attempts.txt`, which the build page's "Distributed" line carries. The cap
 covers the wait only: the unit's own bound starts with its node. The build page carries a per-unit timing table
 (`ci-results/distributed/timing.md`).
 

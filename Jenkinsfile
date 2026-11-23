@@ -27,9 +27,14 @@
 // A unit's wait for a node is capped at 30 minutes (QUEUE_CAP_MINUTES, which
 // ci/queue-cap.sh decides on, tested by ci/repocheck): an attempt still queued
 // then is cancelled, one that got its node after more than the cap fails on
-// it, either way as infra:queue-wait ("queue wait" in the build summary), and
-// keeps its infrastructure retries. The cap covers the wait only: the unit's
-// own bound starts with its node.
+// it, either way as infra:queue-wait, and keeps its infrastructure retries. The
+// cap covers the wait only: the unit's own bound starts with its node. The
+// published summaries name every infrastructure attempt and each queue wait:
+// ci/attempts-summary.sh reads the timing table, ci/jenkins-report.sh puts its
+// "Unit attempts" section (unit, attempt, node, queue, outcome, "queue wait over
+// 30 min") on the CI summary page and its line ("3 infrastructure attempts (2
+// queue waits over 30 min)") in ci-summary/attempts.txt, which the build page's
+// "Distributed" line carries.
 // A unit may cap its attempts (maxAttempts: each full mutation unit has one).
 // Each attempt labels its containers with the id ci/attempt-id.sh prints (job,
 // build, unit, attempt) and removes them by it.
@@ -1092,10 +1097,15 @@ pipeline {
                                    '<a href="' + env.BUILD_URL + 'CI_20summary/">CI summary</a>)')
                 }
               }
+              // ci/attempts-summary.sh's line, via ci/jenkins-report.sh: the
+              // infrastructure attempts, naming each queue wait past the cap.
+              String infraAttempts = fileExists('ci-summary/attempts.txt') ? readFile('ci-summary/attempts.txt').trim() : ''
               addSummary(icon: 'symbol-time-outline plugin-ionicons-api',
                          text: 'Distributed: ' + attemptLog.size() + ' units on ' +
                                attemptLog.values().flatten().collect { it.node }.findAll { it }.unique().sort().join(', ') +
-                               ' (<a href="' + env.BUILD_URL + 'artifact/ci-results/distributed/timing.md">timing</a>)')
+                               (infraAttempts ? '; ' + infraAttempts : '') +
+                               ' (<a href="' + env.BUILD_URL + 'artifact/ci-results/distributed/timing.md">timing</a>, ' +
+                               '<a href="' + env.BUILD_URL + 'CI_20summary/">unit attempts</a>)')
               // The commit, for a later incremental mutation run that reuses
               // this build's reports (ci/mutation-plan.sh).
               if (commitSha) {

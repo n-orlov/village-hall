@@ -12,6 +12,13 @@
 #                        report, published as the build's "CI summary"
 #   ci-summary/counts.txt  pass=, fail=, skip=, flaky=, coverage= lines the
 #                        Jenkinsfile reads for the build page's summary line
+#   ci-summary/attempts.txt  the infrastructure-attempt line of
+#                        ci/attempts-summary.sh ("3 infrastructure attempts (2
+#                        queue waits over 30 min)"), read from the Jenkinsfile's
+#                        timing table, for the build page's "Distributed" line;
+#                        its "Unit attempts" section, naming each infrastructure
+#                        attempt and every queue wait, ends ci-summary/summary.md
+#                        and so the CI summary page
 #
 #   ci/jenkins-report.sh <ci/suite.sh output dir> [<previous allure-history dir>]
 #
@@ -52,6 +59,12 @@ if [ "$have_results" -eq 1 ]; then
 else
     echo "(no suite results: the build stopped before ci/suite.sh wrote any)" > "$summary"
 fi
+
+# Infrastructure attempts and queue waits, from the Jenkinsfile's timing table
+# (absent when the build stopped before writing it: then nothing is added).
+timing="$outdir/distributed/timing.md"
+sh "$here/attempts-summary.sh" "$timing" >> "$summary"
+sh "$here/attempts-summary.sh" --line "$timing" > ci-summary/attempts.txt
 
 count() { # count <metric>: the number in summary.sh's "| <metric> | N |" row
     sed -n "s/^| $1 | \([0-9][0-9]*\) |\$/\1/p" "$summary" | head -n 1

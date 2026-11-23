@@ -119,6 +119,12 @@ func queueCapJenkinsfileProblems(jf string) []string {
 	if !strings.Contains(functionBody(jf, "String attemptSummary(List attempts) {"), "queue wait over ${QUEUE_CAP_MINUTES} min") {
 		problems = append(problems, "the build summary does not name a queue wait")
 	}
+	// The build page's "Distributed" line carries ci/attempts-summary.sh's
+	// line (via ci/jenkins-report.sh), which names each queue wait
+	// (ci/suitecheck runs both over a timing table).
+	if !strings.Contains(jf, "readFile('ci-summary/attempts.txt')") || !strings.Contains(jf, "(infraAttempts ? '; ' + infraAttempts : '')") {
+		problems = append(problems, "the build page's Distributed line does not carry the infrastructure attempts and queue waits")
+	}
 	if !strings.Contains(run, "infra++") || !strings.Contains(run, "if (infra >= 3 || attempts.size() >= maxAttempts) {") {
 		problems = append(problems, "a queue wait no longer keeps its infrastructure retries")
 	}
@@ -128,15 +134,40 @@ func queueCapJenkinsfileProblems(jf string) []string {
 func TestJenkinsfileCapsAUnitsQueueWaitAtThirtyMinutes(t *testing.T) {
 	jf := readRepoFile(t, "Jenkinsfile")
 	expectProblems(t, jf, queueCapJenkinsfileProblems, map[string]string{
-		"the old 45 + bound timeout":  replaceOnce(t, jf, "      queueCapped(a) {", "      timeout(time: 45 + u.minutes, unit: 'MINUTES') {"),
-		"a cap of 45":                 replaceOnce(t, jf, "QUEUE_CAP_MINUTES = 30", "QUEUE_CAP_MINUTES = 45"),
-		"no helper":                   replaceOnce(t, jf, "ci/queue-cap.sh ${waited} ${QUEUE_CAP_MINUTES}", "true ${waited} ${QUEUE_CAP_MINUTES}"),
-		"a wait that is not infra":    replaceOnce(t, jf, "a.outcome = 'infra:queue-wait'\n                return", "a.outcome = 'fail:queue-wait'\n                return"),
-		"a cancelled wait not named":  replaceOnce(t, jf, "(a.capped && !isSuperseded()) ? 'infra:queue-wait'", "(a.capped && !isSuperseded()) ? 'fail:queue-wait'"),
-		"the watcher never fires":     replaceOnce(t, jf, "a.capped = true", "a.capped = false"),
-		"a queue wait without cancel": replaceOnce(t, jf, "failFast: true", "failFast: false"),
-		"an unnamed summary":          replaceOnce(t, jf, "queue wait over ${QUEUE_CAP_MINUTES} min", "waited"),
+		"the old 45 + bound timeout":    replaceOnce(t, jf, "      queueCapped(a) {", "      timeout(time: 45 + u.minutes, unit: 'MINUTES') {"),
+		"a cap of 45":                   replaceOnce(t, jf, "QUEUE_CAP_MINUTES = 30", "QUEUE_CAP_MINUTES = 45"),
+		"no helper":                     replaceOnce(t, jf, "ci/queue-cap.sh ${waited} ${QUEUE_CAP_MINUTES}", "true ${waited} ${QUEUE_CAP_MINUTES}"),
+		"a wait that is not infra":      replaceOnce(t, jf, "a.outcome = 'infra:queue-wait'\n                return", "a.outcome = 'fail:queue-wait'\n                return"),
+		"a cancelled wait not named":    replaceOnce(t, jf, "(a.capped && !isSuperseded()) ? 'infra:queue-wait'", "(a.capped && !isSuperseded()) ? 'fail:queue-wait'"),
+		"the watcher never fires":       replaceOnce(t, jf, "a.capped = true", "a.capped = false"),
+		"a queue wait without cancel":   replaceOnce(t, jf, "failFast: true", "failFast: false"),
+		"an unnamed summary":            replaceOnce(t, jf, "queue wait over ${QUEUE_CAP_MINUTES} min", "waited"),
+		"no attempts on the build page": replaceOnce(t, jf, "(infraAttempts ? '; ' + infraAttempts : '')", "''"),
 	})
+}
+
+// The summaries name a queue wait "over <cap> min" with ci/attempts-summary.sh's
+// cap, which is the Jenkinsfile's QUEUE_CAP_MINUTES, as is ci/queue-cap.sh's.
+func TestQueueCapHelpersShareTheJenkinsfileCap(t *testing.T) {
+	m := queueCapConstant.FindStringSubmatch(readRepoFile(t, "Jenkinsfile"))
+	if m == nil {
+		t.Fatal("the Jenkinsfile sets no QUEUE_CAP_MINUTES")
+	}
+	for _, script := range []string{"queue-cap.sh", "attempts-summary.sh"} {
+		if !strings.Contains(readRepoFile(t, "ci", script), "cap=${2:-"+m[1]+"}") {
+			t.Errorf("ci/%s's cap is not QUEUE_CAP_MINUTES (%s)", script, m[1])
+		}
+	}
+	// Run past the cap: the line names the queue wait with that cap.
+	timing := filepath.Join(t.TempDir(), "timing.md")
+	if err := os.WriteFile(timing, []byte("| unit | result | attempt | node | queue (min) | run (min) | outcome |\n"+
+		"| E2E | fail | 1 | - | 30.1 | - | infra:queue-wait |\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := "1 infrastructure attempt (1 queue wait over " + m[1] + " min)"
+	if got := strings.TrimSpace(shellOutput(t, repoScript(t, "ci/attempts-summary.sh"), "--line", timing)); got != want {
+		t.Errorf("ci/attempts-summary.sh --line printed %q, want %q", got, want)
+	}
 }
 
 func TestQueueCapIsDocumentedWhereTheJenkinsfileSetsIt(t *testing.T) {
