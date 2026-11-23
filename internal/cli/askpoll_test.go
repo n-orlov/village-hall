@@ -12,6 +12,20 @@ import (
 	"time"
 )
 
+// pollCase is the expected outcome of a poll the ask is answered or withdrawn in.
+type pollCase struct {
+	withdraw bool
+	code     int
+	out      string
+}
+
+var endCases = []pollCase{
+	{false, ExitOK, "ok A1 answered by nik@host: 8080\n"},
+	{true, ExitConflict, "A1 withdrawn: moved on\n"},
+}
+
+const stillOpen = "A1 still open → vh ask show A1\n"
+
 func TestNextWaitNeverExceedsTheCapOrTheTimeLeft(t *testing.T) {
 	for _, c := range []struct {
 		left time.Duration
@@ -544,5 +558,127 @@ func TestAskPollRefusalsKeepTheirExitCodes(t *testing.T) {
 	code, out, errs := runEnv(f.env(srv), "ask", "zz-9", "q", "--poll", "5m")
 	if code != ExitNotFound || out != "" || !strings.Contains(errs, "vh task ls") {
 		t.Errorf("got %d %q %q", code, out, errs)
+	}
+}
+
+// serverAnswer is what the server's read of the ask as it stood at the
+// deadline came back with, and when it reached the client. The server decides
+// by the ask's commit (an end counts only if its COMMIT had returned by until,
+// whatever its stamps, marks or the reads that found it), so the client sees
+// one of two replies: the end (stamped at endedAt from the raise), or the ask
+// still open. back is when the reply reaches the client, from the raise.
+type serverAnswer struct {
+	live     string // the removed real-clock live case this row stands for: its test (less TestAskPollLive) and subtest names
+	withdraw bool   // the end is a withdrawal, not an answer
+	ended    bool   // the server reports the end
+	endedAt  time.Duration
+	back     time.Duration
+}
+
+// serverAnswers is every decision the real-clock live table asserted at
+// e9f8d27 (internal/cli/askpoll_live_test.go, askpoll_commit_live_test.go and
+// askpoll_mark_live_test.go), one named row per live case, on the fake clock.
+// What decided the reply in the live case (which transaction held the writer,
+// whose COMMIT or mark write was held, which read was queued or starved) is the
+// server's own decision, asserted on the real server and store by internal/server
+// (TestAnEndWhoseCommitReturnedBeforeUntilIsAnsweredEnded,
+// TestAnEndWhoseCommitReturnsAfterUntilIsNeverAnsweredEnded,
+// TestAWaitCountsAnEndWhoseTimelyMarkIsPersistedAfterUntil,
+// TestAWaitReachingTheServerAfterUntilCountsAnEndWhoseTimelyMarkIsPersistedLate,
+// TestAWaitWithUntilAnswersWithTheAskAsReadAtUntil,
+// TestAWaitWithUntilIgnoresAnEndHoldingTheWriterBeforeTheWaitStarted); what the
+// poll does with the reply is the client's, asserted here. The four live
+// witnesses that remain (askpoll_live_test.go) run both together on the real clock.
+func serverAnswers() []serverAnswer {
+	ms := time.Millisecond
+	var rows []serverAnswer
+	for _, e := range endCases {
+		w := e.withdraw
+		add := func(live string, ended bool, endedAt, back time.Duration) {
+			rows = append(rows, serverAnswer{live: live + fmt.Sprintf(" withdraw=%v", w), withdraw: w, ended: ended, endedAt: endedAt, back: back})
+		}
+		add("CountsAnEndCommittedBeforeTheDeadline", true, 300*ms, 1000*ms)
+		for _, at := range []time.Duration{300 * ms, 950 * ms} {
+			rows = append(rows, serverAnswer{withdraw: w, live: fmt.Sprintf("CountsAnEndCommittedInTimeButObservedLate withdraw=%v at=%s", w, at), ended: true, endedAt: at, back: 2100 * ms})
+		}
+		for _, delay := range []time.Duration{0, 400 * ms} {
+			rows = append(rows,
+				serverAnswer{withdraw: w, live: fmt.Sprintf("CountsAnEndWhosePostCommitClockReadIsDelayed withdraw=%v delay=%s", w, delay), ended: true, endedAt: 880 * ms, back: 1000*ms + delay},
+				serverAnswer{withdraw: w, live: fmt.Sprintf("EndCommittedAfterTheDeadlineExitsThree withdraw=%v delay=%s", w, delay), back: 1000*ms + delay})
+		}
+		for _, c := range []struct{ early, delay, endAt time.Duration }{
+			{300 * ms, 0, 100 * ms}, {300 * ms, 400 * ms, 100 * ms}, {100 * ms, 0, 20 * ms},
+		} {
+			rows = append(rows, serverAnswer{withdraw: w, live: fmt.Sprintf("EndHoldingTheWriterBeforeThePollReachesTheServerExitsThree early=%s delay=%s end=%s withdraw=%v", c.early, c.delay, c.endAt, w), back: 1000*ms + c.delay})
+		}
+		add("CountsAnEndWhileAWriteHoldsTheWriterAcrossTheDeadline", true, 800*ms, 1300*ms)
+		add("QueuedFirstReadDoesNotCountAnEndCommittedAfterTheDeadline", false, 0, 1600*ms)
+		add("LateReadAtTheDeadlineDoesNotCountAnEndCommittedAfterIt", false, 0, 1250*ms)
+		for i, back := range []time.Duration{1600 * ms, 1250 * ms} {
+			rows = append(rows, serverAnswer{withdraw: w, live: fmt.Sprintf("CountsAnEndCommittedInTimeThoughEveryServerReadIsLate late=%d withdraw=%v", i, w), ended: true, endedAt: 700 * ms, back: back})
+		}
+		for _, d := range []struct {
+			name string
+			back time.Duration // when the held mark write is let go
+		}{{"readers taken across the deadline", 1500 * ms}, {"first read after the deadline", 1900 * ms}} {
+			rows = append(rows,
+				serverAnswer{withdraw: w, live: fmt.Sprintf("MarkWriteHeldPastTheDeadlineDecidesByWhenTheEndCommitted %s withdraw=%v end=600ms", d.name, w), ended: true, endedAt: 600 * ms, back: d.back},
+				serverAnswer{withdraw: w, live: fmt.Sprintf("MarkWriteHeldPastTheDeadlineDecidesByWhenTheEndCommitted %s withdraw=%v end=1.1s", d.name, w), back: d.back})
+		}
+		add("EndWhoseCommitReturnsAfterTheDeadlineIsOpenForAFirstReadAfterIt", false, 0, 1600*ms)
+		add("EndWhoseCommitReturnsAfterTheDeadlineIsOpenWhileTheReadersAreTaken", false, 0, 1450*ms)
+		for _, release := range []time.Duration{1100 * ms, 1300 * ms} {
+			rows = append(rows, serverAnswer{withdraw: w, live: fmt.Sprintf("EndWhoseCommitReturnsAfterTheDeadlineIsOpenWhenItsMarkWriteIsHeldToo withdraw=%v release=%s", w, release), back: 1500 * ms})
+		}
+		add("EndWhoseCommitReturnsJustAfterTheDeadlineIsOpenWhileTheReadersAreTaken", false, 0, 1450*ms)
+		for _, offset := range []time.Duration{-400 * ms, -150 * ms} { // the end's last statement, from the deadline; its mark written 300 ms after it
+			rows = append(rows, serverAnswer{withdraw: w, live: fmt.Sprintf("CountsAnEndWhoseTimelyMarkIsPersistedAfterTheDeadline withdraw=%v offset=%s", w, offset), ended: true, endedAt: time.Second + offset, back: 1300 * ms})
+		}
+		rows = append(rows, serverAnswer{withdraw: w, live: fmt.Sprintf("CountsAnEndWhoseTimelyMarkIsPersistedAfterTheDeadline withdraw=%v offset=100ms", w), back: 1300 * ms})
+	}
+	rows = append(rows, serverAnswer{live: "OpenAtTheDeadlineExitsThree", back: time.Second})
+	return rows
+}
+
+// A poll raised with --poll 1s reads once, with until the deadline, takes the
+// server's reply however late it comes back, and ends with the reply's exit
+// code and line: the end's (0 or 6) when the reply reports it, exit 3 and the
+// still-open line when it reports the ask open. It never reads again, and ends
+// no earlier than the reply reaches it. Every row is a removed real-clock live
+// case (see serverAnswers).
+func TestPollAskEndsByTheServersAnswerAtTheDeadlineWheneverItReachesTheClient(t *testing.T) {
+	start := time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)
+	deadline := start.Add(time.Second)
+	for _, row := range serverAnswers() {
+		t.Run(row.live, func(t *testing.T) {
+			a := askView{Ref: "A1", State: "open"}
+			wantCode, wantOut := ExitTimeout, stillOpen
+			if row.ended {
+				stamp := start.Add(row.endedAt).Format(time.RFC3339Nano)
+				a = askView{Ref: "A1", State: "answered", AnsweredBy: "nik@host", Answer: "8080", AnsweredAt: stamp}
+				wantCode, wantOut = ExitOK, "ok A1 answered by nik@host: 8080\n"
+				if row.withdraw {
+					a = askView{Ref: "A1", State: "withdrawn", WithdrawReason: "moved on", WithdrawnAt: stamp}
+					wantCode, wantOut = ExitConflict, "A1 withdrawn: moved on\n"
+				}
+			}
+			clock := &pollClock{t: start}
+			var waits []int
+			var untils []time.Time
+			fetch := func(wait int, until time.Time) read {
+				waits, untils = append(waits, wait), append(untils, until)
+				clock.t = start.Add(row.back)
+				return read{a: a, raw: json.RawMessage(`{"read":1}`)}
+			}
+			r := pollAsk(openRead(), deadline, clock.now, fetch)
+			var out strings.Builder
+			code := printPollEnd(r.a, r.raw, false, &out)
+			if r.err != nil || code != wantCode || out.String() != wantOut {
+				t.Errorf("got %d %q (%v), want %d %q", code, out.String(), r.err, wantCode, wantOut)
+			}
+			if fmt.Sprint(waits) != "[1]" || len(untils) != 1 || !untils[0].Equal(deadline) {
+				t.Errorf("read %v with until %v, want one read of 1 s ending at the deadline %s", waits, untils, deadline)
+			}
+		})
 	}
 }
