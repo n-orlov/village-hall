@@ -1,4 +1,5 @@
-import { expect, test, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { apiContext, FIVE_SECONDS, post, viewports } from './history-prefs-walk';
 
 // How a Timeline preview closes (SPEC 11, Preview), measured on the history entry the browser keeps. A preview the page

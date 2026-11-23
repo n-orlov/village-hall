@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // R3: the app moves the browser storage of the earlier name (`board.*`) to `vh.*` before it reads any view state or
 // the theme. The test seeds the old keys before the first load (addInitScript, once: the guard in sessionStorage keeps

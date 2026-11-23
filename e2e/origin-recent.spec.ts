@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, type APIRequestContext } from '@playwright/test';
+import { test } from './fixtures';
 import { openFold } from './now';
 
 // The origin on Now's Recently touched rows (PRD R13, SPEC 11). Each row shows the task's last event; the row says

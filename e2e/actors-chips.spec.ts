@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { expectTags, openChips, pickTag, tagChip } from './chips';
 
 // R7 on Actors (SPEC 11, "The chip filter on Actors"): the shared chip filter (tags only) keeps the actors whose live leases are on

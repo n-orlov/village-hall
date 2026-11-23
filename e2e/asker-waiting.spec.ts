@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test } from './fixtures';
 
 // R8 and R9: the asker-waiting label of an open poll ask follows the board without a reload. Each test opens a view that
 // shows the ask as "asker not waiting", then starts a real held wait (`GET /asks/<ref>?wait=10`) and requires the label to

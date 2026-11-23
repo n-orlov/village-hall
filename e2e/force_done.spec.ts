@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, type APIRequestContext } from '@playwright/test';
+import { test } from './fixtures';
 
 // Done over another actor's lease (PRD R14 UI, SPEC 11): Done on a task another actor holds opens a Dialog confirm that
 // names the holder; Cancel changes nothing; confirming sends force and the task ends up done with no live lease.

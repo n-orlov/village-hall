@@ -1,4 +1,5 @@
-import { expect, test as base, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test as base } from './fixtures';
 
 // Signs in through the mock provider, so no API key rides along (see login.spec.ts).
 // The initiative page `#/i/<slug>` and the Initiatives list's links, counts, live leases and status filter,

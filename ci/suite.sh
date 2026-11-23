@@ -172,8 +172,8 @@ fi
 # HTML, Allure, JSON and trace output in <outdir>/playwright/. A checkout with
 # no e2e/ (the suitecheck fixtures) skips this step.
 #
-# Overlap (task 018): Playwright (one worker, a free port of its own, its own
-# SQLite store) shares nothing with the Go passes below, so it runs in the
+# Overlap (task 018): Playwright (each worker has a server, free port and
+# SQLite store of its own, e2e/fixtures.ts) shares nothing with the Go passes below, so it runs in the
 # background beside them and is waited for before step 3, which reads its
 # files. Its messages go to playwright-messages.log and are replayed to stderr
 # at the wait, where a failure sets overall_status. Nothing is shortened: the

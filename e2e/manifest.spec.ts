@@ -1,4 +1,5 @@
-import { expect, test as base } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test as base } from './fixtures';
 
 // Signs in through the mock provider (no API key rides along), then reads what the page links:
 // the manifest, the favicon and the apple-touch-icon. A second test fetches the six public assets

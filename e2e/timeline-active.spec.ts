@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { ageTaskEvents } from './store';
 
 // R8 on Timeline (SPEC 11, "Timeline"): the sort "Active first" and the filter "Only active" use the server's one definition of

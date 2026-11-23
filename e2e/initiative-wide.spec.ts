@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // R13 initiative page layout (SPEC 11, initiative page, wide): from 1536 px the header, Needs attention and Tasks are the main
 // column, and Open asks and Notes are a 420 px side column on the right, sticky at the top of the viewport and scrolling on

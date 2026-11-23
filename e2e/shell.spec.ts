@@ -1,4 +1,5 @@
-import { expect, test as base, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
+import { test as base } from './fixtures';
 import { ROUTES } from '../web/src/lib/routes';
 
 // The responsive shell: one navigation surface per viewport (phone tab bar, tablet icon rail,

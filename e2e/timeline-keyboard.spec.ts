@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Timeline's row labels from the keyboard (PRD R9, SPEC 11): every label is in the Tab order in row order with a
 // visible focus ring, Enter on a task label opens its preview and Escape gives the focus back to that label, Space on an

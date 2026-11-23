@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { chosenInitiatives, expectInitiatives, initiativeChip, openChips, pickInitiative, pickTag, tagChip } from './chips';
 
 // R7 on Tasks (SPEC 11, "The chip filter, the shared sort control and the tag colour"): tag chips narrow with AND, initiative

@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // R13 task page layout (SPEC 11, task page, wide): from 1536 px the header, description, Links, Blocked by, Blocking, Notes
 // and Timeline are the main column, and the Stranded panel, Live leases, Conflicts, Expired leases and Asks are a 420 px side

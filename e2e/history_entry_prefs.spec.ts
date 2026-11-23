@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from './fixtures';
 import { apiContext, post, selectRoute, sortRoute, viewports, walk } from './history-prefs-walk';
 
 // Each history entry restores its own filters and sort on Back and Forward (PRD R7); the walk is in history-prefs-walk.ts.

@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Actors sort and saved view state (PRD R16, R7, SPEC 11): the rows sort by Actor (text), Live leases (ref, the
 // actor's first live lease), Last seen (time) and Way back (text) through the shared sort control (a select at every width); the sort rides in the fragment query and is saved under `vh.view.v1.actors`, so it survives nav away and back.

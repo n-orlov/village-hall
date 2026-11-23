@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from './fixtures';
 import { selectRoute, viewports, walk } from './history-prefs-walk';
 
 // The Timeline's entries each restore their own filters on Back and Forward (PRD R7): see history-prefs-walk.ts. Named

@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Needs attention section above the other tasks on the Tasks view and on the initiative page (PRD R2, SPEC 11):
 // a stranded task, a task with a blocking ask and a done task in that order with their badges; answering the ask and

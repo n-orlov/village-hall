@@ -23,6 +23,9 @@ const port = Number(process.env.E2E_PORT ?? (process.env.E2E_PORT = String(await
 // port it is chosen once and inherited by every later load of this file;
 // global-setup.ts mints the API key in it and global-teardown.ts removes it.
 const work = process.env.E2E_WORK ?? (process.env.E2E_WORK = mkdtempSync(join(tmpdir(), 'board-e2e-')));
+// The directory every worker's own directory (its binary, store and key) is made under: chosen once like the
+// others, and removed by global-teardown.ts. fixtures.ts starts one server per worker there.
+process.env.E2E_RUN_DIR ??= mkdtempSync(join(tmpdir(), 'board-e2e-run-'));
 // ci/suite.sh points this at its own result directory; every reporter and the
 // test artifacts live under it.
 const out = process.env.E2E_OUT ?? 'out';
@@ -82,7 +85,10 @@ export default defineConfig({
   // initiatives, which leaves dialogs.spec.ts's Tab walk well inside its bound.
   // No test, assertion, timeout or retry changes; the project name only appears in a test's title.
   projects: [
-    { name: 'chromium-early', testMatch: earlySpecs, use: { browserName: 'chromium' } },
-    { name: 'chromium', testMatch: '*.spec.ts', testIgnore: earlySpecs, use: { browserName: 'chromium' } },
+    // worker-isolation.spec.ts needs two workers alive together (it asks the other worker's server for what this one
+    // seeded), which only a phase of its own gives: every other project depends on this one, so it runs first, alone.
+    { name: 'worker-isolation', testMatch: 'worker-isolation.spec.ts', use: { browserName: 'chromium' } },
+    { name: 'chromium-early', testMatch: earlySpecs, dependencies: ['worker-isolation'], use: { browserName: 'chromium' } },
+    { name: 'chromium', testMatch: '*.spec.ts', testIgnore: earlySpecs.concat('worker-isolation.spec.ts'), dependencies: ['worker-isolation'], use: { browserName: 'chromium' } },
   ],
 });

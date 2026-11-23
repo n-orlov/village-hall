@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test } from './fixtures';
 
 // Origin and owner in the UI over the whole set (PRD R13, SPEC 11). origin.spec.ts follows one seeded example through the
 // three displays; this spec checks every member of each set the displays quantify over, against the API's own lists:

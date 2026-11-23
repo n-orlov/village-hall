@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // R6 (SPEC 11, "Display: density, theme and the sidebar"): the density preference (Compact by default, Sparse) changes a
 // list page's row height and is kept under `vh.density.v1`; the sidebar collapses to the icon rail at lg and wider and

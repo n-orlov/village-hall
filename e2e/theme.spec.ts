@@ -1,4 +1,5 @@
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
+import { test as base } from './fixtures';
 
 // The theme setting (Auto, Light, Dark; Auto is the stored `system`) in the account menu, with the browser emulating a dark
 // system. Signs in through the mock provider, so no API key rides along (see login.spec.ts).

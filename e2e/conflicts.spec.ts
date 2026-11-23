@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // Live leases that share a resource (PRD R11): two leases started through the API show as a conflict on both task pages
 // and in the Now panel of the Tasks view, and ending one clears it. Leases of other specs stay live on the shared board,

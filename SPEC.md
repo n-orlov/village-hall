@@ -4079,6 +4079,7 @@ The config has two projects over the one server and store, `chromium-early` firs
 `wide.spec.ts`, which load the unfiltered Timeline or every view in turn or reach a button by Tab alone below a list that only grows, and `chromium` runs the rest. The store only grows during a run, and an
 unfiltered Timeline takes seconds to draw once it holds thousands of tasks, so run last those specs failed the first run on the Jenkins agent and the
 whole-run repeat took the Suite past its 45-minute bound. No spec, assertion or timeout changes. `ci/suitecheck` fails if that order is lost.
+Each Playwright worker starts a board server of its own before its first test (`e2e/fixtures.ts`, worker-scoped fixtures over `e2e/worker-server.ts`): its own port, work directory, SQLite store and API key, so what one worker's specs seed is never seen by another's, and `e2e/store.ts` writes to the calling worker's store. Every `e2e/*.spec.ts` takes `test` from `fixtures.ts`, never from `@playwright/test` (`ci/suitecheck` fails otherwise), and `e2e/worker-isolation.spec.ts`, in a project of its own that every other project depends on, asserts that a task seeded through one worker's API is absent from the other's.
 
 Headline scenarios that define the product (must exist from the first iteration):
 

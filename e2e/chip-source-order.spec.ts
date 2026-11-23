@@ -1,4 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, type Page, type Route } from '@playwright/test';
+import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { openChips, tagChip } from './chips';
 

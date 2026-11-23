@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The attention chip and order on the Initiatives list (PRD R2, SPEC 11): an initiative with a task that needs a person
 // shows a count chip and moves above the initiatives with nothing waiting, which keep their order. The board is shared

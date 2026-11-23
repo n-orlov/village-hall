@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './fixtures';
 import { actorApi, created } from './now';
 
 // A note bound to a task is that task's last touch, so Now's Recently touched rows follow it live (PRD R1): the row's

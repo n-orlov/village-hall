@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test } from './fixtures';
 
 // Which initiatives are collapsed on the Timeline survives Back, Forward and a reload (PRD R8, SPEC 11): it is kept with
 // the history entry, so a visit that has no entry of its own (the nav, a new tab) opens with every initiative expanded.

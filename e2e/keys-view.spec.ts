@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The API keys table sort and saved view state (PRD R16, SPEC 11): the table sorts by Name (text), Status (status) and
 // Expires (time) through the shared header (desktop, with the keyboard) and the Sort select (phone); the sort rides in the

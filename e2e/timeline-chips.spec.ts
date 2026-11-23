@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { expectInitiatives, expectTags, openChips, pickInitiative, pickTag, tagChip } from './chips';
 
 // R7 on Timeline (SPEC 11, "Timeline"): the shared chip filter replaces the single-tag dropdown. Tag chips narrow with AND,

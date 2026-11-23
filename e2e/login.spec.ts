@@ -1,8 +1,9 @@
-import { expect, test as base } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test as base } from './fixtures';
 
 // These specs sign in through the browser, so they send no API key: the session
-// cookie the mock provider's login ends in is the only credential. (fixtures.ts
-// would add a Bearer key to every request, which takes the keyed path instead.)
+// cookie the mock provider's login ends in is the only credential. (fixtures.ts's
+// keyedTest would add a Bearer key to every request, which takes the keyed path instead.)
 const test = base;
 
 test('a visit to / with no session is redirected to the login page, which starts the OIDC flow', async ({ playwright, baseURL }) => {

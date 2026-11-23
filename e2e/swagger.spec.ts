@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from './fixtures';
+import { expect, keyedTest as test } from './fixtures';
 
 // The operations api/openapi.yaml declares, read from the checked-in document
 // (the YAML is regular enough: a path at two spaces of indent, a method at four).

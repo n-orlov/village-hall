@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The one exemption from the 44 px rule (PRD R13, SPEC 15): a Timeline bar (planned, actual or lease) is a data mark sized by
 // its time span, so touch.spec.ts does not hold it to 44 px. That is WCAG 2.5.8's equivalent control: the same task's row label

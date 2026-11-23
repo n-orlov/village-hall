@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { catalogRead, initiativeChip, openChips, pickInitiative, pickTag, revealInitiative, tagChip } from './chips';
 
 // The Now view's saved filters (PRD R16, SPEC 11): the tag and initiative filters are saved under

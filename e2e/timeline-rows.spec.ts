@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Timeline's rows hold still (SPEC 11, R4): the view asks `GET /timeline` for rows=all, so the rows of a filter are
 // the same however the chart is panned or zoomed, and every row has a fixed height (task 52 px, initiative 44 px; 40 and 32 in Compact at desktop) with a

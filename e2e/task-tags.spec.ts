@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { pickTag, tagChip } from './chips';
 import { actorApi, created, openFold, showAllBands } from './now';
 

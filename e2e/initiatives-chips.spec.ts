@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { openChips, pickTag, tagChip } from './chips';
 
 // R7 on Initiatives and on an initiative's page (SPEC 11, "The chip filter on Initiatives and on an initiative's page"): the

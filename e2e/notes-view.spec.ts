@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Notes view's saved filters (PRD R16, SPEC 11): the six filters are saved under `vh.view.v1.notes` when they
 // are applied, a bare `#/notes` restores them before the first fetch (one notes read), a fragment with its own query

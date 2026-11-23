@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // R13 caps (SPEC 11, Wide layout): at 2560x1080 and 3440x1440 the single-table views keep their content at most 1280 px
 // wide, centred in the main column (left and right margins equal within 2 px), the Timeline frame takes the whole main

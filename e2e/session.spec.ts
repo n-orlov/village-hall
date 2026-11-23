@@ -1,4 +1,5 @@
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
+import { test as base } from './fixtures';
 
 // The session states: sign in through the mock provider, Sign out, the Signed out view (which never
 // starts a login redirect by itself), the old cookie refused, Sign in again, and the session error

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
+import { test } from './fixtures';
 import { BANDS } from '../web/src/lib/nowBands';
 
 // The Now view's Needs me bands on wide screens (SPEC 11): the bands are bordered cards stacked in the §11 order, one per row,

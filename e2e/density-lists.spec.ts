@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
+import { test } from './fixtures';
 import { openFold, seedFlight } from './now';
 
 // R6: the shared density preference changes the real row height on every list view at desktop, Now and Timeline included

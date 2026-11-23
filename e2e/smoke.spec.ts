@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures';
+import { expect, keyedTest as test } from './fixtures';
 
 test('the embedded UI shell is served at /', async ({ request }) => {
   // With the key, not a session, so this is the shell itself and no login redirect:

@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { showAllBands } from './now';
-import { expect, test as base, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test as base } from './fixtures';
 
 // R8: the four dialogs/sheets of the R4 set (new initiative, new API key, revoke confirmation, account menu),
 // opened by keyboard only, at the phone and the desktop viewport. Signs in through the mock provider, so no API

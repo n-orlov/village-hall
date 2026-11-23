@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Timeline's label column on desktop (SPEC 11, R8): a separator beside it resizes it by a mouse drag or the arrow keys
 // (Home, End), double click resets it, the width is held between a minimum and 60 % of the chart and remembered under

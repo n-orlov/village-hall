@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Timeline's window lives in the URL fragment (SPEC 11, R3): a settled pan or zoom rewrites `from` and `to` in place
 // (replaceState, so history.length does not grow), a reload opens on the same span, a fragment that names a window opens

@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Timeline's colours and legend (SPEC 11, R2): a board with every kind and state the chart draws, read through the
 // DOM. The legend is visible, and each swatch's computed --tl equals that of a drawn item of the same class and is the

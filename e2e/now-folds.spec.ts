@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
+import { test } from './fixtures';
 import { BANDS_KEY, LAYOUT_KEY, band, seedFlight, seedNeedsMe } from './now';
 
 // The narrow Now view folds In flight and Recently touched like the Needs me bands (PRD R1, R4, SPEC 11): counted accordion

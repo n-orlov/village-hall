@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Actors view (PRD R7, SPEC 11): the actors that hold a live lease come first, each lease linking to its task, then
 // the others by last seen, and every actor with a way back has a button that copies it. A change through the API (a

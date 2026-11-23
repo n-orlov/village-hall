@@ -1,4 +1,5 @@
-import { expect, test as base, type APIRequestContext, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type PlaywrightTestArgs } from '@playwright/test';
+import { test as base } from './fixtures';
 import { catalogRead } from './chips';
 
 // The live indicator in the shell (SPEC 11): `live` while the stream is open, `offline` while the browser

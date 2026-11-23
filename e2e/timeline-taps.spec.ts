@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // A tap on the Timeline acts only on what it went down on (PRD R6, SPEC 11): the target is decided at pointerdown and a
 // task opens only when both the pointer's release and its click land on that same element. Cases 1 to 5, with a finger

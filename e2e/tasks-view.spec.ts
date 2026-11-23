@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { expectInitiatives, initiativeChip, showAllInitiatives } from './chips';
 
 // The Tasks view's sort and saved view state (PRD R16, SPEC 11): the table sorts by its columns through the shared sort control, the sort rides in the fragment query next to the filters, the whole query is

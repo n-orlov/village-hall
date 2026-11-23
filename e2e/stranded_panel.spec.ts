@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Stranded panel on the task page (PRD R2, SPEC 11): a task whose lease ran out and was not acknowledged shows its
 // badges in the header and a panel with the holder, the intent, the last renewal, the expiry, a copy way back button

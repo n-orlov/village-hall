@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { expectInitiatives, foldChips, initiativeChip, pickInitiative, pickTag, tagChip } from './chips';
 import { showAllBands } from './now';
 

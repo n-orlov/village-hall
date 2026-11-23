@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Timeline's collapsed initiatives and its rows' scroll belong to the history entry they were displayed on (PRD R7, R8):
 // a Back, Forward or reload that comes before the chart's own deferred reports (the 100 ms scroll debounce, the redraw after

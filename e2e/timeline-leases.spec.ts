@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test } from './fixtures';
 
 // Overlapping leases stay readable and tappable (PRD R11, SPEC 11 "Lease slots"): on a task whose leases overlap, each
 // lease takes a slot of its own below the actual span, stepping down so every bar has a strip no other bar's box covers,

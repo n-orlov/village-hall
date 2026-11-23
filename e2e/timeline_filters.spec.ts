@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { expectInitiatives, expectTags, pickInitiative, pickTag } from './chips';
 
 // The Timeline view's filters, panning and live refresh (PRD R6, SPEC 11): the four filters (initiative, tag, actor,

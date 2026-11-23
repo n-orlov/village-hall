@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test } from './fixtures';
 import { expectInitiatives, foldChips, pickInitiative, pickTag } from './chips';
 
 // The Timeline on a phone (PRD R10, SPEC 11): opening #/timeline at 390x844 shows the first task row in full, above the

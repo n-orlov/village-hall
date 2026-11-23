@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { BANDS } from '../web/src/lib/nowBands';
 import { catalogRead, initiativeChip, openChips, pickInitiative, pickTag, tagChip } from './chips';
 import { band, items, showAllBands } from './now';

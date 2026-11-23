@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // R13 Tasks layout (SPEC 11, Tasks view, wide): from 1536 px the Now panel (400 px, never folded) sits in a side column to
 // the right of the task table, sticky at the top of the viewport and scrolling on its own when its content is taller than

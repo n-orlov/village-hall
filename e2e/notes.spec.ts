@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Notes view `#/notes` (PRD R10, SPEC 11): notes newest first, Post note with a task, an initiative or neither,
 // the six filters in the fragment's query, a body that expands and Load more. The board is shared with the other

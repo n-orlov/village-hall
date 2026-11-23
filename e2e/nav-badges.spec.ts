@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test as base, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
+import { test as base } from './fixtures';
 import { actorApi, created } from './now';
 
 // R5: the Now navigation item's two badges, the red count of Needs me items and the green count of open tasks with a live

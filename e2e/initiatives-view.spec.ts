@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 
 // The Initiatives view's sort and saved view state (PRD R16, R7, SPEC 11): the table sorts by Title (text), Status (status),
 // Tags (text), Tasks (number) and Created (time) through the shared sort control (a select at every width, with the keyboard); the sort rides in the

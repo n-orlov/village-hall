@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test } from './fixtures';
 import { expectInitiatives, expectTags, pickInitiative, pickTag } from './chips';
 
 // The Timeline view's saved filters (PRD R16, SPEC 11): the filters are saved under `vh.view.v1.timeline`, a bare

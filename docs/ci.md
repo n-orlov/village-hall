@@ -655,11 +655,23 @@ Scripts, each run through `ci/run.sh` unless noted:
   `chromium` with every other spec. The store only grows, and an unfiltered Timeline
   takes seconds to draw once it holds thousands of tasks; run last, those specs failed
   the first run on the agent and the repeat took the Suite past its bound.
-  `ci/suitecheck` fails if that order is lost. Only `GET /healthz` is open,
-  so `e2e/global-setup.ts` mints a key with `vh admin keys create` at test
-  time (no key is committed) and the `test` exported by `e2e/fixtures.ts`
-  sends it, with a `Board-Actor` header, on every request; every spec imports
-  `test` from there. The retry-once is the
+  `ci/suitecheck` fails if that order is lost. Only `GET /healthz` is open.
+  Each Playwright worker starts a board server of its own (`e2e/worker-server.ts`
+  runs `e2e/serve.sh` in a directory of the worker's own) before its first test:
+  its own port, work directory (binary and SQLite store) and API key, minted with
+  `vh admin keys create` at test time (no key is committed), stopped after its
+  last test. These are worker-scoped fixtures of the `test` exported by
+  `e2e/fixtures.ts`: a spec reaches its worker's server through `baseURL`, and its
+  key and store through `process.env.E2E_API_KEY` and `E2E_WORK`, which the fixture
+  sets in that worker's own process; `e2e/store.ts` therefore writes to the calling
+  worker's store. Every `e2e/*.spec.ts` imports `test` from `fixtures.ts`, never from
+  `@playwright/test` (`TestE2ESpecsTakeTestFromFixtures` in `ci/suitecheck` fails
+  otherwise; `SUITECHECK_E2E_DIR` points it at another e2e directory).
+  `keyedTest` (smoke, swagger) also sends the key and a `Board-Actor` header on every
+  request. `e2e/worker-isolation.spec.ts` seeds a task through each of two workers
+  and asks the other worker's server for it; the project `worker-isolation` runs
+  it alone, first, so that two workers are alive together. The global server
+  of `serve.sh` and `e2e/global-setup.ts` remain for now. The retry-once is the
   suite's: a failed run is kept as `junit-playwright-run1.xml` and
   `playwright-run1.log`, repeated once as a whole run (every spec runs again, not only
   the failed ones, unlike the Go and Godog reruns), and a pass on the repeat is recorded in
@@ -670,8 +682,8 @@ Scripts, each run through `ci/run.sh` unless noted:
   `e2e/serve.sh` also builds and starts `cmd/fake-oidc` (the mock OIDC provider,
   test-only, signing in `operator@example.test`) and starts the binary with browser
   login against it (`BOARD_OIDC_*`, `BOARD_PUBLIC_URL`; the client secret is made
-  up per run). `e2e/login.spec.ts` imports Playwright's own `test` rather than
-  fixtures.ts: it sends no key, the session cookie is its only credential.
+  up per run). `e2e/login.spec.ts` uses `test`, not `keyedTest`: it sends no key,
+  the session cookie is its only credential.
   `serve.sh` builds the UI only when `internal/webui/dist` is missing, so after
   changing `web/` locally run `npm run build` there first (the suite always does).
   One spec: `ci/run.sh sh -c 'cd e2e && npx playwright test smoke.spec.ts'`.

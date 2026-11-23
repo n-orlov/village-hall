@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
-import { expect, test as base, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
+import { test as base } from './fixtures';
 
 // The task page `#/t/<ref>` at the phone and the desktop size: what it shows (header, description, planned window,
 // links, dependencies, live leases, the event timeline) and the Edit, Done, Reopen and Close actions, each leaving its
