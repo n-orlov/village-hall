@@ -357,7 +357,7 @@
                 <div class="mt-1"><TagChips marks={row.marks} ref={row.ref} editor={editorOf(row)} /></div>
               {/if}
             </td>
-            <td class="text-sm {cell}"><a class="inline-flex min-h-11 min-w-11 items-center text-accent hover:underline" href="#/i/{row.initiative}" data-testid="task-initiative">{row.initiative}</a></td>
+            <td class="text-sm {cell}"><a class="inline-flex min-h-11 min-w-11 max-w-full items-center text-accent wrap-anywhere hover:underline" href="#/i/{row.initiative}" data-testid="task-initiative">{row.initiative}</a></td>
             <td class="text-sm {cell}" data-testid="task-kind">{row.kind}</td>
             <td class={cell} data-testid="task-status"><span class="{badge} border-border text-text-muted">{row.status}</span></td>
             <td class="flex flex-wrap gap-1 empty:hidden {cell}" data-testid="task-flags">

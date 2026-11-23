@@ -22,11 +22,18 @@ import { items, showAllBands } from './now';
 // page and Attention to the same bar at 2560x1080 and 3440x1440.
 const test = base;
 
+// The phone is held to the bar twice: in the browser's own font, and with every glyph 5% of an em wider. The text a font
+// sets in 390 px is the font's own: a fallback font (the one `system-ui` picks differs from host to host) is wider than
+// the one that happens to fit, and a 40-character slug or tag that just fits in one font scrolls the page sideways in
+// another. Letter spacing widens every font the same way, so the second pass fails wherever the page only fits by the margin of
+// the font it was built in, whichever font the machine has.
+const WIDE_GLYPHS = '*, *::before, *::after { letter-spacing: 0.05em !important; }';
 const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'tablet', size: { width: 820, height: 1180 } },
-  { name: 'small-desktop', size: { width: 1024, height: 768 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
+  { name: 'phone', size: { width: 390, height: 844 }, css: '' },
+  { name: 'phone-wide-glyphs', size: { width: 390, height: 844 }, css: WIDE_GLYPHS },
+  { name: 'tablet', size: { width: 820, height: 1180 }, css: '' },
+  { name: 'small-desktop', size: { width: 1024, height: 768 }, css: '' },
+  { name: 'desktop', size: { width: 1440, height: 900 }, css: '' },
 ] as const;
 
 const wide = (n: number, ch = 'W') => ch.repeat(n);
@@ -749,6 +756,21 @@ for (const vp of viewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 
+    // Added to every document before its scripts run, so the styles are there from the first paint of every state.
+    test.beforeEach(async ({ page }) => {
+      if (vp.css === '') return;
+      await page.addInitScript((css) => {
+        const add = () => {
+          const style = document.createElement('style');
+          style.setAttribute('data-testid', 'wide-glyphs');
+          style.textContent = css;
+          document.head.appendChild(style);
+        };
+        if (document.head) add();
+        else document.addEventListener('DOMContentLoaded', add);
+      }, vp.css);
+    });
+
     test.beforeAll(async ({ playwright, baseURL }) => {
       const seed = await playwright.request.newContext({
         baseURL,
@@ -763,6 +785,14 @@ for (const vp of viewports) {
         expect([201, 409], `seed key ${name}: ${res.status()}`).toContain(res.status());
       }
       await seed.dispose();
+    });
+
+    test(`the ${vp.name} pass sets the page ${vp.css === '' ? 'in the font as it is' : 'with wider glyphs'}`, async ({ page }) => {
+      await page.goto('/#/initiatives');
+      await expect(page.locator('[data-testid=initiative-row]').first()).toBeVisible();
+      const spacing = await page.evaluate(() => getComputedStyle(document.body).letterSpacing);
+      if (vp.css === '') expect(spacing).toBe('normal');
+      else expect(spacing).not.toBe('normal');
     });
 
     test('the Initiatives list holds the longest accepted titles, slugs and tags without scrolling sideways', async ({ page }) => {

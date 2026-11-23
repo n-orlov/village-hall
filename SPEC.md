@@ -3583,6 +3583,13 @@ narrow glyphs, 20 tags of 40 characters, a URL-like title, a 64-character key na
 `document.documentElement.scrollWidth <= clientWidth` and that no row, chip, dialog or toast reaches past the
 viewport at 390, 820, 1024 and 1440 px, for both lists, the revoke confirmation, the create toast and
 the once-shown key box.
+Whatever the font: the phone width is held to the bar twice, once in the browser's own font and once as `phone-wide-glyphs`
+(390 px, every glyph given 0.05 em of letter spacing), because the fallback font `system-ui` resolves to differs from machine to
+machine and a 40-character slug or tag that just fits in one font scrolls the page sideways in a wider one. Letter spacing
+widens every font alike, so the second pass does not depend on which fonts a machine has. A tag chip (`.vh-tag`) and the
+initiative link on the Tasks table and the task page therefore break inside the word (`overflow-wrap: anywhere`, at most the
+width of their container) instead of staying on one line. The same spec also asserts that each pass applies, or does not apply,
+the letter spacing, so a pass whose styles never loaded cannot pass.
 The same spec holds a finite list of Phase 1 states to the same bar, named in `PHASE1_STATES`: the views
 `#/tasks` (with the Now panel open), `#/i/<slug>` and `#/t/<ref>`, and the nine dialogs edit initiative, close
 initiative, new task, edit task, close task, milestone, record check, add dependency and end lease. They are

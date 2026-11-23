@@ -197,7 +197,9 @@ summary:focus-visible,
   padding: 0 0.5rem;
   font-size: 0.75rem;
   line-height: 1.25rem;
-  white-space: nowrap;
+  /* A 40-character tag is wider than a phone in some fonts: it breaks inside the word rather than push the page sideways. */
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .vh-tag[data-source='actor'] {
   border-style: dashed;

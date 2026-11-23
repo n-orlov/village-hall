@@ -124,7 +124,7 @@
   <div class="flex flex-wrap items-center gap-x-6">
     <a class={back} href="#/tasks" data-testid="back-link">← Tasks</a>
     {#if view.task !== undefined}
-      <a class={back} href="#/i/{view.task.initiative}" data-testid="task-initiative">{view.task.initiative}</a>
+      <a class="{back} max-w-full wrap-anywhere" href="#/i/{view.task.initiative}" data-testid="task-initiative">{view.task.initiative}</a>
     {/if}
   </div>
 {/snippet}

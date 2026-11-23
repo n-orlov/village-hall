@@ -831,6 +831,8 @@
   }
   .timeline-frame :global(.tl-tag) {
     flex: none;
+    max-width: none;
+    white-space: nowrap;
     padding: 0 0.375rem;
     font-size: 0.6875rem;
     line-height: 1rem;
