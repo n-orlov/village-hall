@@ -857,11 +857,17 @@ Scripts, each run through `ci/run.sh` unless noted:
   at the desktop width only; a spec that checks layout or touch behaviour keeps its phone
   variant (shell, dialogs, touch, density, overflow, timeline-phone, wide, a11y, keys,
   initiatives, history_restore, task_page, tasks-view, needs-me, timeline, timeline-active
-  and timeline-rows among them). Every phone-dropped spec still runs each test it had at
-  desktop. `TestPhoneDroppedSpecsUseLogicViewports` in `ci/suitecheck`
+  and timeline-rows among them). `wide.spec.ts` measures the R13 caps at 2560 and 3440 px
+  and takes the shared `phone` from `e2e/viewports.ts` for its phone variant, which checks
+  that below the cap each view and the Timeline frame take the whole main column and a long
+  description stays within 75ch and the column. Every phone-dropped spec still runs each
+  test it had at desktop. `TestPhoneDroppedSpecsUseLogicViewports` in `ci/suitecheck`
   (`viewports_test.go`) holds the explicit list of phone-dropped specs: each imports
   `logicViewports`, declares no viewport list of its own and contains none of those
-  patterns; any other file that uses `logicViewports` fails it.
+  patterns; any other file that uses `logicViewports` fails it. Each spec that must keep its
+  phone variant must also run at the phone viewport: it imports `phone` or
+  `layoutViewports` from `e2e/viewports.ts`, or declares a 390 px wide viewport
+  (`TestKeptSpecsRunAtThePhone`).
   Playwright runs once and
   the script does not repeat a failed run: a failure fails the suite.
   `junit-playwright.xml` and the HTML, Allure and JSON output (`playwright/`)

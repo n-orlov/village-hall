@@ -5,7 +5,8 @@
 // same logic at 390 px, where the only difference is the 768 px breakpoint's stacking, and that is the layout
 // specs' job. A spec with any viewport-dependent assertion, touch interaction or layout check (a branch on the
 // viewport, a locator that exists at one width only, a tap, a width, scroll or position measurement, an axe scan)
-// keeps the phone through `layoutViewports`, or through its own list when it needs further widths or fields.
+// keeps the phone through `layoutViewports` or the shared `phone`, or through its own list when it needs further widths
+// or fields.
 // ci/suitecheck (TestPhoneDroppedSpecsUseLogicViewports) holds the list of phone-dropped specs.
 export const phone = { name: 'phone', size: { width: 390, height: 844 } } as const;
 export const desktop = { name: 'desktop', size: { width: 1440, height: 900 } } as const;

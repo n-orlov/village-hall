@@ -5,7 +5,8 @@
 //   - every listed spec imports logicViewports, declares no viewport list or size literal of its own, and contains none
 //     of the viewport-dependent patterns in viewportDependence (comments are not code and are left out);
 //   - every e2e file that uses logicViewports is on the list, so a spec cannot drop its phone variant unlisted;
-//   - none of the specs that must keep their phone variant (mustKeepPhone) is on the list.
+//   - none of the specs that must keep their phone variant (mustKeepPhone) is on the list, and each of them runs at the
+//     phone viewport (it imports `phone` or `layoutViewports` from './viewports', or declares a 390 px wide viewport).
 //
 // SUITECHECK_E2E_DIR points the check at another e2e directory; it defaults to the repository's own e2e/.
 package suitecheck
@@ -89,7 +90,16 @@ var (
 	viewportLoop     = regexp.MustCompile(`for\s*\(const\s+(\w+)\s+of\s+logicViewports\)`)
 	logicImport      = regexp.MustCompile(`import\s*\{[^}]*\blogicViewports\b[^}]*\}\s*from\s*'\./viewports'`)
 	viewportListDecl = regexp.MustCompile(`\b(const|let|var)\s+\w*[vV]iewports\s*=`)
+	// A spec runs at the phone viewport when it takes the shared phone (or layoutViewports) or declares the 390 px width.
+	phoneImport = regexp.MustCompile(`import\s*\{[^}]*\b(phone|layoutViewports)\b[^}]*\}\s*from\s*'\./viewports'`)
+	phoneWidth  = regexp.MustCompile(`\bwidth:\s*390\b`)
 )
+
+// runsAtPhone reports whether a spec's text (comments left out) has a phone viewport.
+func runsAtPhone(code string) bool {
+	code = stripComments(code)
+	return phoneImport.MatchString(code) || phoneWidth.MatchString(code)
+}
 
 func stripComments(code string) string {
 	return tsLineComment.ReplaceAllString(tsBlockComment.ReplaceAllString(code, ""), "$1")
@@ -156,6 +166,10 @@ func listProblems(dir string, list, keep []string) []string {
 	for _, name := range keep {
 		if listed[name] {
 			problems = append(problems, name+": must keep its phone variant, but is on the phone-dropped list")
+		} else if code, err := readIfPresent(dir, name); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", name, err))
+		} else if !runsAtPhone(code) {
+			problems = append(problems, name+": must keep its phone variant, but runs at no phone viewport")
 		}
 	}
 	return append(problems, unlistedUsers(dir, listed)...)
@@ -299,7 +313,7 @@ func TestPhoneDroppedListFailsOnADoctoredEntry(t *testing.T) {
 		}
 	}
 	write("sneaky.spec.ts", "const viewports = [];\n")
-	write("shell.spec.ts", "const viewports = [];\n")
+	write("shell.spec.ts", "const viewports = [{ name: 'phone', size: { width: 390, height: 844 } }];\n")
 	if got := listProblems(dir, list, []string{"shell.spec.ts"}); len(got) != 0 {
 		t.Fatalf("undoctored list: problems = %q, want none", got)
 	}
@@ -315,5 +329,47 @@ func TestPhoneDroppedListFailsOnADoctoredEntry(t *testing.T) {
 		if !strings.Contains(got, name) {
 			t.Errorf("a list with %s: problems = %q, want one naming it", name, got)
 		}
+	}
+}
+
+// TestKeptSpecsRunAtThePhone covers the keep list's other half: a spec that must keep its phone variant fails when it
+// has no phone viewport (only wide widths, or the phone only in a comment) and passes with the shared phone, the shared
+// layoutViewports or a 390 px literal of its own.
+func TestKeptSpecsRunAtThePhone(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "wide.spec.ts"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "viewports.ts"), []byte("export const logicViewports = [desktop];\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	keep := []string{"wide.spec.ts"}
+	for what, body := range map[string]string{
+		"wide widths only":     "const viewports = [{ name: 'wide', size: { width: 2560, height: 1080 } }];\n",
+		"a phone in a comment": "// { width: 390 }\n/* import { phone } from './viewports'; */\nconst a = 1;\n",
+		"phone from elsewhere": "import { phone } from './other';\n",
+	} {
+		write(body)
+		got := strings.Join(listProblems(dir, nil, keep), "\n")
+		if !strings.Contains(got, "wide.spec.ts: must keep its phone variant, but runs at no phone viewport") {
+			t.Errorf("%s: problems = %q, want the missing phone named", what, got)
+		}
+	}
+	for what, body := range map[string]string{
+		"the shared phone":          "import { test } from './fixtures';\nimport { phone } from './viewports';\n",
+		"the shared layout list":    "import { layoutViewports } from './viewports';\n",
+		"a 390 px literal":          "const viewports = [{ name: 'phone', size: { width: 390, height: 844 } }];\n",
+		"a 390 px literal in a use": "test.use({ viewport: { width: 390, height: 844 } });\n",
+	} {
+		write(body)
+		if got := listProblems(dir, nil, keep); len(got) != 0 {
+			t.Errorf("%s: problems = %q, want none", what, got)
+		}
+	}
+	if got := listProblems(dir, nil, []string{"absent.spec.ts"}); len(got) != 1 || !strings.Contains(got[0], "absent.spec.ts") {
+		t.Errorf("a missing kept spec: problems = %q, want one naming it", got)
 	}
 }
