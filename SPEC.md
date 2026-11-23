@@ -3900,7 +3900,8 @@ built with `CGO_ENABLED=0` and `-trimpath`, the version and the revision stamped
 (`<sha256>  <file>` for every other asset), a CycloneDX SBOM per tarball and one for the image, the
 multi-arch image `village-hall` (linux/amd64 and linux/arm64, built as §12.4 builds it), and `install.sh` /
 `INSTALL-AGENT.md` from the tagged commit. `ci/release-build.sh <version> <outdir>` builds all of it and
-publishes nothing; every CI build runs it as a dry run (`ci/release-check.sh`, in the Image unit) and asserts the
+publishes nothing; every CI build runs it as a dry run (`ci/release-check.sh`, in the Image unit, which reuses the
+OCI and docker-save tars of the unit's own `ci/image-build.sh` and builds no image of its own) and asserts the
 four tarballs, that `checksums.txt` verifies, that the linux/amd64 `vh version` prints the version, that
 every SBOM parses and that the OCI index lists both platforms. Releases are immutable (§8.5, §15.3).
 
@@ -4140,7 +4141,7 @@ the sibling containers it labelled, by exact ID (a Mutation unit's test processe
 | Lint (Core) | `ci/run.sh ci/lint.sh`: gofmt, go vet, mod tidy drift, golangci-lint | plus ESLint, `svelte-check`, `tsc --noEmit`, OpenAPI lint, generated-code drift check, `install.sh` ↔ `INSTALL-AGENT.md` agreement (§8.5), shellcheck |
 | Suite (Core) | `ci/run.sh ci/suite.sh`: gotestsum, every test run once with no retry, JUnit, coverage merged from the unit pass and the Godog scenarios' `-cover` board binary (a leg that ran scenarios without leaving feature counters fails the suite) | adds the Postgres leg of the matrix, Vitest, Playwright (each run once: the suite has no retry for any of them) |
 | Allure smoke (Core) | `ci/allure-smoke.sh` over the Godog formatter fixture | same |
-| Image (Core) | — (not in deck as a unit) | builds the root `Dockerfile` image for linux/amd64 and linux/arm64 and checks it (`ci/image-build.sh`, `ci/image-check.sh`, §12.4, never pushed), then runs the release dry run (`ci/release-check.sh`, §12.5); the amd64 tar feeds the image gates |
+| Image (Core) | — (not in deck as a unit) | builds the root `Dockerfile` image for linux/amd64 and linux/arm64 and checks it (`ci/image-build.sh`, `ci/image-check.sh`, §12.4, never pushed), then runs the release dry run (`ci/release-check.sh`, §12.5, which reuses those tars: the root `Dockerfile` is built once per architecture in the unit, and `ci/repocheck` counts the builds against stub `docker` and `ci/image-build.sh`); the amd64 tar feeds the image gates |
 | Quality (Core) | `ci/run.sh ci/quality.sh` with `ci/quality.json`, then `ci/run.sh go run ./ci/pkgtime` (the package test-time budgets of §15.4) | gates in §15.4. It waits for Suite (the coverage) and Image (the tar) without holding an executor. The two mutation rows are reported as judged by the Mutation phase (`--mutation-deferred`), whose reports exist only after it and only when it ran |
 | Stability | `EXTENDED=true` or the nightly timer: one unit (one executor) running `ci/stability.sh 1` three times side by side, each run in its own clone of the checkout and its own stage, the third at `go test -parallel 1` (`BOARD_STABILITY_PARALLEL=1`), beside Mutation; any run failing fails it | same |
 | Perf | after Stability and Mutation, when the Stability unit passed: `ci/perf.sh`, §14, 30 minutes, alone on the agent, `perf.json` archived | — |

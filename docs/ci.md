@@ -466,7 +466,10 @@ of it must answer `GET /healthz` with 200. Both run in the Image unit of the Cor
 phase, whose tar the Quality unit then scans with `ci/quality.sh`.
 
 The Image unit then runs the release dry run, `ci/release-check.sh` (below, "Release build"): it
-builds every release asset at the commit being built and asserts them, and publishes nothing.
+builds every release asset at the commit being built and asserts them, and publishes nothing. It builds
+no image of its own: the root `Dockerfile` is built once per architecture in the unit, by its one
+`ci/image-build.sh`, and the dry run reuses that build's tars, so the image the release check
+inspects is the image `ci/image-check.sh` just checked.
 `ci/repocheck` fails when the final stage is not scratch or
 distroless static, has a `RUN`, runs as root or sets no user, lacks the CA
 certificates or tzdata, when a builder `FROM` lacks `--platform=$BUILDPLATFORM`, or
@@ -559,10 +562,15 @@ amd64 image), `install.sh` and `INSTALL-AGENT.md` from the commit, and `checksum
 for every other file at the top. The multi-arch image (linux/amd64 and linux/arm64, built by
 `ci/image-build.sh` with `BOARD_IMAGE_NAME=village-hall:<version>` and `BOARD_IMAGE_TAG`, so
 `board:ci` is untouched) is `<outdir>/image/board-image-oci.tar`: not an asset, it is what the publish
-step pushes.
+step pushes. When `BOARD_RELEASE_IMAGE_DIR` names a directory holding the `board-image-oci.tar` and
+`board-image.tar` of an image `ci/image-build.sh` already built (the dry run sets it), `ci/release-build.sh`
+builds no image: `ci/oci-name.sh` copies that OCI layout adding only the `village-hall:<version>` name to
+its `index.json` (every blob and digest stays as built) and the image SBOM scans that `board-image.tar`.
 
-`ci/release-check.sh [dir]` is the dry run, in the Image unit after `ci/image-check.sh`: it builds
-`v0.0.0-dryrun` into `<dir>/release-dryrun`, runs `ci/repocheck`'s `TestReleaseBuild*` tests (build
+`ci/release-check.sh [dir]` is the dry run, in the Image unit after `ci/image-check.sh`: it needs the
+two image tars the unit's `ci/image-build.sh` left in `<dir>` (and stops, naming that command, when they
+are missing) and builds `v0.0.0-dryrun` into `<dir>/release-dryrun` from them, with no second image build
+(the image carries the unit's version, not `v0.0.0-dryrun`; the `vh` tarballs carry the dry-run version), runs `ci/repocheck`'s `TestReleaseBuild*` tests (build
 tag `releasebuild`; they assert the four tarballs, that `checksums.txt` verifies and covers every
 asset, that the linux/amd64 `vh version` prints the version, that every SBOM parses and that the OCI
 index lists both platforms) through `ci/run.sh`, writes their JUnit to `<dir>/junit-merged/junit-release-dryrun.xml`,
@@ -939,7 +947,10 @@ Scripts, each run through `ci/run.sh` unless noted:
   the deployed-configuration test and a `/healthz` probe against `board:ci`.
 - `ci/release-build.sh <version> <outdir>`: builds the release assets of SPEC 12.5 into
   `<outdir>` (inside the checkout; on the agent, outside `ci/run.sh`) and pushes, uploads and tags
-  nothing; see "Release build" below. `ci/release-check.sh [dir]` is its dry run.
+  nothing; see "Release build" below. `ci/release-check.sh [dir]` is its dry run: it reuses the Image
+  unit's image tars (`BOARD_RELEASE_IMAGE_DIR`, `ci/oci-name.sh`) and builds no image. `ci/imagebuildonce_test.go`
+  (`ci/repocheck`) runs the scripts against stub `docker`, `go`, `trivy` and `ci/run.sh` and counts the
+  `ci/image-build.sh` calls: none in the dry run, one in a release.
 - `ci/imagecheck`: the Go tool that reads the OCI layout (both manifests, user,
   entrypoint, title, compressed size, the ELF machine of `/vh`); its `imagedeploy`
   test (`deployed_test.go`) starts the loaded image as the deployment does.

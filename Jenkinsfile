@@ -70,7 +70,8 @@
 // removes the sibling containers it labelled (ralphd.run=<attempt id>, by
 // exact ID; the id names the job, so another branch's build with the same
 // number never matches) and stashes its ci-results. Quality waits for Suite (coverage),
-// E2E (Playwright's results) and Image (the image tar). The report runs once
+// E2E (Playwright's results) and Image (the image tar; the Image unit builds the
+// image once and its release dry run reuses that tar). The report runs once
 // at the end over every unit's stash. An attempt cut off before its stash (its
 // own limit, a lost agent) writes ci-results/unit-cut-<unit>.txt, stashes and
 // archives the logs, JUnit files and finished mutation reports written so far,
@@ -842,7 +843,10 @@ pipeline {
           units << [name: 'E2E', minutes: 120, signal: 'E2E', sample: true,
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
           // Both platforms cross-built and never pushed; the amd64 image is run
-          // and probed.
+          // and probed. The root Dockerfile is built once per architecture, by the
+          // one ci/image-build.sh below: the release dry run (ci/release-check.sh)
+          // reuses that build's OCI tar and docker-save tar and builds no image of
+          // its own (ci/repocheck imagebuildonce_test.go).
           units << [name: 'Image', minutes: 30, signal: 'Image',
                     body: {
                       int rc = sh(returnStatus: true, script: 'ci/image-build.sh "$BOARD_CI_OUT/board-image.tar" && ci/image-check.sh "$BOARD_CI_OUT"')

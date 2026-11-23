@@ -14,6 +14,14 @@
 #                              ci/image-build.sh; not a release asset: the publish
 #                              step pushes it (ci/release-publish.sh)
 #
+# The image is built once per architecture. A release builds it here. The dry run
+# (ci/release-check.sh, in the Image unit) sets BOARD_RELEASE_IMAGE_DIR to the
+# directory holding the board-image-oci.tar and board-image.tar the unit's own
+# ci/image-build.sh already produced: this script then builds no image, names the
+# OCI layout's image village-hall:<version> (ci/oci-name.sh, which changes only the
+# index and leaves every image blob as it was) and scans that docker-save tar for
+# the SBOM, so the image the release check inspects is the image under test.
+#
 # The files at the top of <outdir> are the release's assets; image/ holds the
 # image. Run it on the CI agent outside ci/run.sh (the image build needs the
 # docker CLI); the Go, npm, tar and Trivy parts go through ci/run.sh, so <outdir>
@@ -75,13 +83,26 @@ for target in $targets; do
 	ci/run.sh sh -c "rm -rf /tmp/sbom && mkdir -p /tmp/sbom/vh_$target && cp '$work/$target/vh' /tmp/sbom/vh_$target/ && trivy rootfs --scanners license --format cyclonedx --output '$rel/vh_$target.cdx.json' --cache-dir /go-cache/trivy --skip-version-check --quiet /tmp/sbom/vh_$target"
 done
 
-echo "ci/release-build.sh: the multi-arch image village-hall:$version"
 mkdir -p "$outdir/image"
-BOARD_IMAGE_VERSION=$version BOARD_IMAGE_REVISION=$revision \
-	BOARD_IMAGE_NAME="village-hall:$version" BOARD_IMAGE_TAG="village-hall:$version" \
-	ci/image-build.sh "$rel/image/board-image.tar"
+if [ -n "${BOARD_RELEASE_IMAGE_DIR:-}" ]; then
+	prebuilt=$(cd "$BOARD_RELEASE_IMAGE_DIR" 2>/dev/null && pwd -P) || die "BOARD_RELEASE_IMAGE_DIR $BOARD_RELEASE_IMAGE_DIR is not a directory"
+	prebuilt_rel=${prebuilt#"$repo_root"/}
+	[ "$prebuilt_rel" != "$prebuilt" ] || die "BOARD_RELEASE_IMAGE_DIR $BOARD_RELEASE_IMAGE_DIR is not inside the checkout $repo_root"
+	for want in board-image-oci.tar board-image.tar; do
+		[ -s "$prebuilt/$want" ] || die "$prebuilt_rel/$want is missing or empty: run ci/image-build.sh first, this script builds no image when BOARD_RELEASE_IMAGE_DIR is set"
+	done
+	echo "ci/release-build.sh: the multi-arch image village-hall:$version, from the image ci/image-build.sh built in $prebuilt_rel (no second build)"
+	ci/run.sh sh ci/oci-name.sh "$prebuilt_rel/board-image-oci.tar" "$rel/image/board-image-oci.tar" "village-hall:$version"
+	image_tar="$prebuilt_rel/board-image.tar"
+else
+	echo "ci/release-build.sh: the multi-arch image village-hall:$version"
+	BOARD_IMAGE_VERSION=$version BOARD_IMAGE_REVISION=$revision \
+		BOARD_IMAGE_NAME="village-hall:$version" BOARD_IMAGE_TAG="village-hall:$version" \
+		ci/image-build.sh "$rel/image/board-image.tar"
+	image_tar="$rel/image/board-image.tar"
+fi
 echo "ci/release-build.sh: SBOM of the image"
-ci/run.sh trivy image --input "$rel/image/board-image.tar" --scanners license --format cyclonedx \
+ci/run.sh trivy image --input "$image_tar" --scanners license --format cyclonedx \
 	--output "$rel/village-hall-image.cdx.json" --cache-dir /go-cache/trivy --skip-version-check --quiet
 # The docker-save tar only fed the SBOM; the OCI layout is the image's artifact.
 rm -f "$outdir/image/board-image.tar"

@@ -10,6 +10,12 @@
 #   * the OCI index of the image village-hall listing linux/amd64 and linux/arm64;
 #   * install.sh and INSTALL-AGENT.md as committed.
 #
+# The image is not built again: the dry run needs the board-image-oci.tar and
+# board-image.tar the Image unit's ci/image-build.sh left in <dir> (it stops if
+# they are missing) and hands that directory to ci/release-build.sh as
+# BOARD_RELEASE_IMAGE_DIR, so the image the release check inspects is the one
+# ci/image-check.sh just checked: the root Dockerfile is built once per architecture.
+#
 # On the Jenkins agent, outside ci/run.sh for the docker parts, in the Image unit
 # after ci/image-check.sh. The assets are large, so they are removed afterwards
 # (with the dry-run image tag); what stays in <dir> is the JUnit file
@@ -32,8 +38,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "ci/release-check.sh: building $version into $out"
-ci/release-build.sh "$version" "$out"
+for want in board-image-oci.tar board-image.tar; do
+	[ -s "$dir/$want" ] || { echo "ci/release-check.sh: $dir/$want is missing: run ci/image-build.sh \"$dir/board-image.tar\" first, the dry run builds no image of its own" >&2; exit 1; }
+done
+
+echo "ci/release-check.sh: building $version into $out from the image in $dir"
+BOARD_RELEASE_IMAGE_DIR=$dir ci/release-build.sh "$version" "$out"
 
 mkdir -p "$dir/junit-merged"
 rm -f "$dir/junit-merged/junit-release-dryrun.xml"
