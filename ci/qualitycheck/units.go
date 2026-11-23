@@ -60,16 +60,26 @@ func failingCases(path string) (cases []string, truncated bool, err error) {
 	dec := xml.NewDecoder(f)
 	dec.Strict = false
 	for {
-		tok, terr := dec.Token()
-		if errors.Is(terr, io.EOF) {
-			return cases, false, nil
-		}
-		if terr != nil {
+		label, failed, ended, cut := nextCase(dec)
+		switch {
+		case cut:
 			return cases, true, nil
+		case ended:
+			return cases, false, nil
+		case failed:
+			cases = append(cases, label)
 		}
-		start, ok := tok.(xml.StartElement)
-		if !ok || start.Name.Local != "testcase" {
-			continue
+	}
+}
+
+// nextCase reads the decoder up to the end of the next <testcase>: its label and
+// whether it failed. ended is set at the end of the file, cut when the file stops
+// mid-element.
+func nextCase(dec *xml.Decoder) (label string, failed, ended, cut bool) {
+	for {
+		start, ended, cut := nextTestcase(dec)
+		if ended || cut {
+			return "", false, ended, cut
 		}
 		var tc struct {
 			Classname string    `xml:"classname,attr"`
@@ -78,106 +88,175 @@ func failingCases(path string) (cases []string, truncated bool, err error) {
 			Error     *struct{} `xml:"error"`
 		}
 		if derr := dec.DecodeElement(&tc, &start); derr != nil {
-			return cases, true, nil
+			return "", false, false, true
 		}
-		if tc.Failure == nil && tc.Error == nil {
-			continue
-		}
-		switch {
-		case tc.Classname != "" && tc.Name != "":
-			cases = append(cases, tc.Classname+" :: "+tc.Name)
-		case tc.Name != "":
-			cases = append(cases, tc.Name)
-		default:
-			cases = append(cases, "(unnamed test case)")
+		if tc.Failure != nil || tc.Error != nil {
+			return caseLabel(tc.Classname, tc.Name), true, false, false
 		}
 	}
+}
+
+// nextTestcase reads the decoder up to the start of the next <testcase>.
+func nextTestcase(dec *xml.Decoder) (start xml.StartElement, ended, cut bool) {
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return start, true, false
+		}
+		if err != nil {
+			return start, false, true
+		}
+		if el, ok := tok.(xml.StartElement); ok && el.Name.Local == "testcase" {
+			return el, false, false
+		}
+	}
+}
+
+// caseLabel names a failing case: "classname :: name", the name alone, or a placeholder.
+func caseLabel(classname, name string) string {
+	switch {
+	case classname != "" && name != "":
+		return classname + " :: " + name
+	case name != "":
+		return name
+	}
+	return "(unnamed test case)"
 }
 
 // runUnitsGate reads dir for unit failure summaries and failing JUnit cases. found is
 // false when there is nothing to report.
 func runUnitsGate(dir string) (res gateResult, found bool) {
 	var b strings.Builder
-	summarised := map[string]bool{}
-
-	summaries, _ := filepath.Glob(filepath.Join(dir, "unit-failure-*.txt"))
-	sort.Strings(summaries)
-	for _, path := range summaries {
-		raw, err := os.ReadFile(path) //nolint:gosec // G304: a unit summary in the results directory
-		if err != nil {
-			continue
-		}
-		text := strings.TrimSpace(string(raw))
-		if text == "" {
-			continue
-		}
-		slug := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "unit-failure-"), ".txt")
-		summarised[slug] = true
-		b.WriteString(text + "\n")
-		found = true
-	}
+	summarised := readSummaries(dir, &b)
 
 	// A unit with no summary (its run was killed outside ci/unitrun.sh, or its attempt
 	// hit the Jenkins limit and the Jenkinsfile left unit-cut-<unit>.txt instead): the
 	// failing cases its JUnit files hold, by unit.
-	cuts, _ := filepath.Glob(filepath.Join(dir, "unit-cut-*.txt"))
-	sort.Strings(cuts)
-	heads := map[string]string{} // slug -> the line that opens the unit's block
-	var slugs []string
-	for _, path := range cuts {
-		raw, err := os.ReadFile(path) //nolint:gosec // G304: a unit note in the results directory
-		if err != nil || strings.TrimSpace(string(raw)) == "" {
+	heads, slugs := readCuts(dir, summarised)
+	cases := readJUnitCases(dir, summarised, heads, &slugs)
+	sort.Strings(slugs)
+	for _, slug := range slugs {
+		b.WriteString(heads[slug] + "\n")
+		b.WriteString(casesSection(slug, cases[slug]))
+	}
+
+	if b.Len() == 0 {
+		return gateResult{}, false
+	}
+	b.WriteString("Quality judged the results these units left, which are not a whole run: fix the unit above first.\n")
+	return gateResult{name: "units", ok: false, output: b.String()}, true
+}
+
+// readSummaries writes every non-empty unit-failure-<slug>.txt of dir to b and
+// returns the slugs it wrote.
+func readSummaries(dir string, b *strings.Builder) map[string]bool {
+	summarised := map[string]bool{}
+	summaries, _ := filepath.Glob(filepath.Join(dir, "unit-failure-*.txt"))
+	sort.Strings(summaries)
+	for _, path := range summaries {
+		text := readTrimmed(path)
+		if text == "" {
 			continue
 		}
-		slug := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "unit-cut-"), ".txt")
-		if !summarised[slug] {
-			heads[slug] = strings.TrimSpace(string(raw))
-			slugs = append(slugs, slug)
-		}
+		summarised[slugOf(path, "unit-failure-")] = true
+		b.WriteString(text + "\n")
 	}
+	return summarised
+}
+
+// readCuts reads the unit-cut-<slug>.txt notes of the units no summary covers: the
+// line that opens each unit's block, by slug, and the slugs in file order.
+func readCuts(dir string, summarised map[string]bool) (heads map[string]string, slugs []string) {
+	heads = map[string]string{}
+	cuts, _ := filepath.Glob(filepath.Join(dir, "unit-cut-*.txt"))
+	sort.Strings(cuts)
+	for _, path := range cuts {
+		text := readTrimmed(path)
+		slug := slugOf(path, "unit-cut-")
+		if text == "" || summarised[slug] {
+			continue
+		}
+		heads[slug] = text
+		slugs = append(slugs, slug)
+	}
+	return heads, slugs
+}
+
+// readJUnitCases reads the failing cases of every JUnit file whose unit has no
+// summary, by unit slug. A unit with failing cases and no head yet gets one, and its
+// slug joins slugs.
+func readJUnitCases(dir string, summarised map[string]bool, heads map[string]string, slugs *[]string) map[string][]string {
 	junits, _ := filepath.Glob(filepath.Join(dir, "junit-*.xml"))
 	sort.Strings(junits)
 	cases := map[string][]string{} // slug -> report lines
 	for _, path := range junits {
 		unit := unitOfJUnit(filepath.Base(path))
 		slug := unitSlug(unit)
-		if unit == "" || summarised[slug] {
+		failed, truncated, ok := unsummarisedFailures(path, unit, summarised[slug])
+		if !ok {
 			continue
 		}
-		failed, truncated, err := failingCases(path)
-		if err != nil || (len(failed) == 0 && !truncated) {
-			continue
-		}
-		if _, ok := heads[slug]; !ok {
+		if _, has := heads[slug]; !has {
 			heads[slug] = fmt.Sprintf("unit %s: no failure summary was written (it was cut off or killed outside ci/unitrun.sh)", unit)
-			slugs = append(slugs, slug)
+			*slugs = append(*slugs, slug)
 		}
-		note := ""
-		if truncated {
-			note = " (file cut off: the cases before the cut)"
-		}
-		cases[slug] = append(cases[slug], fmt.Sprintf("  %s%s:", filepath.Base(path), note))
-		for _, c := range failed {
-			cases[slug] = append(cases[slug], "    "+c)
-		}
-		if len(failed) == 0 {
-			cases[slug] = append(cases[slug], "    (no failed test before the cut)")
-		}
+		cases[slug] = append(cases[slug], caseLines(filepath.Base(path), failed, truncated)...)
 	}
-	sort.Strings(slugs)
-	for _, slug := range slugs {
-		found = true
-		b.WriteString(heads[slug] + "\n")
-		if lines := cases[slug]; len(lines) > 0 {
-			b.WriteString("failing tests read from its JUnit files:\n" + strings.Join(lines, "\n") + "\n")
-		} else if unitOfSlug(slug) != "" {
-			b.WriteString("failing tests: none named (no failing case in its JUnit files)\n")
-		}
-	}
+	return cases
+}
 
-	if !found {
-		return gateResult{}, false
+// unsummarisedFailures is the failing cases of a JUnit file of a unit no summary
+// covers; ok is false when the file is not a unit's, the unit has a summary, the
+// file cannot be read, or it holds nothing to report.
+func unsummarisedFailures(path, unit string, summarised bool) (failed []string, truncated, ok bool) {
+	if unit == "" || summarised {
+		return nil, false, false
 	}
-	b.WriteString("Quality judged the results these units left, which are not a whole run: fix the unit above first.\n")
-	return gateResult{name: "units", ok: false, output: b.String()}, true
+	failed, truncated, err := failingCases(path)
+	if err != nil {
+		return nil, false, false
+	}
+	return failed, truncated, len(failed) > 0 || truncated
+}
+
+// caseLines is one JUnit file's block of the report: its name, then its failing cases.
+func caseLines(name string, failed []string, truncated bool) []string {
+	note := ""
+	if truncated {
+		note = " (file cut off: the cases before the cut)"
+	}
+	lines := []string{fmt.Sprintf("  %s%s:", name, note)}
+	for _, c := range failed {
+		lines = append(lines, "    "+c)
+	}
+	if len(failed) == 0 {
+		lines = append(lines, "    (no failed test before the cut)")
+	}
+	return lines
+}
+
+// casesSection is the failing-tests part of one unit's block.
+func casesSection(slug string, lines []string) string {
+	switch {
+	case len(lines) > 0:
+		return "failing tests read from its JUnit files:\n" + strings.Join(lines, "\n") + "\n"
+	case unitOfSlug(slug) != "":
+		return "failing tests: none named (no failing case in its JUnit files)\n"
+	}
+	return ""
+}
+
+// readTrimmed is the trimmed text of a file in the results directory, empty when it
+// cannot be read.
+func readTrimmed(path string) string {
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: a unit note in the results directory
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// slugOf is a unit note's slug: its file name without the prefix and the .txt suffix.
+func slugOf(path, prefix string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), prefix), ".txt")
 }

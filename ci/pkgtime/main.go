@@ -54,29 +54,35 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "pkgtime:", err)
 		return 2
 	}
+	if !report(stdout, *junit, limits, times) {
+		return 1
+	}
+	return 0
+}
+
+// report prints one line per budgeted package, in path order, and says whether
+// every one is at or under its budget.
+func report(stdout io.Writer, junit string, limits map[string]float64, times []suite) bool {
 	pkgs := make([]string, 0, len(limits))
 	for p := range limits {
 		pkgs = append(pkgs, p)
 	}
 	sort.Strings(pkgs)
-	failed := false
+	allOK := true
 	for _, p := range pkgs {
 		took, ok := lookup(times, p)
 		switch {
 		case !ok:
-			failed = true
-			_, _ = fmt.Fprintf(stdout, "FAIL %s: no testsuite in %s, so its test time is unknown (budget %g s)\n", p, *junit, limits[p])
+			allOK = false
+			_, _ = fmt.Fprintf(stdout, "FAIL %s: no testsuite in %s, so its test time is unknown (budget %g s)\n", p, junit, limits[p])
 		case took > limits[p]:
-			failed = true
+			allOK = false
 			_, _ = fmt.Fprintf(stdout, "FAIL %s: %g s of test time, over its budget of %g s\n", p, took, limits[p])
 		default:
 			_, _ = fmt.Fprintf(stdout, "ok   %s: %g s of test time, within its budget of %g s\n", p, took, limits[p])
 		}
 	}
-	if failed {
-		return 1
-	}
-	return 0
+	return allOK
 }
 
 func readBudgets(path string) (map[string]float64, error) {

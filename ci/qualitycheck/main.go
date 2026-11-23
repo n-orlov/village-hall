@@ -152,13 +152,7 @@ func run(configPath, profilePath string) (report string, exitCode int, err error
 		return "", 2, err
 	}
 
-	if unitResultsDir != "" {
-		if units, found := runUnitsGate(unitResultsDir); found {
-			results = append([]gateResult{units}, results...)
-		}
-	}
-
-	text, overallOK := renderGateReport(results)
+	text, overallOK := renderGateReport(withUnitsGate(results))
 	if !anyEnabled {
 		text += fmt.Sprintf("ci/quality.sh: no gates are enabled in %s\n", configPath)
 	}
@@ -167,6 +161,18 @@ func run(configPath, profilePath string) (report string, exitCode int, err error
 		return text, 1, nil
 	}
 	return text, 0, nil
+}
+
+// withUnitsGate puts the units gate's section first when -unit-results names a
+// directory and a unit left something to report there.
+func withUnitsGate(results []gateResult) []gateResult {
+	if unitResultsDir == "" {
+		return results
+	}
+	if units, found := runUnitsGate(unitResultsDir); found {
+		return append([]gateResult{units}, results...)
+	}
+	return results
 }
 
 // gateRunner is one enabled gate: its report name and the function that

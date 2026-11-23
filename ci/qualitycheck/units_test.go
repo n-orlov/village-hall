@@ -165,3 +165,38 @@ func TestUnitsGateNamesAFailedSuiteUnitFromItsSummary(t *testing.T) {
 		t.Errorf("TestStoreFails named %d times, want once:\n%s", n, report)
 	}
 }
+
+// The units gate's helpers, each by the cases it tells apart.
+
+func TestUnitOfSlugNamesTheUnitsThatWriteJUnitFilesAndNoOther(t *testing.T) {
+	for slug, want := range map[string]string{"e2e": "E2E", "suite": "Suite", "image": "", "": ""} {
+		if got := unitOfSlug(slug); got != want {
+			t.Errorf("unitOfSlug(%q) = %q, want %q", slug, got, want)
+		}
+	}
+}
+
+func TestCasesSectionNamesTheFailingTestsOrSaysNoneWasNamed(t *testing.T) {
+	if got := casesSection("suite", []string{"  junit-go.xml:", "    a :: b"}); got != "failing tests read from its JUnit files:\n  junit-go.xml:\n    a :: b\n" {
+		t.Errorf("a unit with failing cases: %q", got)
+	}
+	if got := casesSection("suite", nil); got != "failing tests: none named (no failing case in its JUnit files)\n" {
+		t.Errorf("a JUnit-writing unit with none: %q", got)
+	}
+	if got := casesSection("image", nil); got != "" {
+		t.Errorf("a unit that writes no JUnit file adds nothing, got %q", got)
+	}
+}
+
+func TestCaseLabelNamesAFailingCaseByWhatItHas(t *testing.T) {
+	for _, c := range []struct{ class, name, want string }{
+		{"a.spec.ts", "loads", "a.spec.ts :: loads"},
+		{"", "loads", "loads"},
+		{"a.spec.ts", "", "(unnamed test case)"},
+		{"", "", "(unnamed test case)"},
+	} {
+		if got := caseLabel(c.class, c.name); got != c.want {
+			t.Errorf("caseLabel(%q, %q) = %q, want %q", c.class, c.name, got, c.want)
+		}
+	}
+}
