@@ -25,6 +25,6 @@ for arg in "$@"; do
     }
 done
 
-slug() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9][^a-z0-9]*/-/g'; }
+slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g'; }
 
 printf 'jenkins-%s-%s-%s-%s\n' "$(slug "$1")" "$2" "$(slug "$3")" "$4"
