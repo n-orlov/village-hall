@@ -35,12 +35,19 @@
 // property is the one the running build set, so a push queued behind main's
 // nightly (the timer) or a parameterized build finds abortPrevious false and
 // waits: neither is ever stopped by a push. A superseded build ends ABORTED,
-// not FAILURE or NOT_BUILT: Jenkins stops it with NOT_BUILT and a
-// CancelledCause ("Superseded by #N"), which supersededBy() recognises;
-// classify() lets it propagate, so no unit retries it; the attempt that sees
-// it, or post { always } when no unit did, sets ABORTED (endSuperseded(); the
-// worst result, so nothing later lowers it); and every attempt's finally
-// removes its containers by the attempt id. Nothing reads the interruption's
+// not FAILURE or NOT_BUILT. Jenkins stops it with NOT_BUILT and a
+// CancelledCause ("Superseded by #N"), terminates the steps of one still
+// running seconds later, then kills it; isSuperseded() knows the stop by a
+// newer build of the branch existing (only abortPrevious starts one while
+// this build runs), supersededBy() by that cause or that test. classify()
+// lets the stop propagate, so no unit retries it, and no attempt it cut short
+// is rerun or judged; the attempt that sees it, or post { always }, sets
+// ABORTED (endSuperseded(): the worst result, so nothing later lowers it, and
+// the description says superseded). Every attempt's finally removes its
+// containers by the attempt id, and a superseded build skips the report, so it
+// ends at that point instead of being killed, and frees its executor; the next
+// report takes the Allure history from the newest build that is neither
+// ABORTED nor NOT_BUILT (historyBuild()). Nothing reads the interruption's
 // result, which the script sandbox refuses. (A queued nightly or parameterized
 // build does stop a push build running before it.)
 // Each attempt reports node, queue wait and run time; the build page gets a
@@ -230,24 +237,60 @@ String interruptionCauses(Throwable e) {
   }
 }
 
-// Whether a newer push build of this branch stopped this one (R8): Jenkins'
-// abortPrevious interrupts it with DisableConcurrentBuildsJobProperty's
-// CancelledCause ("Superseded by #N") and the result NOT_BUILT.
+// Whether a newer build of this branch stopped this one (R8). Under
+// disableConcurrentBuilds a newer build of the branch starts while this one
+// runs only when abortPrevious lets it, and then Jenkins interrupts this one
+// with the result NOT_BUILT and DisableConcurrentBuildsJobProperty's
+// CancelledCause ("Superseded by #N"); a build still running seconds later has
+// its steps terminated, then is killed. So a newer build existing is the test.
+boolean isSuperseded() {
+  if (superseded) {
+    return true
+  }
+  try {
+    return currentBuild.nextBuild != null
+  } catch (Throwable e) {
+    return false
+  }
+}
+
+// Whether an exception is that stop: an interruption with the CancelledCause,
+// or any interruption (the termination too) once a newer build exists.
 boolean supersededBy(Throwable e) {
   if (!(e instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException)) {
     return false
   }
   String causes = interruptionCauses(e)
-  return causes.contains('CancelledCause') || causes.contains('Superseded by')
+  return causes.contains('CancelledCause') || causes.contains('Superseded by') || isSuperseded()
 }
 
 // A superseded build ends ABORTED, not NOT_BUILT (Jenkins' result for it) or
 // FAILURE (R8). ABORTED is the worst result, so it holds whatever a catchError
-// or the interruption itself sets after it.
+// or the interruption itself sets after it. The description says so once.
 def endSuperseded() {
-  superseded = true
+  if (!superseded) {
+    superseded = true
+    currentBuild.description = (currentBuild.description ?: '') + ' | superseded by a newer build of this branch'
+    echo 'superseded by a newer build of this branch: this build ends ABORTED'
+  }
   currentBuild.result = 'ABORTED'
-  echo 'superseded by a newer push build of this branch: this build ends ABORTED'
+}
+
+// The newest completed build of this branch that ran the report, for the
+// Allure history: a superseded build skips it (R8), and so may an ABORTED or
+// NOT_BUILT one. '' falls back to the last completed build.
+String historyBuild() {
+  try {
+    def b = currentBuild.previousCompletedBuild
+    int looked = 0
+    while (b != null && looked < 20 && (b.result == 'ABORTED' || b.result == 'NOT_BUILT')) {
+      b = b.previousCompletedBuild
+      looked++
+    }
+    return b != null ? b.number.toString() : ''
+  } catch (Throwable e) {
+    return ''
+  }
 }
 
 @NonCPS
@@ -445,6 +488,13 @@ def runUnit(Map u) {
     if (a.outcome == 'pass') {
       results[u.name] = 'pass'
       return
+    }
+    // Superseded (R8): an attempt the stop cut short (its command killed, its
+    // steps terminated) is neither rerun nor judged; nothing more runs here.
+    if (isSuperseded()) {
+      endSuperseded()
+      results[u.name] = 'fail'
+      error("${u.name}: stopped, a newer build of this branch superseded this one (" + attemptSummary(attempts) + ')')
     }
     if (a.outcome == 'fail:timeout') {
       // Its own bound: failing again would take the same time, so no rerun.
@@ -902,12 +952,14 @@ pipeline {
   post {
     always {
       script {
-        // Superseded (R8) with the interruption caught outside a unit: NOT_BUILT
-        // is the result Jenkins stops a superseded build with, and nothing else
-        // here sets it. The report still runs, so the Allure history the next
-        // build copies from its last completed build carries on.
-        if (!superseded && currentBuild.currentResult == 'NOT_BUILT') {
+        // Superseded (R8), whether or not a unit saw the stop (NOT_BUILT is
+        // the result Jenkins stops it with, and nothing else here sets it):
+        // ABORTED, and no report, so the build ends before Jenkins kills it and
+        // frees its executor for the newer build, which reports this branch.
+        if (isSuperseded() || currentBuild.currentResult == 'NOT_BUILT') {
           endSuperseded()
+          echo timingReport()
+          return
         }
         // The report on one pool node over every unit's stash.
         try {
@@ -931,8 +983,16 @@ pipeline {
               echo timingReport()
               junit testResults: 'ci-results/junit-merged/*.xml', allowEmptyResults: true,
                     skipMarkingBuildUnstable: true, skipPublishingChecks: true
-              copyArtifacts projectName: env.JOB_NAME, selector: lastCompleted(), filter: 'allure-history/**',
-                            target: 'previous', optional: true, fingerprintArtifacts: false
+              // The history of the newest build that ran this report (historyBuild).
+              String historyFrom = historyBuild()
+              try {
+                copyArtifacts projectName: env.JOB_NAME, selector: historyFrom ? specific(historyFrom) : lastCompleted(),
+                              filter: 'allure-history/**', target: 'previous', optional: true, fingerprintArtifacts: false
+              } catch (Throwable e) {
+                echo "allure history from build ${historyFrom} not copied (${e}): from the last completed build instead"
+                copyArtifacts projectName: env.JOB_NAME, selector: lastCompleted(), filter: 'allure-history/**',
+                              target: 'previous', optional: true, fingerprintArtifacts: false
+              }
               catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                 sh 'ALLURE_CACHE_DIR="$HOME/.cache/board-allure" ci/jenkins-report.sh "$BOARD_CI_OUT" previous/allure-history'
               }

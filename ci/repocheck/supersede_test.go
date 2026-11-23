@@ -17,13 +17,7 @@ import (
 // anything); supersedable() is true for a push build only (a branch push event
 // or branch indexing), and false for a timer-triggered build and for one with
 // EXTENDED, MUTATION or MUTATION_FULL set; a failure to tell means false; and
-// a superseded build ends ABORTED. Jenkins stops it with the result NOT_BUILT
-// and a CancelledCause ("Superseded by #N") (main #278 ended NOT_BUILT), so:
-// supersededBy() recognises that cause; classify lets it propagate instead of
-// retrying the attempt; the attempt that sees it sets ABORTED (endSuperseded);
-// post { always } sets ABORTED for a NOT_BUILT build no unit saw it in; and
-// nothing reads the interruption's result, which the sandbox refuses
-// (FlowInterruptedException.getResult turned #278's abort into a FAILURE).
+// a superseded build ends ABORTED (supersededEndProblems).
 func supersedeProblems(jf string) []string {
 	var problems []string
 	if !strings.Contains(jf, "\n    disableConcurrentBuilds(abortPrevious: supersedable())\n") {
@@ -55,28 +49,51 @@ func supersedeProblems(jf string) []string {
 	return append(problems, supersededEndProblems(jf)...)
 }
 
-// supersededEndProblems: the ABORTED end of a superseded build (see
-// supersedeProblems).
+// supersededEndProblems: Jenkins stops a superseded build with the result
+// NOT_BUILT and a CancelledCause ("Superseded by #N"), terminates the steps of
+// one still running seconds later and then kills it, so the Jenkinsfile:
+// recognises the stop by that cause or by a newer build of the branch existing
+// (isSuperseded, supersededBy); lets it propagate from classify with no retry;
+// ends the build ABORTED (endSuperseded) from the attempt that sees the stop,
+// from the check after every attempt (no rerun, no verdict) and from
+// post { always } before the report, which a superseded build skips so it ends
+// before Jenkins kills it; takes the Allure history from the newest build that
+// is neither ABORTED nor NOT_BUILT; and never reads an interruption's result,
+// which the script sandbox refuses (FlowInterruptedException.getResult).
 func supersededEndProblems(jf string) []string {
 	var problems []string
+	is, ok := groovyFunction(jf, "boolean isSuperseded()")
+	if !ok || !strings.Contains(is, "  try {\n    return currentBuild.nextBuild != null\n  } catch (Throwable e) {\n    return false\n  }") {
+		problems = append(problems, "isSuperseded() does not test for a newer build of the branch")
+	}
 	by, ok := groovyFunction(jf, "boolean supersededBy(Throwable e)")
-	if !ok || !strings.Contains(by, "String causes = interruptionCauses(e)\n  return causes.contains('CancelledCause') || causes.contains('Superseded by')") {
-		problems = append(problems, "supersededBy() does not recognise abortPrevious's CancelledCause")
+	if !ok || !strings.Contains(by, "String causes = interruptionCauses(e)\n  return causes.contains('CancelledCause') || causes.contains('Superseded by') || isSuperseded()") {
+		problems = append(problems, "supersededBy() does not recognise abortPrevious's stop")
 	}
 	classify, ok := groovyFunction(jf, "String classify(Throwable e, Map a)")
 	if !ok || !strings.Contains(classify, "if (supersededBy(e)) {\n      return null\n    }") {
 		problems = append(problems, "classify does not let a superseded build's interruption propagate")
 	}
 	end, ok := groovyFunction(jf, "def endSuperseded()")
-	if !ok || !strings.Contains(end, "superseded = true\n  currentBuild.result = 'ABORTED'\n") {
+	if !ok || !strings.Contains(end, "  }\n  currentBuild.result = 'ABORTED'") {
 		problems = append(problems, "endSuperseded() does not set the result ABORTED")
 	}
-	if !strings.Contains(jf, "        a.outcome = 'aborted'\n        a.end = nowMs()\n        if (supersededBy(e)) {\n          endSuperseded()\n        }\n        throw e\n") {
+	run, ok := groovyFunction(jf, "def runUnit(Map u)")
+	if !ok || !strings.Contains(run, "        a.outcome = 'aborted'\n        a.end = nowMs()\n        if (supersededBy(e)) {\n          endSuperseded()\n        }\n        throw e\n") {
 		problems = append(problems, "an attempt stopped by a newer build does not end the build ABORTED")
 	}
-	if !strings.Contains(jf, "\n  post {\n    always {\n      script {\n") ||
-		!strings.Contains(jf, "        if (!superseded && currentBuild.currentResult == 'NOT_BUILT') {\n          endSuperseded()\n        }\n") {
-		problems = append(problems, "post { always } does not end a NOT_BUILT (superseded) build ABORTED")
+	if !strings.Contains(run, "    if (isSuperseded()) {\n      endSuperseded()\n      results[u.name] = 'fail'\n      error(") {
+		problems = append(problems, "an attempt a newer build cut short can be rerun or judged")
+	}
+	_, post, _ := strings.Cut(jf, "\n  post {\n    always {\n      script {\n")
+	skip := strings.Index(post, "        if (isSuperseded() || currentBuild.currentResult == 'NOT_BUILT') {\n          endSuperseded()\n          echo timingReport()\n          return\n        }\n")
+	if skip < 0 || skip > strings.Index(post, "node(AMD)") {
+		problems = append(problems, "post { always } does not end a superseded build ABORTED before the report")
+	}
+	history, ok := groovyFunction(jf, "String historyBuild()")
+	if !ok || !strings.Contains(history, "(b.result == 'ABORTED' || b.result == 'NOT_BUILT')") ||
+		!strings.Contains(post, "selector: historyFrom ? specific(historyFrom) : lastCompleted(),") {
+		problems = append(problems, "the Allure history can come from a superseded build, which has none")
 	}
 	if strings.Contains(jf, "e.result") || strings.Contains(jf, ".getResult()") {
 		problems = append(problems, "the Jenkinsfile reads an interruption's result, which the sandbox refuses")
@@ -90,24 +107,29 @@ func supersededEndProblems(jf string) []string {
 func TestJenkinsfileSupersedesOlderPushBuilds(t *testing.T) {
 	jf := readRepoFile(t, "Jenkinsfile")
 	expectProblems(t, jf, supersedeProblems, map[string]string{
-		"plain disableConcurrentBuilds": replaceOnce(t, jf, "disableConcurrentBuilds(abortPrevious: supersedable())", "disableConcurrentBuilds()"),
-		"abort of every build":          replaceOnce(t, jf, "disableConcurrentBuilds(abortPrevious: supersedable())", "disableConcurrentBuilds(abortPrevious: true)"),
-		"no concurrency control":        replaceOnce(t, jf, "    disableConcurrentBuilds(abortPrevious: supersedable())\n", ""),
-		"a nightly that can be stopped": replaceOnce(t, jf, "return pushed && !timer && !parameterized", "return pushed && !parameterized"),
-		"the timer not read":            replaceOnce(t, jf, "    boolean timer = !currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').isEmpty()\n    boolean pushed", "    boolean timer = false\n    boolean pushed"),
-		"no push requirement":           replaceOnce(t, jf, "return pushed && !timer && !parameterized", "return !timer && !parameterized"),
-		"EXTENDED can be stopped":       replaceOnce(t, jf, "params.EXTENDED == true || ", ""),
-		"MUTATION can be stopped":       replaceOnce(t, jf, "params.MUTATION == true || ", ""),
-		"MUTATION_FULL can be stopped":  replaceOnce(t, jf, " || params.MUTATION_FULL == true", ""),
-		"always supersedable":           replaceOnce(t, jf, "return pushed && !timer && !parameterized", "return true"),
-		"an unknown build is stopped":   replaceOnce(t, jf, "} catch (Throwable e) {\n    return false\n  }", "} catch (Throwable e) {\n    return true\n  }"),
-		"no function":                   replaceOnce(t, jf, "boolean supersedable() {", "boolean supersedableNot() {"),
-		"a superseded attempt retried":  replaceOnce(t, jf, "    if (supersededBy(e)) {\n      return null\n    }\n", ""),
-		"the cause not recognised":      replaceOnce(t, jf, "return causes.contains('CancelledCause') || causes.contains('Superseded by')", "return false"),
-		"ends NOT_BUILT from a unit":    replaceOnce(t, jf, "        if (supersededBy(e)) {\n          endSuperseded()\n        }\n", ""),
-		"ends NOT_BUILT outside a unit": replaceOnce(t, jf, "        if (!superseded && currentBuild.currentResult == 'NOT_BUILT') {\n          endSuperseded()\n        }\n", ""),
-		"never set ABORTED":             replaceOnce(t, jf, "  currentBuild.result = 'ABORTED'\n", ""),
-		"ABORTED set as FAILURE":        replaceOnce(t, jf, "  currentBuild.result = 'ABORTED'\n", "  currentBuild.result = 'FAILURE'\n"),
-		"reads the refused result":      replaceOnce(t, jf, "    return 'infra:interrupted'", "    if (e.result?.toString() == 'ABORTED') {\n      return null\n    }\n    return 'infra:interrupted'"),
+		"plain disableConcurrentBuilds":  replaceOnce(t, jf, "disableConcurrentBuilds(abortPrevious: supersedable())", "disableConcurrentBuilds()"),
+		"abort of every build":           replaceOnce(t, jf, "disableConcurrentBuilds(abortPrevious: supersedable())", "disableConcurrentBuilds(abortPrevious: true)"),
+		"no concurrency control":         replaceOnce(t, jf, "    disableConcurrentBuilds(abortPrevious: supersedable())\n", ""),
+		"a nightly that can be stopped":  replaceOnce(t, jf, "return pushed && !timer && !parameterized", "return pushed && !parameterized"),
+		"the timer not read":             replaceOnce(t, jf, "    boolean timer = !currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').isEmpty()\n    boolean pushed", "    boolean timer = false\n    boolean pushed"),
+		"no push requirement":            replaceOnce(t, jf, "return pushed && !timer && !parameterized", "return !timer && !parameterized"),
+		"EXTENDED can be stopped":        replaceOnce(t, jf, "params.EXTENDED == true || ", ""),
+		"MUTATION can be stopped":        replaceOnce(t, jf, "params.MUTATION == true || ", ""),
+		"MUTATION_FULL can be stopped":   replaceOnce(t, jf, " || params.MUTATION_FULL == true", ""),
+		"always supersedable":            replaceOnce(t, jf, "return pushed && !timer && !parameterized", "return true"),
+		"an unknown build is stopped":    replaceOnce(t, jf, "} catch (Throwable e) {\n    return false\n  }", "} catch (Throwable e) {\n    return true\n  }"),
+		"no function":                    replaceOnce(t, jf, "boolean supersedable() {", "boolean supersedableNot() {"),
+		"a superseded attempt retried":   replaceOnce(t, jf, "    if (supersededBy(e)) {\n      return null\n    }\n", ""),
+		"the cause not recognised":       replaceOnce(t, jf, "return causes.contains('CancelledCause') || causes.contains('Superseded by') || isSuperseded()", "return false"),
+		"the newer build not looked for": replaceOnce(t, jf, "return currentBuild.nextBuild != null", "return false"),
+		"ends NOT_BUILT from a unit":     replaceOnce(t, jf, "        if (supersededBy(e)) {\n          endSuperseded()\n        }\n", ""),
+		"a cut-short attempt rerun":      replaceOnce(t, jf, "    if (isSuperseded()) {\n      endSuperseded()\n", "    if (false) {\n      endSuperseded()\n"),
+		"ends NOT_BUILT outside a unit":  replaceOnce(t, jf, "        if (isSuperseded() || currentBuild.currentResult == 'NOT_BUILT') {\n", "        if (false) {\n"),
+		"the report runs, then a kill":   replaceOnce(t, jf, "          echo timingReport()\n          return\n", "          echo timingReport()\n"),
+		"never set ABORTED":              replaceOnce(t, jf, "  currentBuild.result = 'ABORTED'\n", ""),
+		"ABORTED set as FAILURE":         replaceOnce(t, jf, "  currentBuild.result = 'ABORTED'\n", "  currentBuild.result = 'FAILURE'\n"),
+		"history from a superseded":      replaceOnce(t, jf, "(b.result == 'ABORTED' || b.result == 'NOT_BUILT')", "false"),
+		"history from the last build":    replaceOnce(t, jf, "selector: historyFrom ? specific(historyFrom) : lastCompleted(),", "selector: lastCompleted(),"),
+		"reads the refused result":       replaceOnce(t, jf, "    return 'infra:interrupted'", "    if (e.result?.toString() == 'ABORTED') {\n      return null\n    }\n    return 'infra:interrupted'"),
 	})
 }

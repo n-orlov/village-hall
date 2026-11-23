@@ -458,15 +458,20 @@ and `MUTATION_FULL` are all false). Jenkins reads the option from the build that
 queued behind main's nightly (the timer) or a parameterized build finds it false and waits: neither is
 ever stopped by a push. A manual build (no push cause) is not stopped either. A superseded build ends
 ABORTED, not FAILURE or NOT_BUILT. Jenkins stops it with the result NOT_BUILT and a `CancelledCause`
-("Superseded by #N"): `supersededBy` recognises that cause, `classify` lets it propagate (no attempt
-is retried), and the attempt that sees it sets the result ABORTED (`endSuperseded`), as `post {
-always }` does for a NOT_BUILT build when no unit saw it; ABORTED is the worst result, so nothing that
-runs after it lowers it. Each attempt's `finally` removes its containers by the attempt id, and the
-report still runs, so the Allure history carries on. The pipeline never reads the interruption's
-result: the script sandbox refuses `FlowInterruptedException.getResult`. A queued nightly or
-parameterized build does stop a push build that was running before it.
-`ci/repocheck/supersede_test.go` pins the option, the three exclusions and the ABORTED end against
-doctored copies.
+("Superseded by #N"); a build still running a few seconds later has its steps terminated, and is then
+killed. The pipeline knows the stop by that cause or by a newer build of the branch existing
+(`isSuperseded`: under `disableConcurrentBuilds` only abortPrevious starts one while a build runs).
+`classify` lets it propagate (no attempt is retried), an attempt it cut short is neither rerun nor
+judged, and the attempt that sees it, or `post { always }`, sets the result ABORTED (`endSuperseded`;
+ABORTED is the worst result, so nothing that runs after it lowers it, and the build's description says
+"superseded by a newer build of this branch"). Each attempt's `finally` removes its containers by the
+attempt id; the superseded build then skips the report, so it ends at that point instead of being
+killed and frees its executor for the newer build, which reports the branch. A report takes the Allure
+history from the newest completed build that is neither ABORTED nor NOT_BUILT (`historyBuild`), so a
+superseded build does not break it. The pipeline never reads the interruption's result: the script
+sandbox refuses `FlowInterruptedException.getResult`. A queued nightly or parameterized build does stop
+a push build that was running before it. `ci/repocheck/supersede_test.go` pins the option, the three
+exclusions and the ABORTED end against doctored copies.
 
 `ci/repocheck/jenkinsfile_test.go` pins all of it: Core, then Stability and
 Mutation side by side, then Perf, with the Core units and Quality's wait for
