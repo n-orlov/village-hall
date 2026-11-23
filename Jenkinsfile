@@ -404,7 +404,15 @@ int unitSh(Map m) {
   if (rc != 0 && fileExists(summary)) {
     String text = readFile(summary).trim()
     echo text
-    currentBuild.description = (currentBuild.description ?: '') + ' | ' + text.split('\n').take(5).join('; ')
+    // The first five lines, gathered into a list: take() on the String[]
+    // split returns is not on the sandbox whitelist (RejectedAccessException).
+    List lines = []
+    text.split('\n').each { line ->
+      if (lines.size() < 5) {
+        lines << line
+      }
+    }
+    currentBuild.description = (currentBuild.description ?: '') + ' | ' + lines.join('; ')
   }
   return rc
 }

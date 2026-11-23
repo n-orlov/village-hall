@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -210,6 +211,9 @@ func TestUnitRunLeavesAPassingUnitAlone(t *testing.T) {
 	}
 }
 
+// arrayTakeRE: take(n) straight on split's String[] result.
+var arrayTakeRE = regexp.MustCompile(`\.split\([^)]*\)\.take\(`)
+
 // unitRunWiringProblems: the Suite and E2E units and the three full mutation
 // units run through unitSh, which runs ci/unitrun.sh and prints its summary to
 // the console and the build description; runUnit hands it the bound and reads
@@ -239,10 +243,18 @@ func unitRunWiringProblems(jf string) []string {
 		"unit-failure-",
 		"echo text",
 		"currentBuild.description = ",
+		"if (lines.size() < 5) {",
+		"' | ' + lines.join('; ')",
 	} {
 		if !strings.Contains(us, want) {
 			problems = append(problems, "unitSh lacks "+want)
 		}
+	}
+	// take() on the String[] that split returns is not on the sandbox
+	// whitelist: Jenkins throws RejectedAccessException in place of the
+	// failed unit's summary.
+	if arrayTakeRE.MatchString(jf) {
+		problems = append(problems, "the Jenkinsfile calls take() on a split array, which the sandbox rejects")
 	}
 	run := functionBody(jf, "def runUnit(Map u) {")
 	for _, want := range []string{"BOARD_UNIT_NAME=${u.name}", "BOARD_UNIT_BOUND_SECONDS=", "rc == 124 ? 'fail:timeout'"} {
@@ -260,12 +272,14 @@ func unitRunWiringProblems(jf string) []string {
 func TestJenkinsfileRunsTheHeavyUnitsThroughUnitRun(t *testing.T) {
 	jf := readRepoFile(t, "Jenkinsfile")
 	expectProblems(t, jf, unitRunWiringProblems, map[string]string{
-		"Suite bare":      replaceOnce(t, jf, "unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh')", "sh(returnStatus: true, script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh')"),
-		"E2E bare":        replaceOnce(t, jf, "unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh')", "sh(returnStatus: true, script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh')"),
-		"mutation bare":   replaceOnce(t, jf, "body: { unitSh(script: fullTune + ", "body: { sh(returnStatus: true, script: fullTune + "),
-		"no console text": replaceOnce(t, jf, "    echo text\n", ""),
-		"no description":  replaceOnce(t, jf, "currentBuild.description = (currentBuild.description ?: '') + ' | '", "def ignored = ' | '"),
-		"no 124 timeout":  replaceOnce(t, jf, "rc == 124 ? 'fail:timeout' : ", ""),
-		"no bound":        replaceOnce(t, jf, "BOARD_UNIT_BOUND_SECONDS=${left > 60 ? left : 60}", "BOARD_UNIT_X=1"),
+		"Suite bare":           replaceOnce(t, jf, "unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh')", "sh(returnStatus: true, script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh')"),
+		"E2E bare":             replaceOnce(t, jf, "unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh')", "sh(returnStatus: true, script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh')"),
+		"mutation bare":        replaceOnce(t, jf, "body: { unitSh(script: fullTune + ", "body: { sh(returnStatus: true, script: fullTune + "),
+		"no console text":      replaceOnce(t, jf, "    echo text\n", ""),
+		"no description":       replaceOnce(t, jf, "currentBuild.description = (currentBuild.description ?: '') + ' | '", "def ignored = ' | '"),
+		"array take":           replaceOnce(t, jf, "' | ' + lines.join('; ')", "' | ' + text.split('\\n').take(5).join('; ')"),
+		"array take elsewhere": replaceOnce(t, jf, "mutationPlanText.split('\\n').each { line ->", "mutationPlanText.split('\\n').take(50).each { line ->"),
+		"no 124 timeout":       replaceOnce(t, jf, "rc == 124 ? 'fail:timeout' : ", ""),
+		"no bound":             replaceOnce(t, jf, "BOARD_UNIT_BOUND_SECONDS=${left > 60 ? left : 60}", "BOARD_UNIT_X=1"),
 	})
 }
