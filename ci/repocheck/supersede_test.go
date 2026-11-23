@@ -58,8 +58,10 @@ func supersedeProblems(jf string) []string {
 // from the check after every attempt (no rerun, no verdict) and from
 // post { always } before the report, which a superseded build skips so it ends
 // before Jenkins kills it; takes the Allure history from the newest build that
-// is neither ABORTED nor NOT_BUILT; and never reads an interruption's result,
-// which the script sandbox refuses (FlowInterruptedException.getResult).
+// is neither ABORTED nor NOT_BUILT; keeps nowMs() @NonCPS, since the timing
+// table a superseded build prints (timingReport, @NonCPS) calls it for an
+// attempt still running; and never reads an interruption's result, which the
+// script sandbox refuses (FlowInterruptedException.getResult).
 func supersededEndProblems(jf string) []string {
 	var problems []string
 	is, ok := groovyFunction(jf, "boolean isSuperseded()")
@@ -94,6 +96,9 @@ func supersededEndProblems(jf string) []string {
 	if !ok || !strings.Contains(history, "(b.result == 'ABORTED' || b.result == 'NOT_BUILT')") ||
 		!strings.Contains(post, "selector: historyFrom ? specific(historyFrom) : lastCompleted(),") {
 		problems = append(problems, "the Allure history can come from a superseded build, which has none")
+	}
+	if !strings.Contains(jf, "\n@NonCPS\nlong nowMs() {") {
+		problems = append(problems, "nowMs() is not @NonCPS, so timingReport() (a superseded build's timing table) gets no value back from it")
 	}
 	if strings.Contains(jf, "e.result") || strings.Contains(jf, ".getResult()") {
 		problems = append(problems, "the Jenkinsfile reads an interruption's result, which the sandbox refuses")
@@ -130,6 +135,7 @@ func TestJenkinsfileSupersedesOlderPushBuilds(t *testing.T) {
 		"ABORTED set as FAILURE":         replaceOnce(t, jf, "  currentBuild.result = 'ABORTED'\n", "  currentBuild.result = 'FAILURE'\n"),
 		"history from a superseded":      replaceOnce(t, jf, "(b.result == 'ABORTED' || b.result == 'NOT_BUILT')", "false"),
 		"history from the last build":    replaceOnce(t, jf, "selector: historyFrom ? specific(historyFrom) : lastCompleted(),", "selector: lastCompleted(),"),
+		"nowMs a CPS method":             replaceOnce(t, jf, "@NonCPS\nlong nowMs() {", "long nowMs() {"),
 		"reads the refused result":       replaceOnce(t, jf, "    return 'infra:interrupted'", "    if (e.result?.toString() == 'ABORTED') {\n      return null\n    }\n    return 'infra:interrupted'"),
 	})
 }

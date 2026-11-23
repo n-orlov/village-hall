@@ -209,6 +209,10 @@ import groovy.transform.Field
   [name: 'Mutation ops+base+Stryker', dir: 'base', lanes: 'server-ops,base'],
 ]
 
+// @NonCPS: timingReport (@NonCPS) calls it for an attempt still running, and a
+// CPS method called from a @NonCPS one does not return its value (writeFile
+// was handed a Long for the timing table, and the report failed).
+@NonCPS
 long nowMs() { System.currentTimeMillis() }
 
 // Whether a newer build of this branch may stop this one (R8, see the header):
