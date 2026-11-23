@@ -35,7 +35,10 @@
 // E2E (Playwright's results) and Image (the image tar). The report runs once
 // at the end over every unit's stash. An attempt cut off before its stash (its
 // own limit, a lost agent) writes ci-results/unit-cut-<unit>.txt, stashes and
-// archives the logs and JUnit files written so far, so Quality reads them.
+// archives the logs, JUnit files and finished mutation reports written so far,
+// so Quality reads them (ci/mutation.sh writes each package's report as soon as
+// the package finishes, so a cut mutation unit keeps every finished package's;
+// the gate names only the unfinished ones as missing: "the package never ran").
 //
 // Unit runs: the Suite and E2E units and the three full mutation units run
 // their command through unitSh, which runs it under ci/unitrun.sh with a bound
@@ -329,7 +332,7 @@ def runUnit(Map u) {
                   stash name: 'res-' + slug(u.name), includes: 'ci-results/**',
                         excludes: 'ci-results/board-image.tar,ci-results/board-image-oci.tar', allowEmpty: true
                   stashedUnits[u.name] = true
-                  archiveArtifacts artifacts: 'ci-results/*.log, ci-results/junit-*.xml, ci-results/flaky-*.txt, ci-results/unit-cut-*.txt', allowEmptyArchive: true
+                  archiveArtifacts artifacts: 'ci-results/*.log, ci-results/junit-*.xml, ci-results/flaky-*.txt, ci-results/unit-cut-*.txt, ci-results/mutation/*.json, ci-results/mutation-units/*/*.json', allowEmptyArchive: true
                 }
               } catch (Throwable c) {
                 echo "unit ${u.name}: partial results on ${a.node} not kept: ${c}"

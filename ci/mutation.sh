@@ -35,6 +35,11 @@
 # and only then.
 # A package split into parts (mutation_go.parts) is run once per part, a part
 # written "internal/server#ops", with its own report and its own judgement.
+# A package's report is written as soon as that package finishes (to a .part
+# file, renamed whole), so a unit cut by its bound (ci/unitrun.sh) keeps the
+# reports of the packages it finished, the Jenkinsfile stashes and archives
+# them, and the merge gate names only the unfinished packages as missing
+# ("the package never ran"), each finished one judged on its efficacy.
 # Each lane judges and replaces only its own packages' reports, so the lanes
 # leave the reports of all of them in the one directory ci/quality.sh reads.
 #
@@ -153,7 +158,7 @@ rm -f "$outdir/unit-verdict.txt" "$outdir/mutationgate.txt"
 # Every report of the lane goes, so a diff-mode run never leaves an older
 # full run's report of an unchanged unit behind.
 for pkg in $(go run ./ci/mutationgate -config "$config" -list -lane "$lane"); do
-    rm -f "${outdir:?}/$(printf '%s' "$pkg" | tr '/#' '--').json"
+    rm -f "${outdir:?}/$(printf '%s' "$pkg" | tr '/#' '--').json" "${outdir:?}/$(printf '%s' "$pkg" | tr '/#' '--').json.part"
 done
 if [ -n "$diff_ref" ]; then
     echo "ci/mutation.sh: diff mode against the merge base with $diff_ref ($(git merge-base "$diff_ref" HEAD))"
@@ -197,7 +202,15 @@ for pkg in $packages; do
     env ${ci_run_id:+BOARD_CI_RUN_ID=$ci_run_id} BOARD_DB_LEG=sqlite ${test_cpu:+GOMAXPROCS=$test_cpu} ${diff_ref:+PATH="$shim:$PATH" MUTATION_DIFF_RELATIVE="$dir"} \
         nice -n 10 gremlins unleash "./$dir" \
         --timeout-coefficient "$timeout_coefficient" ${workers:+--workers "$workers"} \
-        ${diff_ref:+--diff "$diff_ref"} "$@" -o "$outdir/$name.json"
+        ${diff_ref:+--diff "$diff_ref"} "$@" -o "$outdir/$name.json.part"
+    # The package's report appears, whole, the moment the package finishes: a
+    # unit cut by its bound later keeps every finished package's report, and
+    # the cut one leaves no half-written file (only a .part, which no reader
+    # takes for a report).
+    # (gremlins that wrote no report leaves none: the gate names it missing.)
+    if [ -f "$outdir/$name.json.part" ]; then
+        mv "$outdir/$name.json.part" "$outdir/$name.json"
+    fi
 done
 
 status=0

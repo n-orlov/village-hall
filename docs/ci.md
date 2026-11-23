@@ -540,7 +540,17 @@ The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
   - a package generated no mutant, or judged none (all not covered or timed
     out): a gate that measured nothing has not passed (`fail_on_no_mutants`),
     or
-  - a package's report is missing or unreadable.
+  - a package's report is missing (the package never ran: its unit was cut or
+    failed before gremlins finished it) or is not a gremlins report.
+
+  `ci/mutation.sh` writes each package's report the moment that package
+  finishes (to `<report>.json.part`, renamed whole), so a unit cut by its bound
+  keeps every finished package's report (the unit's stash carries `ci-results`,
+  and the cut-off archive lists `ci-results/mutation/*.json` and
+  `ci-results/mutation-units/*/*.json`) and leaves no half-written file for the
+  package it was running. The merge gate then judges each finished package on
+  its efficacy and names only the unfinished ones as missing (`the package
+  never ran`), not as unreadable.
 
   Diff mode (`BOARD_MUTATION_DIFF=<commit>`, read before the `BOARD_*` scrub;
   `ci/mutationgate -diff <commit>`) mutates only the lines changed since the

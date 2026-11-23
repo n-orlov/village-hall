@@ -104,6 +104,25 @@ func TestGateFailsOnAMissingOrMalformedReport(t *testing.T) {
 	}
 }
 
+// A unit cut by its bound leaves the report of each package it finished and
+// none for the rest: the finished one is judged on its efficacy and the other
+// is named as never having run, not as unreadable.
+func TestGateJudgesAFinishedPackageAndNamesTheOneThatNeverRanAsMissing(t *testing.T) {
+	code, out := gate(t, testConfig, map[string]string{"internal-domain.json": gremlinsReport(9, 1, 0, 0)})
+	if code != 1 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "internal/domain: 10 mutants (killed 9, lived 1, timed out 0, not covered 0, not viable 0), efficacy 90.00%: ok") {
+		t.Errorf("the finished package was not judged on its efficacy:\n%s", out)
+	}
+	if !strings.Contains(out, "internal/store: FAILED, report") || !strings.Contains(out, "the package never ran") {
+		t.Errorf("the package that never ran is not named as missing (never ran):\n%s", out)
+	}
+	if strings.Contains(out, "unreadable") {
+		t.Errorf("a package that never ran is reported as unreadable:\n%s", out)
+	}
+}
+
 func TestGateRefusesADisabledOrPackagelessConfig(t *testing.T) {
 	off := `{"mutation_go":{"enabled":false,"efficacy":80,"packages":["a"],"fail_on_no_mutants":true}}`
 	if code, _ := gate(t, off, nil); code != 2 {

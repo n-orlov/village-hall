@@ -2,7 +2,10 @@
 // "mutation_go" section of ci/quality.json and one gremlins JSON report per
 // configured package, and fails when
 //
-//   - a package's report is missing or unreadable,
+//   - a package's report is missing (the package never ran: its unit was cut
+//     or failed before the package finished; a finished package's report is
+//     written the moment it finishes, so only unfinished packages are missing)
+//     or is not a gremlins report,
 //   - a package generated no mutant (fail_on_no_mutants: a gate that
 //     measured nothing has not passed), or
 //   - a package's efficacy is below the configured floor.
@@ -64,6 +67,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -449,6 +453,9 @@ func evaluatePackages(cfg config, dir string, pkgs []string, changed map[string]
 func evaluatePackage(cfg config, dir, pkg string, diff bool) (string, bool) {
 	path := filepath.Join(dir, reportName(pkg))
 	data, err := os.ReadFile(path) //nolint:gosec // G304: the report path is the gate's own directory argument plus a name derived from the configured package
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Sprintf("%s: FAILED, report %s missing: the package never ran (its unit was cut or failed before gremlins finished it)\nwhat to do: read the unit's log; ci/mutation.sh writes each package's report as soon as that package finishes\n", pkg, path), false
+	}
 	if err != nil {
 		return fmt.Sprintf("%s: FAILED, report %s unreadable: %v\nwhat to do: ci/mutation.sh writes it\n", pkg, path, err), false
 	}
