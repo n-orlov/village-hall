@@ -221,3 +221,80 @@ func TestJenkinsfileRunsTheE2EUnitUnderTheLoadSampler(t *testing.T) {
 		t.Errorf("%d units are marked sample: true, want only E2E", n)
 	}
 }
+
+// writeTask writes <proc>/<pid>/task/<tid>/stat as the kernel does: "<tid> (<comm>) <state> ...".
+func writeTask(t *testing.T, proc string, pid int, tid int, comm, state string) {
+	t.Helper()
+	dir := filepath.Join(proc, fmt.Sprint(pid), "task", fmt.Sprint(tid))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stat := fmt.Sprintf("%d (%s) %s 1 1 1 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 100 1000 100\n", tid, comm, state)
+	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(stat), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The sampler says whose load it is: each interval it counts the runnable and
+// uninterruptible threads by process name and by cgroup, as the load average does.
+func TestLoadSampleNamesTheThreadsThatMakeTheLoad(t *testing.T) {
+	proc := fakeProc(t, "9.00")
+	// Two runnable compile threads and one uninterruptible one (a name with a
+	// space and a ")" in it), a node process running vitest, and threads that do not count.
+	writeTask(t, proc, 100, 100, "compile", "R")
+	writeTask(t, proc, 100, 101, "compile", "R")
+	writeTask(t, proc, 100, 102, "we ird) name", "D")
+	writeTask(t, proc, 100, 103, "idle thread", "S")
+	writeTask(t, proc, 200, 200, "node", "R")
+	writeTask(t, proc, 300, 300, "chrome", "Z")
+	for pid, content := range map[int]string{
+		100: "0::/system.slice/docker-abc123.scope\n",
+		200: "0::/system.slice/jenkins-agent.service\n",
+	} {
+		if err := os.WriteFile(filepath.Join(proc, fmt.Sprint(pid), "cgroup"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(proc, "200", "cmdline"), []byte("node\x00--max-old-space-size=4096\x00/app/node_modules/vitest/vitest.mjs\x00run\x00"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "ci-results", "load-samples.txt")
+	cmd := exec.Command("sh", repoScript(t, "ci/loadsample.sh"), "-i", "4", "-w", "0.1", "-n", "2", "-p", proc, file,
+		"--", "sh", "-c", "sleep 6")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	rows := readRows(t, filepath.Join(filepath.Dir(file), "load-samples-procs.txt"))
+	if len(rows) < 1 {
+		t.Fatalf("no row in load-samples-procs.txt after a 6 s command at a 4 s interval")
+	}
+	for _, row := range rows {
+		for _, want := range []string{
+			"runnable=4.0 ", // compile x2, the "D" thread, node
+			" comm compile=2.0 ", "we_ird)_name=1.0", "node:vitest.mjs=1.0",
+			" cgroup docker-abc123.scope=3.0 ", "jenkins-agent.service=1.0",
+		} {
+			if !strings.Contains(row, want) {
+				t.Errorf("row %q lacks %q", row, want)
+			}
+		}
+		if strings.Contains(row, "idle_thread") || strings.Contains(row, "chrome") {
+			t.Errorf("row %q counts a thread that is neither runnable nor uninterruptible", row)
+		}
+	}
+	// The interval rows themselves keep their own format.
+	checkRows(t, readRows(t, file), "9.00")
+}
+
+func TestLoadSampleTakesNoSnapshotsAtAShortDefaultInterval(t *testing.T) {
+	proc := fakeProc(t, "1.00")
+	writeTask(t, proc, 100, 100, "compile", "R")
+	file := filepath.Join(t.TempDir(), "load-samples.txt")
+	if err := exec.Command("sh", repoScript(t, "ci/loadsample.sh"), "-i", "0.2", "-w", "0.1", "-p", proc, file,
+		"--", "sh", "-c", "sleep 0.8").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(file), "load-samples-procs.txt")); err == nil {
+		t.Error("a 0.2 s interval wrote a procs file; snapshots are for intervals of 10 s or more unless -n asks")
+	}
+}

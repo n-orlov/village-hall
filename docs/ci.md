@@ -199,6 +199,18 @@ exits 0. The report archives `ci-results/load-samples.txt`
 (`ci-results/**/*.txt`) with the build's other artifacts. The file covers the
 E2E unit's command, which runs beside Suite, Image and Allure smoke, so it is
 the load of the whole Core phase from the point E2E starts.
+
+The load average says how much, not whose. After each row the script also takes
+`-n` snapshots (5 by default when the interval is a whole number of at least 10
+seconds, none otherwise), one second apart, of every thread that is runnable or in
+uninterruptible sleep (the states the load average counts, from
+`/proc/<pid>/task/<tid>/stat`), and appends one line to
+`ci-results/load-samples-procs.txt`: the time, `runnable=` (the mean per snapshot),
+the ten largest process names (`comm`, a node process as `node:<script>`) and the five
+largest cgroups (`cgroup`: a CI container, the agent's service, anything else on the
+host), each as `<name>=<mean threads>`. The wait after a row is shortened by the
+snapshot time, so rows stay one interval apart. It is the evidence for which phase
+and which process push the load past 12 (task 020).
 `ci/repocheck/loadsample_test.go` runs the script against a fake proc directory
 at a short interval (rows, fields, the exact percentages, a clean stop on TERM,
 the command's exit status) and checks the Jenkinsfile runs the E2E unit under it.
@@ -776,7 +788,8 @@ The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
 - `ci/attempt-id.sh` (tested by `ci/repocheck/attemptid_test.go`): the cleanup id
   of a unit attempt, unique per job, build, unit and attempt.
 - `ci/loadsample.sh` (tested by `ci/repocheck/loadsample_test.go`): the per-minute
-  load average, CPU busy and iowait samples of the E2E unit's run.
+  load average, CPU busy and iowait samples of the E2E unit's run, and the
+  runnable threads by process name and cgroup beside them (`load-samples-procs.txt`).
 - `ci/junit2allure`, `ci/junitflaky`, `ci/allureverify`: JUnit to Allure
   conversion, the flaky-test list, and the check that the Allure report keeps
   the Godog steps and issue links.

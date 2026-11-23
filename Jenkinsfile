@@ -106,8 +106,9 @@
 //
 // Load samples (R6): the E2E unit (sample: true) runs under ci/loadsample.sh,
 // on int21h-ws, for the whole run of its command: one row per minute of load
-// average (1 minute), CPU busy and iowait in ci-results/load-samples.txt, which
-// the report archives. The ceiling (load at most 12 on every row) and the
+// average (1 minute), CPU busy and iowait in ci-results/load-samples.txt, and
+// the runnable threads by process name and cgroup in ci-results/load-samples-procs.txt
+// (ci/loadsample.sh header), which the report archives. The ceiling (load at most 12 on every row) and the
 // Playwright worker count are judged on that file.
 //
 // Playwright workers (R6, task 010): E2E_WORKERS below, 2, at most 3 (ci/suitecheck
