@@ -21,6 +21,10 @@ case "$*" in
 *"run test"*)
     mkdir -p "$(dirname "$WEB_JUNIT_FILE")" "$WEB_COVERAGE_DIR"
     echo '<testsuites/>' > "$WEB_JUNIT_FILE"
+    # STUB_VITEST_FAIL_FIRST=1: only the first run fails, a second would pass.
+    if [ -n "${STUB_VITEST_FAIL_FIRST:-}" ] && [ "$(grep -c 'run test' "$STUB_LOG")" -le 1 ]; then
+        exit 1
+    fi
     ;;
 esac
 exit 0
@@ -30,6 +34,10 @@ const stubNpx = `#!/bin/sh
 echo "npx $(basename "$PWD") $*" >> "$STUB_LOG"
 mkdir -p "$E2E_OUT"
 echo '<testsuites/>' > "$E2E_OUT/junit.xml"
+# STUB_PLAYWRIGHT_FAIL_FIRST=1: only the first run fails, a second would pass.
+if [ -n "${STUB_PLAYWRIGHT_FAIL_FIRST:-}" ] && [ "$(grep -c 'playwright test' "$STUB_LOG")" -le 1 ]; then
+    exit 1
+fi
 exit "${STUB_PLAYWRIGHT_EXIT:-0}"
 `
 
@@ -56,7 +64,7 @@ func runSuiteMode(t *testing.T, mode string, extraEnv ...string) modeRun {
 		copyFile(t, filepath.Join(fixture, "unit", f), filepath.Join(module, "unit", f), 0o644)
 	}
 	copyFile(t, filepath.Join(fixture, "features", "fixture_test.go"), filepath.Join(module, "features", "fixture_test.go"), 0o644)
-	copyFile(t, filepath.Join(root, "ci", "suite.sh"), filepath.Join(module, "ci", "suite.sh"), 0o755)
+	copyFile(t, suiteScriptPath(root), filepath.Join(module, "ci", "suite.sh"), 0o755)
 	for _, tool := range []string{"junitflaky", "junit2allure", "legcompare"} {
 		copyFile(t, filepath.Join(root, "ci", tool, "main.go"), filepath.Join(module, "ci", tool, "main.go"), 0o644)
 	}
@@ -123,7 +131,7 @@ func TestSuiteWithNoPlaywrightFlagRunsEverythingIncludingPlaywright(t *testing.T
 		if !strings.Contains(run.stubLog(), "npx e2e playwright test") {
 			t.Errorf("mode %q: Playwright did not run: %q", mode, run.stubLog())
 		}
-		for _, f := range []string{"junit-playwright.xml", "flaky-playwright.txt", "junit-vitest.xml", "junit-go.xml"} {
+		for _, f := range []string{"junit-playwright.xml", "junit-vitest.xml", "junit-go.xml"} {
 			if !run.has(f) {
 				t.Errorf("mode %q: %s was not written", mode, f)
 			}
@@ -140,12 +148,12 @@ func TestSuiteSkipsPlaywrightWhenAskedTo(t *testing.T) {
 	if strings.Contains(run.stubLog(), "playwright") || strings.Contains(run.stubLog(), "npm e2e") {
 		t.Errorf("a skipped Playwright step still ran: %q", run.stubLog())
 	}
-	for _, f := range []string{"junit-playwright.xml", "flaky-playwright.txt", "playwright"} {
+	for _, f := range []string{"junit-playwright.xml", "playwright"} {
 		if run.has(f) {
 			t.Errorf("skip: %s was written", f)
 		}
 	}
-	for _, f := range []string{"junit-vitest.xml", "flaky-vitest.txt", "junit-go.xml", "flaky-go.txt"} {
+	for _, f := range []string{"junit-vitest.xml", "junit-go.xml"} {
 		if !run.has(f) {
 			t.Errorf("skip: %s was not written (the rest of the suite must run)", f)
 		}
@@ -165,30 +173,13 @@ func TestSuiteRunsOnlyPlaywrightWhenAskedTo(t *testing.T) {
 	if strings.Contains(log, "run test") {
 		t.Errorf("only: Vitest ran: %q", log)
 	}
-	for _, f := range []string{"junit-playwright.xml", "flaky-playwright.txt"} {
-		if !run.has(f) {
-			t.Errorf("only: %s was not written", f)
-		}
+	if !run.has("junit-playwright.xml") {
+		t.Error("only: junit-playwright.xml was not written")
 	}
-	for _, f := range []string{"junit-vitest.xml", "flaky-vitest.txt", "junit-go.xml", "flaky-go.txt", "junit-merged", "web-build.log"} {
+	for _, f := range []string{"junit-vitest.xml", "junit-go.xml", "junit-merged", "web-build.log"} {
 		if run.has(f) {
 			t.Errorf("only: %s was written, but the Go and Vitest steps belong to Suite", f)
 		}
-	}
-}
-
-// E2E keeps the one repeat: a run failing twice fails the unit, a pass on the
-// repeat is recorded as flaky and exits 0.
-func TestSuiteOnlyPlaywrightRepeatsOnceAndFailsOnASecondFailure(t *testing.T) {
-	run := runSuiteMode(t, "only", "STUB_PLAYWRIGHT_EXIT=1")
-	if run.err == nil {
-		t.Fatal("a Playwright run failing twice must fail the E2E unit")
-	}
-	if got := strings.Count(run.stubLog(), "npx e2e playwright test"); got != 2 {
-		t.Errorf("Playwright ran %d times, want the run and one repeat", got)
-	}
-	if !run.has("junit-playwright-run1.xml") {
-		t.Error("the first run's JUnit was not kept as junit-playwright-run1.xml")
 	}
 }
 

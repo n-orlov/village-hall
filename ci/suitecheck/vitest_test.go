@@ -10,7 +10,7 @@ import (
 // TestSuiteRunsVitestAndWritesItsJUnitFile is the R11/task 007 probe: ci/suite.sh
 // builds web/ before the first Go pass (so Go tests embed the real UI), runs
 // `npm run test` with its JUnit file and coverage directory pointed at the suite's
-// result directory, repeats a failed run once, and the web package's own config
+// result directory, runs once, and the web package's own config
 // carries the JUnit reporter and the v8 coverage provider those paths feed.
 func TestSuiteRunsVitestAndWritesItsJUnitFile(t *testing.T) {
 	root, err := repositoryRoot()
@@ -34,7 +34,7 @@ func TestSuiteRunsVitestAndWritesItsJUnitFile(t *testing.T) {
 		`npm run test`,
 		`npm run build`,
 		`Vitest wrote no JUnit file`,
-		`Vitest failed twice`,
+		`Vitest failed (see`,
 	} {
 		if !strings.Contains(suite, want) {
 			t.Errorf("ci/suite.sh: missing %q", want)

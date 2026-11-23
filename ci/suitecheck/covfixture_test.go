@@ -47,7 +47,7 @@ func runCovFixture(t *testing.T, extraEnv ...string) covFixtureRun {
 	for _, rel := range []string{"unit/unit_test.go", "unit/extraflag_test.go", "features/fixture_test.go", "features/extraflag_test.go", "probe/main.go"} {
 		copyFile(t, filepath.Join(fixture, filepath.FromSlash(rel)), filepath.Join(module, filepath.FromSlash(rel)), 0o644)
 	}
-	copyFile(t, filepath.Join(root, "ci", "suite.sh"), filepath.Join(module, "ci", "suite.sh"), 0o755)
+	copyFile(t, suiteScriptPath(root), filepath.Join(module, "ci", "suite.sh"), 0o755)
 	copyFile(t, filepath.Join(root, "ci", "junitflaky", "main.go"), filepath.Join(module, "ci", "junitflaky", "main.go"), 0o644)
 	copyFile(t, filepath.Join(root, "ci", "junit2allure", "main.go"), filepath.Join(module, "ci", "junit2allure", "main.go"), 0o644)
 	copyFile(t, filepath.Join(root, "ci", "legcompare", "main.go"), filepath.Join(module, "ci", "legcompare", "main.go"), 0o644)

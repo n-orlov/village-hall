@@ -7,28 +7,32 @@
 # gotest.tools/gotestsum@$GOTESTSUM_VERSION`), so this file is the only
 # place the version is bumped and ci/Dockerfile never needs to know
 # gotestsum exists. It writes standard JUnit for the ordinary Go package
-# matrix and Godog's own JUnit for features/, and applies a
-# fail-once-retry-once policy throughout: a test (or scenario) that fails
-# once and then passes is recorded to a flaky list and the run exits 0; one
-# that fails twice makes this script exit non-zero.
+# matrix and Godog's own JUnit for features/.
+#
+# No retries (task 003, R3): Vitest, Playwright, the Go package matrix and
+# features/TestFeatures (once per database leg) each run exactly once, with no
+# repeat, no gotestsum --rerun-fails and no per-scenario rerun. A failure in any
+# of the four makes this script exit non-zero, and a test that fails once is a
+# failure, not a flake to be recorded: nothing here writes a flaky list. A
+# diagnostic rerun of failed tests, if one is ever added, must write its output
+# under the outdir and must never change the exit status.
 #
 #   ci/run.sh ci/suite.sh                  # from a sandbox without local Go
 #   ci/suite.sh                            # on a runner with Go on PATH already
-#   BOARD_CI_OUT=/path/to/artifacts ci/suite.sh   # keep the JUnit/flaky files
+#   BOARD_CI_OUT=/path/to/artifacts ci/suite.sh   # keep the JUnit files
 #   ci/suite.sh /path/to/artifacts               # same, as a positional argument
 #   BOARD_CI_PLAYWRIGHT=skip ci/suite.sh         # everything but the Playwright step
 #   BOARD_CI_PLAYWRIGHT=only ci/suite.sh         # only the web build and Playwright
 #
 # BOARD_CI_PLAYWRIGHT (operator ruling 001-WAVE, task 035): which parts of the
-# run happen. Unset, or `with`, is the whole run, Playwright and its one repeat
-# included (what a local Sweep runs). The Jenkinsfile runs two units from this
+# run happen. Unset, or `with`, is the whole run, Playwright included (what a
+# local Sweep runs). The Jenkinsfile runs two units from this
 # one script, in parallel: Suite with `skip` (the web build and Vitest, the Go
-# passes, the merged files; no Playwright, and no junit-playwright*.xml or
-# flaky-playwright.txt) and E2E with `only` (`npm ci` and the web build in e2e's
-# checkout, then the Playwright step with its repeat, writing only the
-# Playwright files; no Vitest, no Go pass). Any other value is refused. The
-# step itself is the same in `with` and `only`: every spec, one worker, the one
-# repeat of a failed run.
+# passes, the merged files; no Playwright, and no junit-playwright.xml)
+# and E2E with `only` (`npm ci` and the web build in e2e's checkout, then
+# the Playwright step, writing only the Playwright files; no Vitest, no Go
+# pass). Any other value is refused. The step itself is the same in `with` and
+# `only`: every spec, once.
 #
 # Coverage: the unit pass runs with -coverpkg=./... (every package in the
 # module, not just the ones a given test imports), and the per-pass
@@ -40,30 +44,20 @@
 # BOARD_GODOG_PATHS/BOARD_HOME from the caller's shell cannot reach `go
 # test` or the board binaries it spawns.
 #
-# Why features/ gets a second, different retry path
-# ---------------------------------------------------
-# The ordinary Go package matrix is driven with gotestsum's own
-# `--rerun-fails=1`: on a failure it reruns exactly the failed test
-# (`go test -run '^Name$' <pkg>`), which is precise because in an ordinary Go
-# package one test function is one unit of work.
-#
-# features/ is different in exactly one test: TestFeatures, the single Go
-# test function that fans out into 300+ Godog scenarios via
-# godog.TestSuite. Handing it to gotestsum's rerun-fails would rerun
-# `-run '^TestFeatures$'` on a failure, which re-executes every scenario in
-# the package again — exactly the "whole package" rerun task 015's
-# criterion (3) forbids. So the gotestsum pass covers EVERY package,
-# features/ included, with `-skip '^TestFeatures$'`: features/'s ordinary
-# Go test functions (probes, harness self-tests, ...) run and are retried
-# there like any other test. TestFeatures alone is then run once, also
-# through gotestsum but without --rerun-fails, in a second pass; on
-# failure this script parses the pretty formatter's own "--- Failed
-# steps:" summary (always emitted, in both the terminal and the
-# JUnit-carrying "pretty,junit:<path>" format — see
-# godogFormat() in features/godog_test.go, task 014) for each failed
-# scenario's own "<file>:<line>" location, and reruns ONLY that scenario via
-# BOARD_GODOG_PATHS=<file>:<line> (features/godog_test.go's existing
-# godogPaths() selector, task 014) — never the package's default `.` path.
+# How features/ is run
+# ---------------------
+# The gotestsum pass covers EVERY package, features/ included, with
+# `-skip '^TestFeatures$'`; features/'s ordinary Go test functions (probes,
+# harness self-tests, ...) run there like any other test. TestFeatures, the
+# single Go test function that fans out into 300+ Godog scenarios via
+# godog.TestSuite, is run alone, also through gotestsum, in a second pass: once
+# per database leg (SQLite, then Postgres). A failing scenario fails its leg and
+# so the script. When it fails, this script reads the pretty formatter's own
+# "--- Failed steps:" summary (always emitted, see godogFormat() in
+# features/godog_test.go) for each failed scenario's "<file>:<line>" and names
+# them on stderr; a failure with no such summary is a whole-process abort (go
+# test's -timeout alarm, a crash) and gets an explicit failed TestFeatures
+# marker in the report input. Nothing is run a second time.
 set -eu
 
 GOTESTSUM_VERSION=${GOTESTSUM_VERSION:-v1.13.0}
@@ -108,7 +102,7 @@ esac
 # is now absolute, so it resolves the same regardless of which process's
 # CWD interprets it.
 outdir=$(cd "$outdir" && pwd)
-echo "ci/suite.sh: writing JUnit/flaky/log files to $outdir"
+echo "ci/suite.sh: writing JUnit/log files to $outdir"
 
 overall_status=0
 
@@ -117,18 +111,11 @@ overall_status=0
 # tests the binary with the real UI embedded rather than the placeholder page.
 # Vitest (vitest run --coverage, configured in web/vitest.config.ts) writes
 # its JUnit file to <outdir>/junit-vitest.xml and its @vitest/coverage-v8
-# reports to <outdir>/web-coverage/. The same fail-once-retry-once policy as
-# the Go passes applies: a failed first attempt is kept as junit-vitest-run1.xml,
-# the run is repeated once, and a pass on the repeat is recorded in
-# flaky-vitest.txt and exits 0; a second failure fails the suite. A checkout
-# with no web/ (the suitecheck fixtures) skips this step.
+# reports to <outdir>/web-coverage/. It runs once: a failure fails the suite.
+# A checkout with no web/ (the suitecheck fixtures) skips this step.
 vitest_junit="$outdir/junit-vitest.xml"
-vitest_flaky="$outdir/flaky-vitest.txt"
 # The E2E unit (BOARD_CI_PLAYWRIGHT=only) builds the web UI for Playwright and
 # writes none of Vitest's files.
-if [ "$playwright_mode" != only ]; then
-    : > "$vitest_flaky"
-fi
 if [ -f web/package.json ]; then
     vitest_log="$outdir/vitest.log"
     web_build_log="$outdir/web-build.log"
@@ -140,19 +127,9 @@ if [ -f web/package.json ]; then
         overall_status=1
     fi
     if [ "$playwright_mode" != only ]; then
-        run_vitest() {
-            (cd web && WEB_JUNIT_FILE="$vitest_junit" WEB_COVERAGE_DIR="$outdir/web-coverage" npm run test) > "$vitest_log" 2>&1
-        }
-        if ! run_vitest; then
-            echo "ci/suite.sh: Vitest failed; repeating it once (see $vitest_log)" >&2
-            [ -f "$vitest_junit" ] && cp "$vitest_junit" "$outdir/junit-vitest-run1.xml"
-            cp "$vitest_log" "$outdir/vitest-run1.log"
-            if run_vitest; then
-                echo "vitest: failed once, then passed on the repeat (see vitest-run1.log)" >> "$vitest_flaky"
-            else
-                echo "ci/suite.sh: Vitest failed twice (see $vitest_log)" >&2
-                overall_status=1
-            fi
+        if ! (cd web && WEB_JUNIT_FILE="$vitest_junit" WEB_COVERAGE_DIR="$outdir/web-coverage" npm run test) > "$vitest_log" 2>&1; then
+            echo "ci/suite.sh: Vitest failed (see $vitest_log)" >&2
+            overall_status=1
         fi
         if [ ! -s "$vitest_junit" ]; then
             echo "ci/suite.sh: Vitest wrote no JUnit file at $vitest_junit" >&2
@@ -163,28 +140,22 @@ fi
 
 # --- 0b. Playwright: the real binary on a free port, the whole e2e suite (task 010, R11) ---
 # e2e/playwright.config.ts starts the binary built from this checkout (with the
-# UI step 0 just built embedded) against a seeded SQLite store, and writes every
-# reporter's output under $E2E_OUT. Playwright itself never retries (retries: 0);
-# the one retry lives here, at the suite level: a failed run is kept as
-# junit-playwright-run1.xml / playwright-run1.log and repeated once, a pass on
-# the repeat is recorded in flaky-playwright.txt and exits 0, a second failure
-# fails the suite. The JUnit file lands at <outdir>/junit-playwright.xml and the
-# HTML, Allure, JSON and trace output in <outdir>/playwright/. A checkout with
-# no e2e/ (the suitecheck fixtures) skips this step.
+# UI step 0 just built embedded) with a server, port and SQLite store per worker,
+# and writes every reporter's output under $E2E_OUT. Playwright itself never
+# retries (retries: 0) and neither does this script: the run happens once, and a
+# failure fails the suite. The JUnit file lands at <outdir>/junit-playwright.xml
+# and the HTML, Allure, JSON and trace output in <outdir>/playwright/. A
+# checkout with no e2e/ (the suitecheck fixtures) skips this step.
 #
 # Overlap (task 018): Playwright (each worker has a server, free port and
 # SQLite store of its own, e2e/fixtures.ts) shares nothing with the Go passes below, so it runs in the
 # background beside them and is waited for before step 3, which reads its
 # files. Its messages go to playwright-messages.log and are replayed to stderr
 # at the wait, where a failure sets overall_status. Nothing is shortened: the
-# same specs run with the same bounds, and the whole run still repeats once.
+# same specs run with the same bounds.
 # It exists because the sequential suite grew to the Suite stage's 45-minute
 # budget, which stays as it is.
 playwright_junit="$outdir/junit-playwright.xml"
-playwright_flaky="$outdir/flaky-playwright.txt"
-if [ "$playwright_mode" != skip ]; then
-    : > "$playwright_flaky"
-fi
 playwright_messages="$outdir/playwright-messages.log"
 playwright_pid=""
 # playwright_step is the whole step; it returns 1 when the suite must fail.
@@ -195,27 +166,15 @@ playwright_step() {
         echo "ci/suite.sh: e2e npm ci failed (see $outdir/e2e-install.log)" >&2
         playwright_failed=1
     fi
-    run_playwright() {
-        rm -rf "$outdir/playwright"
-        rc=0
-        (cd e2e && E2E_OUT="$outdir/playwright" npx playwright test) > "$playwright_log" 2>&1 || rc=$?
-        if [ -f "$outdir/playwright/junit.xml" ]; then
-            cp "$outdir/playwright/junit.xml" "$playwright_junit"
-        fi
-        return "$rc"
-    }
-    if ! run_playwright; then
-        echo "ci/suite.sh: Playwright failed; repeating it once (see $playwright_log)" >&2
-        if [ -f "$playwright_junit" ]; then
-            cp "$playwright_junit" "$outdir/junit-playwright-run1.xml"
-        fi
-        cp "$playwright_log" "$outdir/playwright-run1.log"
-        if run_playwright; then
-            echo "playwright: failed once, then passed on the repeat (see playwright-run1.log)" >> "$playwright_flaky"
-        else
-            echo "ci/suite.sh: Playwright failed twice (see $playwright_log)" >&2
-            playwright_failed=1
-        fi
+    rm -rf "$outdir/playwright"
+    rc=0
+    (cd e2e && E2E_OUT="$outdir/playwright" npx playwright test) > "$playwright_log" 2>&1 || rc=$?
+    if [ -f "$outdir/playwright/junit.xml" ]; then
+        cp "$outdir/playwright/junit.xml" "$playwright_junit"
+    fi
+    if [ "$rc" -ne 0 ]; then
+        echo "ci/suite.sh: Playwright failed (see $playwright_log)" >&2
+        playwright_failed=1
     fi
     if [ ! -s "$playwright_junit" ]; then
         echo "ci/suite.sh: Playwright wrote no JUnit file at $playwright_junit" >&2
@@ -338,48 +297,24 @@ for board_var in $(env | sed -n -e 's/^\(BOARD_[A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'
 done
 
 go_junit="$outdir/junit-go.xml"
-go_rerun_report="$outdir/rerun-report-go.txt"
-go_flaky="$outdir/flaky-go.txt"
-: > "$go_flaky"
 
 # unit_coverprofile (R146/task 016 criterion 1, R146 cure-01-05): a
 # legacy-format coverage profile covering every package this pass tests.
-# task 016 originally produced this with the *ordinary* `go test
-# -coverprofile` flag, fed straight into gotestsum's --packages/-- args --
-# but gotestsum's own --rerun-fails=1 reruns a failed test with a SECOND,
-# separate `go test -run '^Name$' <pkg> ... -coverprofile=<same path>`
-# invocation, and each `go test` invocation, retry included, WRITES that
-# path from scratch rather than merging into whatever is already there. So
-# the moment any test anywhere in the pass needed a retry, that retry's own
-# `go test` call clobbered the whole profile with only its own (one
-# package, one test) coverage -- deleting every other tested package
-# outright and zeroing every block the retried package's OTHER, passing
-# tests had covered on the first attempt (cure-01-05, reviewer probe
-# coverage-retention-probe.log: StableCovered count 0, RetryCovered count
-# 1, the then ci/releasegate package's whole profile gone).
-#
-# The fix is to stop asking `go test` to write the legacy format directly at
-# all, and instead use the same retry-safe, per-process-counter-file
-# mechanism already proven correct for features/'s black-box coverage
-# below -- but reached through `-test.gocoverdir`, the internal test-binary
-# flag `-coverprofile` itself sets under the hood (Go 1.20+; see `go help
-# testflag`'s -cover/-coverprofile entries and cmd/internal/test2json), not
-# through the GOCOVERDIR *environment variable*: that env var only steers
-# coverage for a separately built+run binary (go build -cover, as
-# features/ does with the board binary itself); an ordinary `go test`
-# invocation ignores it and, absent -coverprofile, writes no profile at
-# all -- confirmed empirically before settling on -args -test.gocoverdir.
-# Passed via `-args` (everything
-# after -args goes to the test binary, not to `go test` itself), every `go
-# test -cover` invocation (the initial full pass AND each gotestsum retry)
-# writes its OWN uniquely-named counter file set into unit_covdir rather
-# than overwriting a shared path, so counters from every attempt --
-# including packages/tests that were never retried at all -- coexist and
-# accumulate instead of clobbering each other. `go tool covdata textfmt`
-# below then bridges that whole directory into the one legacy-format
-# unit_coverprofile file the rest of this script (and coverage_table)
-# already expects, so no downstream consumer needs to know the collection
-# mechanism changed.
+# The profile is not written by the *ordinary* `go test -coverprofile` flag:
+# each `go test` invocation writes that path from scratch, so a second
+# invocation into it would clobber the whole profile. Instead the unit pass
+# uses the per-process-counter-file mechanism also used for features/'s
+# black-box coverage below, reached through `-test.gocoverdir`, the internal
+# test-binary flag `-coverprofile` itself sets under the hood (Go 1.20+; see
+# `go help testflag`), not through the GOCOVERDIR *environment variable*: that
+# env var only steers coverage for a separately built+run binary (go build
+# -cover, as features/ does with the board binary itself); an ordinary `go
+# test` invocation ignores it. Passed via `-args` (everything after -args goes
+# to the test binary, not to `go test` itself), every `go test -cover`
+# invocation writes its OWN uniquely-named counter file set into unit_covdir.
+# `go tool covdata textfmt` below then bridges that whole directory into the
+# one legacy-format unit_coverprofile file the rest of this script (and
+# coverage_table) already expects.
 unit_covdir="$outdir/covdata-unit"
 # A directory left by an earlier run would be merged into this run's profile
 # (counters keyed to source that has since changed), so start from empty.
@@ -393,29 +328,12 @@ if [ -n "$pkgs" ]; then
     go run "$gotestsum_pkg" \
         --format testname \
         --junitfile "$go_junit" \
-        --rerun-fails=1 \
-        --rerun-fails-report "$go_rerun_report" \
         --packages "$pkgs" \
         -- -p=1 -count=1 -skip '^TestFeatures$' "-timeout=$unit_test_timeout" "-covermode=$covermode" -cover -coverpkg=./... $go_extra_flags -args "-test.gocoverdir=$unit_covdir" \
         || go_status=$?
 
-    # gotestsum's own rerun report lists every test it reran, whether or not
-    # it eventually passed ("<test>: N runs, M failures"). Criterion (2)
-    # wants a *flaky* list restricted to tests that failed once and then
-    # passed on the rerun (failures < runs); a test where failures == runs
-    # never passed at all and is reflected in go_status instead.
-    if [ -f "$go_rerun_report" ]; then
-        while IFS= read -r line; do
-            runs=$(printf '%s\n' "$line" | grep -oE '[0-9]+ runs' | grep -oE '[0-9]+' || true)
-            fails=$(printf '%s\n' "$line" | grep -oE '[0-9]+ failures' | grep -oE '[0-9]+' || true)
-            if [ -n "$runs" ] && [ -n "$fails" ] && [ "$fails" -lt "$runs" ]; then
-                printf '%s\n' "$line" >> "$go_flaky"
-            fi
-        done < "$go_rerun_report"
-    fi
-
     if [ "$go_status" -ne 0 ]; then
-        echo "ci/suite.sh: Go package matrix failed after retry (exit $go_status)" >&2
+        echo "ci/suite.sh: Go package matrix failed (exit $go_status)" >&2
         overall_status=1
     fi
 else
@@ -423,32 +341,27 @@ else
     overall_status=1
 fi
 
-# --- 2. features/TestFeatures: one run, then a per-scenario rerun of anything failed ---
+# --- 2. features/TestFeatures: one run per database leg, no rerun ---
 features_junit="$outdir/junit-features.xml"
 # allure_dir (task 005, R195/R196): the one Allure results directory of this
-# run. Every features/ invocation below -- the initial run and each solo
-# rerun -- gets BOARD_GODOG_ALLURE=<this dir>, so features/'s own formatter
-# writes native results into it, and a scenario rerun alone carries the same
-# historyId as its failed first attempt: Allure reads them as retries of one
-# test (and flaky when the last one passed). Step 3b adds the unit results,
-# environment.properties and executor.json to the same directory.
+# run. The SQLite leg's features/ invocation below gets
+# BOARD_GODOG_ALLURE=<this dir>, so features/'s own formatter writes native
+# results into it. Step 3b adds the unit results, environment.properties and
+# executor.json to the same directory.
 allure_dir="$outdir/allure-results"
 mkdir -p "$allure_dir"
-features_log="$outdir/features-run1.log"
-features_flaky="$outdir/flaky-features.txt"
-: > "$features_flaky"
+features_log="$outdir/features.log"
 
 # covdir (R146/task 016, criterion 2): a GOCOVERDIR passed to every
-# features/TestFeatures invocation below (the initial run and every solo
-# scenario rerun). features/lifecycle_test.go's registerScenarioLifecycle
+# features/TestFeatures invocation below. features/lifecycle_test.go's registerScenarioLifecycle
 # Before hook reads this same env var from its own process's environment
 # (inherited automatically by the board binaries it spawns, since
 # StartScreenDriverInDir's cmd.Env starts from os.Environ()) and adds
 # `go build -cover` only when it is non-empty, so every scenario's board
 # process writes black-box coverage counters here. Each rebuilt binary and
 # each spawned process gets its own uniquely-named counter file, so reusing
-# one directory across the whole pass (including reruns) just accumulates
-# more data rather than clobbering it.
+# one directory across the whole pass just accumulates more data rather than
+# clobbering it.
 covdir="$outdir/covdata-features"
 rm -rf "$covdir"
 mkdir -p "$covdir"
@@ -480,8 +393,8 @@ require_feature_counters() {
 }
 
 # run_test_features <gotestsum-junit-path> <NAME=value>...: one gotestsum-driven
-# run of features/TestFeatures and nothing else. No --rerun-fails here on purpose
-# (see the header); --format standard-verbose keeps Godog's pretty output,
+# run of features/TestFeatures and nothing else. It is never rerun (see the
+# header); --format standard-verbose keeps Godog's pretty output,
 # including its "--- Failed steps:" summary, verbatim in the log. Every
 # NAME=value goes through env(1) rather than a prefix assignment on the
 # function call, whose export to child processes POSIX leaves unspecified.
@@ -535,7 +448,7 @@ features_aborted_without_locations=0
 sqlite_counters_before=$(count_counters)
 if ! run_test_features "$outdir/junit-features-gotestsum.xml" "BOARD_GODOG_JUNIT=$features_junit" "BOARD_GODOG_ALLURE=$allure_dir" "GOCOVERDIR=$covdir" > "$features_log" 2>&1; then
     features_status=1
-    clean_log="$outdir/features-run1.clean.log"
+    clean_log="$outdir/features.clean.log"
     sed -E 's/\x1b\[[0-9;]*m//g' "$features_log" > "$clean_log"
 
     locations=$(failed_scenario_locations "$features_log")
@@ -544,27 +457,14 @@ if ! run_test_features "$outdir/junit-features-gotestsum.xml" "BOARD_GODOG_JUNIT
         echo "ci/suite.sh: features/ failed but no scenario location could be parsed from $features_log" >&2
         features_aborted_without_locations=1
     else
-        all_recovered=1
-        i=0
         for loc in $locations; do
-            i=$((i + 1))
-            rerun_log="$outdir/features-rerun-$i.log"
-            echo "ci/suite.sh: features/ rerunning failed scenario alone: BOARD_GODOG_PATHS=$loc" >&2
-            if run_test_features "$outdir/junit-features-rerun-$i-gotestsum.xml" "BOARD_GODOG_PATHS=$loc" "BOARD_GODOG_JUNIT=$outdir/junit-features-rerun-$i.xml" "BOARD_GODOG_ALLURE=$allure_dir" "GOCOVERDIR=$covdir" > "$rerun_log" 2>&1; then
-                echo "$loc" >> "$features_flaky"
-            else
-                echo "ci/suite.sh: features/ scenario $loc failed again on its solo rerun" >&2
-                all_recovered=0
-            fi
+            echo "ci/suite.sh: features/ scenario failed: $loc (see $features_log)" >&2
         done
-        if [ "$all_recovered" -eq 1 ]; then
-            features_status=0
-        fi
     fi
 fi
 
 if [ "$features_status" -ne 0 ]; then
-    echo "ci/suite.sh: features/ failed after per-scenario retry" >&2
+    echo "ci/suite.sh: features/ failed (see $features_log)" >&2
     overall_status=1
 fi
 if ! require_feature_counters sqlite "$features_log" "$sqlite_counters_before"; then
@@ -572,18 +472,14 @@ if ! require_feature_counters sqlite "$features_log" "$sqlite_counters_before"; 
 fi
 
 # --- 2b. every other database leg: the same scenarios against Postgres (task 013, R4) ---
-# One run of features/TestFeatures with BOARD_DB_LEG=<leg>, then each failed
-# scenario alone by its "<file>:<line>" (the SQLite leg's retry-once, scenario by
-# scenario). Everything lands in files named for the leg: features-run1-<leg>.log,
-# flaky-features-<leg>.txt, junit-features-<leg>-gotestsum.xml and
-# junit-features-<leg>-rerun-<i>-gotestsum.xml. Step 3c folds those into
-# junit-merged/junit-features-<leg>.xml and compares the legs.
+# One run of features/TestFeatures with BOARD_DB_LEG=<leg>; a failure fails the
+# leg, and nothing is rerun. Everything lands in files named for the leg:
+# features-<leg>.log and junit-features-<leg>-gotestsum.xml. Step 3c folds that
+# into junit-merged/junit-features-<leg>.xml and compares the legs.
 run_extra_leg() {
     leg=$1
     features_leg=$leg
-    leg_log="$outdir/features-run1-$leg.log"
-    leg_flaky="$outdir/flaky-features-$leg.txt"
-    : > "$leg_flaky"
+    leg_log="$outdir/features-$leg.log"
     leg_counters_before=$(count_counters)
     if run_test_features "$outdir/junit-features-$leg-gotestsum.xml" "GOCOVERDIR=$covdir" > "$leg_log" 2>&1; then
         return 0
@@ -591,21 +487,12 @@ run_extra_leg() {
     leg_locations=$(failed_scenario_locations "$leg_log")
     if [ -z "$leg_locations" ]; then
         echo "ci/suite.sh: features/ on the $leg leg failed but no scenario location could be parsed from $leg_log" >&2
-        return 1
+    else
+        for loc in $leg_locations; do
+            echo "ci/suite.sh: features/ scenario failed on the $leg leg: $loc (see $leg_log)" >&2
+        done
     fi
-    leg_recovered=1
-    leg_i=0
-    for loc in $leg_locations; do
-        leg_i=$((leg_i + 1))
-        echo "ci/suite.sh: features/ rerunning failed scenario alone on the $leg leg: BOARD_GODOG_PATHS=$loc" >&2
-        if run_test_features "$outdir/junit-features-$leg-rerun-$leg_i-gotestsum.xml" "BOARD_GODOG_PATHS=$loc" "GOCOVERDIR=$covdir" > "$outdir/features-rerun-$leg-$leg_i.log" 2>&1; then
-            echo "$loc" >> "$leg_flaky"
-        else
-            echo "ci/suite.sh: features/ scenario $loc failed again on its solo rerun on the $leg leg" >&2
-            leg_recovered=0
-        fi
-    done
-    [ "$leg_recovered" -eq 1 ]
+    return 1
 }
 
 extra_legs=""
@@ -613,10 +500,10 @@ for leg in $db_legs; do
     [ "$leg" = sqlite ] && continue
     extra_legs="$extra_legs $leg"
     if ! run_extra_leg "$leg"; then
-        echo "ci/suite.sh: features/ failed on the $leg leg after per-scenario retry" >&2
+        echo "ci/suite.sh: features/ failed on the $leg leg" >&2
         overall_status=1
     fi
-    if ! require_feature_counters "$leg" "$outdir/features-run1-$leg.log" "$leg_counters_before"; then
+    if ! require_feature_counters "$leg" "$outdir/features-$leg.log" "$leg_counters_before"; then
         overall_status=1
     fi
 done
@@ -632,16 +519,11 @@ if [ -n "$playwright_pid" ]; then
     fi
 fi
 
-# --- 3. one merged JUnit file per pass, retries folded (R146/task 019) ---
-# The raw files above keep every attempt as its own <testcase>, and
-# Allure's junit-xml plugin, given those, can pick a test's failed attempt
-# as its result and report a test that passed on retry as failed and not
-# flaky. ci/junitflaky (see its own header) folds each test whose last
-# attempt passed into one passing <testcase> carrying its earlier failures
-# as <rerunFailure>/<rerunError>, the plugin's own flaky convention, and
-# recounts. junit-merged/ is what ci/allure-report.sh and ci/summary.sh
-# read. features/ contributes Godog's own per-scenario JUnit (the original
-# pass, then each solo rerun, in rerun order); gotestsum's view of the same
+# --- 3. one merged JUnit file per pass (R146/task 019) ---
+# ci/junitflaky (see its own header) reads each raw JUnit file and writes the
+# merged one under junit-merged/, which ci/allure-report.sh and ci/summary.sh
+# read. Every test runs once, so it never folds an attempt here. features/
+# contributes Godog's own per-scenario JUnit; gotestsum's view of the same
 # pass (TestFeatures/<scenario> subtests) is used instead when Godog's own
 # file is missing, empty or malformed -- e.g. when the process was killed
 # by go test's own -timeout alarm mid-scenario and Godog's JUnit formatter
@@ -711,21 +593,10 @@ EOF
 }
 
 merge_junit "$merged_dir/junit-go.xml" "$go_junit" || true
-# Rerun files are numbered 1..i in the order the reruns ran.
-features_reruns=""
-features_reruns_gotestsum=""
-n=1
-while [ -f "$outdir/junit-features-rerun-$n-gotestsum.xml" ] || [ -f "$outdir/junit-features-rerun-$n.xml" ]; do
-    features_reruns="$features_reruns $outdir/junit-features-rerun-$n.xml"
-    features_reruns_gotestsum="$features_reruns_gotestsum $outdir/junit-features-rerun-$n-gotestsum.xml"
-    n=$((n + 1))
-done
-
 features_merged="$merged_dir/junit-features.xml"
 features_merge_ok=0
 if [ -s "$features_junit" ]; then
-    # shellcheck disable=SC2086
-    if merge_junit "$features_merged" "$features_junit" $features_reruns; then
+    if merge_junit "$features_merged" "$features_junit"; then
         features_merge_ok=1
     fi
 fi
@@ -735,8 +606,7 @@ if [ "$features_merge_ok" -eq 0 ]; then
     else
         echo "ci/suite.sh: godog JUnit for features/ ($features_junit) is missing or empty; falling back to gotestsum's own scenario results" >&2
     fi
-    # shellcheck disable=SC2086
-    if merge_junit "$features_merged" "$outdir/junit-features-gotestsum.xml" $features_reruns_gotestsum; then
+    if merge_junit "$features_merged" "$outdir/junit-features-gotestsum.xml"; then
         features_merge_ok=1
     fi
 fi
@@ -763,27 +633,19 @@ if [ "$features_status" -ne 0 ] && { [ "$features_aborted_without_locations" -eq
 fi
 
 if [ "$features_merge_ok" -eq 0 ]; then
-    echo "ci/suite.sh: no features/ JUnit data survived to merge (godog JUnit, gotestsum JUnit and every rerun file were all missing, empty or malformed)" >&2
+    echo "ci/suite.sh: no features/ JUnit data survived to merge (godog JUnit and gotestsum JUnit were both missing, empty or malformed)" >&2
 fi
 
 # --- 3c. per-leg JUnit, and the legs compared (task 013, R4) ---
 # junit-merged/junit-features-<leg>.xml holds one leg's scenarios as gotestsum
-# saw them (TestFeatures/<scenario>), the leg's solo reruns folded in by
-# ci/junitflaky. They are separate files so that a scenario run on both legs is
+# saw them (TestFeatures/<scenario>), read through ci/junitflaky like every
+# merged file. They are separate files so that a scenario run on both legs is
 # never read as a retry of itself. A scenario green on one leg and red on another
 # fails the suite: ci/legcompare names it, and its report is leg-divergence.txt.
 leg_args="sqlite=$merged_dir/junit-features-sqlite.xml"
-# shellcheck disable=SC2086
-merge_junit "$merged_dir/junit-features-sqlite.xml" "$outdir/junit-features-gotestsum.xml" $features_reruns_gotestsum || true
+merge_junit "$merged_dir/junit-features-sqlite.xml" "$outdir/junit-features-gotestsum.xml" || true
 for leg in $extra_legs; do
-    leg_reruns=""
-    n=1
-    while [ -f "$outdir/junit-features-$leg-rerun-$n-gotestsum.xml" ]; do
-        leg_reruns="$leg_reruns $outdir/junit-features-$leg-rerun-$n-gotestsum.xml"
-        n=$((n + 1))
-    done
-    # shellcheck disable=SC2086
-    merge_junit "$merged_dir/junit-features-$leg.xml" "$outdir/junit-features-$leg-gotestsum.xml" $leg_reruns || true
+    merge_junit "$merged_dir/junit-features-$leg.xml" "$outdir/junit-features-$leg-gotestsum.xml" || true
     leg_args="$leg_args $leg=$merged_dir/junit-features-$leg.xml"
 done
 if [ -n "$extra_legs" ]; then
@@ -848,11 +710,8 @@ fi
 # --- 4. coverage summary (R146/task 016, R146 cure-01-05) ---
 # `unit_coverprofile` and `features_coverprofile` are both bridged the same
 # way now: `unit_covdir`/`covdir` hold the GOCOVERDIR binary format, one
-# counter file per `go test`/board process invocation (every gotestsum
-# retry, and every features/ scenario's spawned board binary, gets its own
-# uniquely-named files rather than overwriting a shared one, which is
-# exactly what keeps a retry from deleting anything the earlier attempt
-# measured -- see the cure-01-05 comment above unit_covdir). `go tool
+# counter file per `go test`/board process invocation, uniquely named rather
+# than overwriting a shared one (see the comment above unit_covdir). `go tool
 # covdata textfmt` bridges each directory into the same legacy text format
 # `go tool cover` understands, so the one small awk aggregator below can
 # read both without needing two unrelated summarizers.
@@ -970,5 +829,5 @@ coverage_table() {
 coverage_summary="$outdir/coverage-summary.txt"
 coverage_table "$unit_coverprofile" "$features_coverprofile" | tee "$coverage_summary"
 
-echo "ci/suite.sh: done (go_flaky=$go_flaky, features_flaky=$features_flaky, outdir=$outdir, coverage_summary=$coverage_summary, coverage_merged=$merged_coverprofile)"
+echo "ci/suite.sh: done (outdir=$outdir, coverage_summary=$coverage_summary, coverage_merged=$merged_coverprofile)"
 exit "$overall_status"

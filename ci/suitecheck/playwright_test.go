@@ -12,8 +12,8 @@ var retriesSetting = regexp.MustCompile(`(?m)^\s*retries\s*:\s*([^,\n]*)`)
 
 // playwrightRetriesProblem returns "" when every `retries` setting in a
 // Playwright config is the literal 0 (and there is at least one), otherwise
-// what is wrong. Playwright never retries: a flaky spec must fail, and the only
-// retry is ci/suite.sh's recorded repeat of a failed run.
+// what is wrong. Playwright never retries: a flaky spec must fail, and
+// ci/suite.sh does not repeat a failed run either.
 func playwrightRetriesProblem(cfg string) string {
 	found := retriesSetting.FindAllStringSubmatch(cfg, -1)
 	if len(found) == 0 {
@@ -138,25 +138,22 @@ func TestPlaywrightRetriesProblemFlagsAnyRetry(t *testing.T) {
 	}
 }
 
-// TestSuiteRunsPlaywrightUnderRetryOnce pins ci/suite.sh's Playwright step:
-// the suite-level fail-once-retry-once policy with its flaky and JUnit files.
-func TestSuiteRunsPlaywrightUnderRetryOnce(t *testing.T) {
+// TestSuiteRunsPlaywrightOnce pins ci/suite.sh's Playwright step: one run, its
+// JUnit file, and no repeat (noretry_test.go runs it).
+func TestSuiteRunsPlaywrightOnce(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatalf("repositoryRoot: %v", err)
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "ci", "suite.sh"))
+	raw, err := os.ReadFile(suiteScriptPath(root))
 	if err != nil {
 		t.Fatalf("read ci/suite.sh: %v", err)
 	}
 	suite := stripCommentLines(string(raw))
 	for _, want := range []string{
 		`playwright_junit="$outdir/junit-playwright.xml"`,
-		`playwright_flaky="$outdir/flaky-playwright.txt"`,
 		`E2E_OUT="$outdir/playwright" npx playwright test`,
-		`junit-playwright-run1.xml`,
-		`playwright: failed once, then passed on the repeat`,
-		`Playwright failed twice`,
+		`Playwright failed (see`,
 		`Playwright wrote no JUnit file`,
 	} {
 		if !strings.Contains(suite, want) {
@@ -197,9 +194,9 @@ func TestSpecClaimsScenarioPrecisionFlagsPreciseWording(t *testing.T) {
 	}
 }
 
-// TestPlaywrightRetryIsDescribedAsAWholeRun: ci/suite.sh repeats the whole
-// Playwright run, so SPEC.md and docs/ci.md must not call it scenario-precise,
-// and the suite script must not pass a failed-test selection to the repeat.
+// TestPlaywrightRetryIsDescribedAsAWholeRun: SPEC.md and docs/ci.md must not
+// describe a scenario-precise Playwright retry, and the suite script must not
+// pass a failed-test selection to a rerun (it has no rerun).
 func TestPlaywrightRetryIsDescribedAsAWholeRun(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
@@ -216,7 +213,7 @@ func TestPlaywrightRetryIsDescribedAsAWholeRun(t *testing.T) {
 			}
 		}
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "ci", "suite.sh"))
+	raw, err := os.ReadFile(suiteScriptPath(root))
 	if err != nil {
 		t.Fatalf("read ci/suite.sh: %v", err)
 	}
@@ -231,14 +228,13 @@ func TestPlaywrightRetryIsDescribedAsAWholeRun(t *testing.T) {
 // overlap that keeps the sequential suite inside the Suite stage's budget:
 // Playwright starts in the background before the Go passes, and the script waits
 // for it, replays its messages and lets its failure fail the suite before the
-// step that merges the JUnit files. The retry-once policy is unchanged (the test
-// above) and the repeat is still a whole run.
+// step that merges the JUnit files.
 func TestSuiteOverlapsPlaywrightWithTheGoPassesAndWaitsBeforeMerging(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatalf("repositoryRoot: %v", err)
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "ci", "suite.sh"))
+	raw, err := os.ReadFile(suiteScriptPath(root))
 	if err != nil {
 		t.Fatalf("read ci/suite.sh: %v", err)
 	}

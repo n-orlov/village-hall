@@ -387,17 +387,16 @@ func TestSuiteScriptWritesOneAllureResultsDirWithEnvironmentAndExecutor(t *testi
 	}
 }
 
-// TestSuiteScriptFeedsTheAllureFormatterToEveryFeaturesRun: the initial
-// TestFeatures run and each solo rerun of the SQLite leg write native results
-// into the same directory (same historyId, so the rerun is a retry), the other
-// database legs' runs do not (the same scenario on another leg is not a retry
-// of it), and -race reaches environment.properties.
+// TestSuiteScriptFeedsTheAllureFormatterToEveryFeaturesRun: the one
+// TestFeatures run of the SQLite leg writes native results into the Allure
+// directory, the other database legs' runs do not (the same scenario on another
+// leg is not a retry of it), and -race reaches environment.properties.
 func TestSuiteScriptFeedsTheAllureFormatterToEveryFeaturesRun(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "ci", "suite.sh"))
+	raw, err := os.ReadFile(suiteScriptPath(root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,8 +414,8 @@ func TestSuiteScriptFeedsTheAllureFormatterToEveryFeaturesRun(t *testing.T) {
 			}
 		}
 	}
-	if calls != 2 {
-		t.Errorf("found %d SQLite-leg run_test_features calls, want 2 (the initial run and the solo rerun)", calls)
+	if calls != 1 {
+		t.Errorf("found %d SQLite-leg run_test_features calls, want 1 (the run, with no rerun)", calls)
 	}
 	for _, line := range strings.Split(script[extra:], "\n") {
 		if strings.Contains(line, "run_test_features ") && strings.Contains(line, "BOARD_GODOG_ALLURE=") {

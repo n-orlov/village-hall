@@ -1,9 +1,7 @@
-// Package suitecheck is the R145 probe for task 015/ci/suite.sh: a static
-// structural check over the script's own text that fails the moment its
-// retry-once/flaky-recording behaviour, for either the ordinary Go package
-// matrix or features/'s per-scenario rerun, goes missing. Tier 3 probe
-// audit (task 025) added this alongside the ci/lint.sh probe (and the
-// GitHub Actions-era workflow probes, since removed).
+// Package suitecheck probes ci/suite.sh: static checks over the script's own
+// text, and runs of the real script against small fixture modules. The suite
+// has no retries (task 003, R3): noretry_test.go pins that for Vitest,
+// Playwright, the Go package matrix and Godog.
 package suitecheck
 
 import (
@@ -48,61 +46,17 @@ func repositoryRoot() (string, error) {
 	}
 }
 
-// TestSuiteScriptRetriesOnceAndRecordsFlakyForBothPasses is the probe for
-// task 015's ci/suite.sh: it fails if any of the following goes missing
-// from the script's own text:
+// suiteScriptPath is the ci/suite.sh every test in this package reads or runs.
+// SUITECHECK_SUITE_SH names another copy of the script, which is how a test is
+// shown to fail against an older version of it:
 //
-//  1. the ordinary Go package matrix is driven with gotestsum's own
-//     `--rerun-fails=1` (fail once, retry once) fed by
-//     `--rerun-fails-report`, and the post-filter that keeps only entries
-//     where `failures < runs` -- a test that fails on every attempt is not
-//     flaky, it is a real failure, and must not be written to the flaky
-//     list;
-//  2. a failed features/ scenario is rerun by its own `<file>:<line>`
-//     selector (`BOARD_GODOG_PATHS=`), never the whole package -- the
-//     rerun call for features/TestFeatures never omits `-run
-//     '^TestFeatures$'` scoped alone without that selector present in the
-//     same invocation family; and
-//  3. a scenario that fails again on that solo rerun still makes the
-//     overall script exit non-zero (an `all_recovered`-style guard that is
-//     never unconditionally reset to success).
-//
-// It fails when `--rerun-fails=1` is removed from ci/suite.sh.
-func TestSuiteScriptRetriesOnceAndRecordsFlakyForBothPasses(t *testing.T) {
-	root, err := repositoryRoot()
-	if err != nil {
-		t.Fatalf("repositoryRoot: %v", err)
+//	git show e9f8d27:ci/suite.sh > /tmp/old-suite.sh
+//	SUITECHECK_SUITE_SH=/tmp/old-suite.sh go test ./ci/suitecheck/ -run NoRetry
+func suiteScriptPath(root string) string {
+	if p := os.Getenv("SUITECHECK_SUITE_SH"); p != "" {
+		return p
 	}
-	path := filepath.Join(root, "ci", "suite.sh")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	// The script's own header comment mentions several of these markers in
-	// prose (explaining *why* the design works the way it does), so a
-	// mutation removing the real invocation but leaving the comment intact
-	// must not still read as present. Strip full-line comments first.
-	content := stripCommentLines(string(raw))
-
-	if !strings.Contains(content, "--rerun-fails=1") {
-		t.Errorf("%s: missing gotestsum's `--rerun-fails=1` (fail-once-retry-once) on the Go package matrix", path)
-	}
-	if !strings.Contains(content, "--rerun-fails-report") {
-		t.Errorf("%s: missing `--rerun-fails-report`, the source the flaky-list post-filter reads", path)
-	}
-	if !strings.Contains(content, `"$fails" -lt "$runs"`) {
-		t.Errorf(`%s: missing the flaky post-filter (%q) -- a test that failed on every attempt would be written to the flaky list instead of failing the run`, path, `"$fails" -lt "$runs"`)
-	}
-
-	if !strings.Contains(content, "BOARD_GODOG_PATHS=$loc") {
-		t.Errorf("%s: missing the per-scenario rerun selector `BOARD_GODOG_PATHS=$loc` -- a failed features/ scenario would be rerun some other way, e.g. the whole package", path)
-	}
-	if !strings.Contains(content, "all_recovered=0") {
-		t.Errorf("%s: missing the guard that keeps a scenario failing again on its solo rerun from being reported as recovered", path)
-	}
-	if !strings.Contains(content, `if [ "$all_recovered" -eq 1 ]`) {
-		t.Errorf("%s: missing the conditional that only clears features_status when every rerun scenario actually recovered", path)
-	}
+	return filepath.Join(root, "ci", "suite.sh")
 }
 
 // minuteDurationFlag finds the FIRST `<N>m` shell-duration literal inside
@@ -147,7 +101,7 @@ func TestFeaturesTestInvocationsCarryAGenerousExplicitTimeoutBudget(t *testing.T
 
 	const minMinutes = 15 // comfortably above the 10m default that failed
 
-	suitePath := filepath.Join(root, "ci", "suite.sh")
+	suitePath := suiteScriptPath(root)
 	raw, err := os.ReadFile(suitePath)
 	if err != nil {
 		t.Fatalf("read %s: %v", suitePath, err)
@@ -249,7 +203,7 @@ func TestSuiteScriptRetainsFeaturesReportDataAndAnExplicitAbortOnTimeout(t *test
 	if err != nil {
 		t.Fatalf("repositoryRoot: %v", err)
 	}
-	path := filepath.Join(root, "ci", "suite.sh")
+	path := suiteScriptPath(root)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)

@@ -67,9 +67,9 @@ the host daemon, not a child of it:
 
 `ci/suite.sh` runs the `features/` pass once per leg of `BOARD_CI_DB_LEGS`
 (default `sqlite postgres`; SQLite is always first and keeps the file names it
-had before the matrix). Each other leg gets the same fail-once-retry-once, a
-scenario at a time, into files named for it: `features-run1-<leg>.log`,
-`flaky-features-<leg>.txt` and `junit-features-<leg>-gotestsum.xml`. Both legs
+had before the matrix). Each leg runs once, with no rerun of a failed scenario, and
+the other legs write files named for them: `features-<leg>.log` and
+`junit-features-<leg>-gotestsum.xml`. Both legs
 write a merged JUnit, `junit-merged/junit-features-<leg>.xml`, kept apart so that
 one scenario run on both legs is never read as a retry of itself, and
 `ci/legcompare` reads them: a scenario green on one leg and red on another is
@@ -177,14 +177,13 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   Lint, Image and Allure smoke on `int21h-ws` (operator ruling 001-WAVE): the
   Suite unit asks `ci/suite.sh` to skip the step (`BOARD_CI_PLAYWRIGHT=skip`) and
   E2E asks it for only that step (`BOARD_CI_PLAYWRIGHT=only`: `npm ci` and the web
-  build, then Playwright with the script's one repeat of a failed run; no Vitest,
-  no Go pass). E2E's bound is 120 minutes on push and `EXTENDED` builds alike
-  (the repeat runs the whole suite again, so the bound holds two runs); Suite's
+  build, then Playwright once, with no repeat of a failed run; no Vitest, no Go
+  pass). E2E's bound is 120 minutes on push and `EXTENDED` builds alike; Suite's
   stays 45 minutes (120 `EXTENDED`). Nothing else about Playwright changed: one
   worker, no `fullyParallel`, no shards, no added retry, no raised per-test
   timeout, no raised thread budget, and every test runs on every push build.
-  E2E stashes `res-e2e` (`junit-playwright*.xml`, `flaky-playwright.txt`, the
-  `playwright/` output, `playwright-run1.log`), which Quality unstashes beside
+  E2E stashes `res-e2e` (`junit-playwright.xml`, the `playwright/` output,
+  `playwright.log`), which Quality unstashes beside
   `res-suite` and the report reads with the others. A unit that left no stash (it
   timed out, or never got a node) is named by Quality, with its result and
   attempts, instead of Quality failing on `No such saved stash`.
@@ -291,8 +290,7 @@ does not start after a failure.
 
 **Allure smoke.** `features/allure_formatter_test.go` is Village Hall's Godog formatter
 for Allure 2 (selected by `BOARD_GODOG_ALLURE=<absolute results dir>`, which
-`ci/suite.sh` sets for every `features/` run, rerun included, so a rerun scenario
-keeps its history id). `features/allure_formatter_fixture_test.go` runs a fixture
+`ci/suite.sh` sets for the SQLite leg's `features/` run). `features/allure_formatter_fixture_test.go` runs a fixture
 feature through it (a pass with an issue link, a failure with attachments, a skip
 and a retried scenario). The unit runs that test with `BOARD_ALLURE_FIXTURE_OUT`
 set, then `ci/allure-smoke.sh` runs the pinned Allure CLI over the results and
@@ -593,7 +591,7 @@ The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
   conversion, the flaky-test list, and the check that the Allure report keeps
   the Godog steps and issue links.
 - `ci/suitecheck`: probes of `ci/suite.sh` against small fixture modules (the
-  `BOARD_*` scrub, merged coverage, retry-once, timeouts, Allure results).
+  `BOARD_*` scrub, merged coverage, no retries, timeouts, Allure results).
 - `ci/lintcheck`: probes of `ci/lint.sh` (stubbed tools: every stage runs in
   order and a failing stage stops the rest) and of the golangci-lint config, plus
   one fixture per added checker (`fixtures_test.go`): ESLint, svelte-check, tsc,
@@ -617,10 +615,19 @@ Scripts, each run through `ci/run.sh` unless noted:
   `ci/suitecheck/playwrightmode_test.go` runs the real script in each mode.
   `go test -p=1 -count=1 ./...` through gotestsum in two passes
   (every package but `features/TestFeatures`, then `TestFeatures`), with
-  fail-once-retry-once and a `flaky-*.txt` record. It unsets every `BOARD_*`
+  no retries: Vitest, Playwright, the Go package matrix and `features/TestFeatures`
+  (once per database leg) each run once, with no repeat, no `gotestsum
+  --rerun-fails` and no per-scenario Godog rerun, and a failure in any of the four
+  makes the script exit non-zero. It writes no flaky list. A diagnostic rerun of
+  failed tests, if one is ever added, must write under the results directory and
+  never change the exit status. `ci/suitecheck/noretry_test.go` pins each of the
+  four points by running the real script against a fixture whose test fails on its
+  first run, and fails against the version of the script before they were removed
+  (`SUITECHECK_SUITE_SH` points the package at another copy of the script). It
+  unsets every `BOARD_*`
   variable after reading its own `BOARD_CI_*` settings. It empties the unit and
-  feature coverage-data directories first, so a rerun into the same results
-  directory never merges stale counters. `BOARD_CI_OUT` or a
+  feature coverage-data directories first, so a run into a results directory
+  used before never merges stale counters. `BOARD_CI_OUT` or a
   positional argument names the results directory.
   The feature passes get `GOCOVERDIR` and `BOARD_FEATURES_COVERMODE` (the unit
   pass's mode, `atomic` under `-race`): the Godog harness then builds the real
@@ -636,9 +643,9 @@ Scripts, each run through `ci/run.sh` unless noted:
   `web/` (the build lands in `internal/webui/dist`, so the Go passes embed the
   real UI rather than the placeholder page), then `npm run test` (Vitest with
   `@vitest/coverage-v8`), writing `junit-vitest.xml`, `web-coverage/` and
-  `flaky-vitest.txt` into the results directory. A failed Vitest run is
-  repeated once: a pass on the repeat is recorded in `flaky-vitest.txt`, a
-  second failure fails the suite. `ci/suitecheck/vitest_test.go` pins this.
+  `vitest.log` into the results directory. Vitest runs once, and a failure fails
+  the suite. `ci/suitecheck/vitest_test.go` pins the files and `noretry_test.go`
+  the single run.
   It then starts Playwright (`e2e/`, after `npm ci` there) in the background, beside
   the Go passes and the Godog passes, which share nothing with it (one worker, a free
   port and a SQLite store of its own); the script waits for it before it merges the
@@ -654,7 +661,7 @@ Scripts, each run through `ci/run.sh` unless noted:
   specs and `wide.spec.ts`, which load the unfiltered Timeline again and again, then
   `chromium` with every other spec. The store only grows, and an unfiltered Timeline
   takes seconds to draw once it holds thousands of tasks; run last, those specs failed
-  the first run on the agent and the repeat took the Suite past its bound.
+  the first run on the agent.
   `ci/suitecheck` fails if that order is lost. Only `GET /healthz` is open.
   Each Playwright worker starts a board server of its own (`e2e/worker-server.ts`
   runs `e2e/serve.sh` in a directory of the worker's own) before its first test:
@@ -671,13 +678,10 @@ Scripts, each run through `ci/run.sh` unless noted:
   request. `e2e/worker-isolation.spec.ts` seeds a task through each of two workers
   and asks the other worker's server for it; the project `worker-isolation` runs
   it alone, first, so that two workers are alive together. The global server
-  of `serve.sh` and `e2e/global-setup.ts` remain for now. The retry-once is the
-  suite's: a failed run is kept as `junit-playwright-run1.xml` and
-  `playwright-run1.log`, repeated once as a whole run (every spec runs again, not only
-  the failed ones, unlike the Go and Godog reruns), and a pass on the repeat is recorded in
-  `flaky-playwright.txt`; a second failure fails the suite. `junit-playwright.xml`
-  and the HTML, Allure and JSON output (`playwright/`) land in the results
-  directory, and `ci/summary.sh` counts the JUnit and flaky files.
+  of `serve.sh` and `e2e/global-setup.ts` remain for now. Playwright runs once and
+  the script does not repeat a failed run: a failure fails the suite.
+  `junit-playwright.xml` and the HTML, Allure and JSON output (`playwright/`)
+  land in the results directory, and `ci/summary.sh` counts the JUnit files.
   `ci/suitecheck/playwright_test.go` pins this and fails if `retries` is not 0.
   `e2e/serve.sh` also builds and starts `cmd/fake-oidc` (the mock OIDC provider,
   test-only, signing in `operator@example.test`) and starts the binary with browser

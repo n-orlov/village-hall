@@ -37,7 +37,7 @@ func runLegFixture(t *testing.T, redOn string, extraEnv ...string) legFixtureRun
 		copyFile(t, filepath.Join(fixture, "unit", f), filepath.Join(module, "unit", f), 0o644)
 	}
 	copyFile(t, filepath.Join(fixture, "features", "fixture_test.go"), filepath.Join(module, "features", "fixture_test.go"), 0o644)
-	copyFile(t, filepath.Join(root, "ci", "suite.sh"), filepath.Join(module, "ci", "suite.sh"), 0o755)
+	copyFile(t, suiteScriptPath(root), filepath.Join(module, "ci", "suite.sh"), 0o755)
 	for _, tool := range []string{"junitflaky", "junit2allure", "legcompare"} {
 		copyFile(t, filepath.Join(root, "ci", tool, "main.go"), filepath.Join(module, "ci", tool, "main.go"), 0o644)
 	}
