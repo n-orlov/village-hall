@@ -3,12 +3,12 @@ import { join } from 'node:path';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// The e2e server's own SQLite store (playwright.config.ts picks its directory), for the one thing the API cannot do:
+// The calling worker's own SQLite store (fixtures.ts starts a server per worker and sets E2E_WORK in that worker), for the one thing the API cannot do:
 // make a closed item old. Closing stamps `closed_at` with the server's clock, and a spec cannot wait thirty days.
 // Times are stored as UTC milliseconds since the epoch (internal/store EncodeTime).
 function backdate(table: 'tasks' | 'initiatives', id: string, days: number): void {
   const work = process.env.E2E_WORK;
-  if (!work) throw new Error('E2E_WORK is not set (playwright.config.ts sets it)');
+  if (!work) throw new Error('E2E_WORK is not set (the worker fixture in fixtures.ts sets it)');
   const db = new DatabaseSync(join(work, 'board.db'));
   try {
     db.exec('PRAGMA busy_timeout = 5000');
@@ -36,7 +36,7 @@ export function backdateInitiative(id: string, days: number): void {
  */
 export function ageTaskEvents(id: string, hours: number): void {
   const work = process.env.E2E_WORK;
-  if (!work) throw new Error('E2E_WORK is not set (playwright.config.ts sets it)');
+  if (!work) throw new Error('E2E_WORK is not set (the worker fixture in fixtures.ts sets it)');
   const db = new DatabaseSync(join(work, 'board.db'));
   try {
     db.exec('PRAGMA busy_timeout = 5000');
