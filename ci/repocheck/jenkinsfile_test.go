@@ -277,7 +277,7 @@ func shapeProblems(jf string) []string {
 		problems = append(problems, "an attempt does not record the AMD label")
 	}
 	for _, want := range []string{
-		"disableConcurrentBuilds()",
+		"disableConcurrentBuilds(abortPrevious: supersedable())",
 		"timeout(time: 300, unit: 'MINUTES')",
 		"git clean -ffdxq",
 		"booleanParam(name: 'EXTENDED', defaultValue: false",
@@ -321,7 +321,7 @@ func TestJenkinsfileDeclaresTheJobShape(t *testing.T) {
 		"the notification elsewhere":   replaceOnce(t, jf, "            node(AMD) {\n              notifyTelegram", "            node('other') {\n              notifyTelegram"),
 		"another AMD constant":         replaceOnce(t, jf, "'board-test && amd64 && docker'", "'board-test && arm64 && docker'"),
 		"a pipeline-level agent":       replaceOnce(t, jf, "  agent none", "  agent { label 'linux' }"),
-		"concurrent builds":            replaceOnce(t, jf, "    disableConcurrentBuilds()\n", ""),
+		"concurrent builds":            replaceOnce(t, jf, "    disableConcurrentBuilds(abortPrevious: supersedable())\n", ""),
 		"a shorter pipeline timeout":   replaceOnce(t, jf, "timeout(time: 300, unit: 'MINUTES')", "timeout(time: 120, unit: 'MINUTES')"),
 		"the old 8-hour timeout":       replaceOnce(t, jf, "timeout(time: 300, unit: 'MINUTES')", "timeout(time: 480, unit: 'MINUTES')"),
 		"no clean workspace":           replaceOnce(t, jf, "sh 'git clean -ffdxq'", "sh 'true'"),

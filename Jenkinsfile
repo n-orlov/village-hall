@@ -26,6 +26,18 @@
 // A unit may cap its attempts (maxAttempts: each full mutation unit has one).
 // Each attempt labels its containers with the id ci/attempt-id.sh prints (job,
 // build, unit, attempt) and removes them by it.
+// Superseded builds (R8): a newer push build of a branch stops the branch's
+// older build, so a branch never runs two builds at once. Pushes only queue
+// behind a running build under a plain disableConcurrentBuilds, so the pipeline
+// asks for its abortPrevious option, and only while the build running it is a push build
+// (supersedable(): its causes are a branch push event or branch indexing, no
+// timer, and EXTENDED, MUTATION and MUTATION_FULL are all false). The job
+// property is the one the running build set, so a push queued behind main's
+// nightly (the timer) or a parameterized build finds abortPrevious false and
+// waits: neither is ever stopped by a push. A superseded build ends ABORTED,
+// not FAILURE: classify() lets an abort propagate, no unit retries it, and
+// every attempt's finally removes its containers by the attempt id. (A queued
+// nightly or parameterized build does stop a push build running before it.)
 // Each attempt reports node, queue wait and run time; the build page gets a
 // per-unit timing table (ci-results/distributed/timing.md).
 //
@@ -186,6 +198,23 @@ import groovy.transform.Field
 
 long nowMs() { System.currentTimeMillis() }
 
+// Whether a newer build of this branch may stop this one (R8, see the header):
+// only a push build may be stopped, never a timer-triggered (nightly) build
+// or one started with EXTENDED, MUTATION or MUTATION_FULL. Read when the
+// pipeline's options are applied; a failure to tell means not supersedable
+// (the build then only queues the newer one, as a plain disableConcurrentBuilds does).
+boolean supersedable() {
+  try {
+    boolean timer = !currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').isEmpty()
+    boolean pushed = !currentBuild.getBuildCauses('jenkins.branch.BranchEventCause').isEmpty() ||
+                     !currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause').isEmpty()
+    boolean parameterized = params.EXTENDED == true || params.MUTATION == true || params.MUTATION_FULL == true
+    return pushed && !timer && !parameterized
+  } catch (Throwable e) {
+    return false
+  }
+}
+
 @NonCPS
 String slug(String s) { s.toLowerCase().replaceAll('[^a-z0-9]+', '-') }
 
@@ -210,6 +239,11 @@ String classify(Throwable e, Map a) {
       return 'infra:agent-lost'
     }
     if (causes.contains('UserInterruption') || causes == 'unknown') {
+      return null
+    }
+    // abortPrevious stops the build with Result.ABORTED and a cause of its own:
+    // that is an abort of the whole build, never an attempt to repeat.
+    if (e.result?.toString() == 'ABORTED') {
       return null
     }
     return 'infra:interrupted'
@@ -572,7 +606,9 @@ pipeline {
     ansiColor('xterm')
     timestamps()
     buildDiscarder(logRotator(numToKeepStr: '30'))
-    disableConcurrentBuilds()
+    // Never two builds of a branch at once: a newer push build stops a running
+    // push build (ABORTED), and waits behind a nightly or parameterized one.
+    disableConcurrentBuilds(abortPrevious: supersedable())
     // A backstop only: every unit has its own bound. Core (Suite's or E2E's 120
     // minutes at worst, then Quality), the mutation plan, a 110-minute
     // mutation unit after a stability wait, the gate, and Perf; a nightly

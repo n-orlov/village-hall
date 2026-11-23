@@ -97,7 +97,7 @@ The clone is of the committed HEAD, so commit before running it.
 
 `Jenkinsfile` is the multibranch job `board/ci`
 (`https://jenkins.wisent-owl.ts.net/job/board/job/ci/`; `@Library('homelab')`,
-`agent none`, `disableConcurrentBuilds`, a 300-minute pipeline timeout as a backstop). The
+`agent none`, `disableConcurrentBuilds(abortPrevious: supersedable())`, a 300-minute pipeline timeout as a backstop). The
 header comment of the file is the authoritative description. Every test stage is
 a **unit**: its own parallel branch, with its own retry policy, that checks the
 build's commit out into its own workspace on the one agent every unit uses
@@ -450,10 +450,22 @@ last, in `post { cleanup }`.
   `lastCompletedBuild/CI_20summary/` (the CI summary report), all under
   `https://jenkins.wisent-owl.ts.net/job/board/job/ci/job/main/`.
 
+**Superseded builds (R8).** A newer push build of a branch stops the branch's older build, so a
+branch never runs two builds at once: the job option is `disableConcurrentBuilds(abortPrevious:
+supersedable())`, and `supersedable()` is true only while the running build is a push build (its
+causes are a branch push event or branch indexing, it has no timer cause, and `EXTENDED`, `MUTATION`
+and `MUTATION_FULL` are all false). Jenkins reads the option from the build that is running, so a push
+queued behind main's nightly (the timer) or a parameterized build finds it false and waits: neither is
+ever stopped by a push. A manual build (no push cause) is not stopped either. A superseded build ends
+ABORTED, not FAILURE: `classify` lets the ABORTED interruption propagate (no attempt is retried) and
+each attempt's `finally` removes its containers by the attempt id. A queued nightly or parameterized
+build does stop a push build that was running before it. `ci/repocheck/supersede_test.go` pins the
+option, the three exclusions and the abort handling against doctored copies.
+
 `ci/repocheck/jenkinsfile_test.go` pins all of it: Core, then Stability and
 Mutation side by side, then Perf, with the Core units and Quality's wait for
 Suite, E2E and Image (E2E: Playwright alone, 120 minutes; Suite: 45, 120 `EXTENDED`; a unit's own timeout is a failure, not retried, a wait with no node stays infra); the Perf unit (30 minutes, after the stability and mutation units, `perf.json` archived); the job shape (the one `AMD` label for every `node()`, the three
-booleanParams, `disableConcurrentBuilds`, the 300-minute timeout, the
+booleanParams, `disableConcurrentBuilds(abortPrevious: supersedable())`, the 300-minute timeout, the
 per-attempt container cleanup by exact ID); the nightly lane (cron `17 0 * * *`
 on `main` only); the Quality unit; the three Mutation modes (diff: one 45-minute
 unit over the lines changed since the merge base, `HEAD~1` on `main`; full: three
