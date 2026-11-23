@@ -41,15 +41,15 @@ async function healthy(baseURL: string): Promise<boolean> {
   }
 }
 
-/** The directory every worker's own directory is made under: one per run, removed by global-teardown.ts. */
+/** The directory every worker's own directory is made under: one per run, removed by run-dir-reporter.ts when the run ends. */
 export function runDir(): string {
   const dir = process.env.E2E_RUN_DIR;
-  if (!dir) throw new Error('E2E_RUN_DIR is not set (playwright.config.ts sets it)');
+  if (!dir) throw new Error('E2E_RUN_DIR is not set (playwright.config.ts sets it, run-dir-reporter.ts removes it)');
   return dir;
 }
 
 /**
- * Starts one real board server under `work` with serve.sh (the same script the run's first server used): the
+ * Starts one real board server under `work` with serve.sh (the script that builds and serves the real binary): the
  * binary built from this checkout, a freshly migrated SQLite store, the mock OIDC provider, a free port. Then mints
  * this server's own API key with the `vh admin keys create` an operator runs, against this server's own store.
  */

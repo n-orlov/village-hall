@@ -783,22 +783,15 @@ Scripts, each run through `ci/run.sh` unless noted:
   the suite. `ci/suitecheck/vitest_test.go` pins the files and `noretry_test.go`
   the single run.
   It then starts Playwright (`e2e/`, after `npm ci` there) in the background, beside
-  the Go passes and the Godog passes, which share nothing with it (one worker, a free
+  the Go passes and the Godog passes, which share nothing with it (each Playwright worker has a free
   port and a SQLite store of its own); the script waits for it before it merges the
   JUnit files, replays its messages to stderr and fails the suite on its failure. On
   Jenkins that is not how it runs: the Suite unit sets `BOARD_CI_PLAYWRIGHT=skip` and
   the E2E unit `BOARD_CI_PLAYWRIGHT=only` (the step in the foreground, after the web
   build, and nothing else), so the two run in parallel. Nothing is shortened: the same
-  specs run with the same bounds. The config starts the
-  real binary on a free port against a freshly migrated SQLite store
-  (`e2e/serve.sh`) and never retries (`retries: 0`). It has two projects over
-  that one store, `chromium-early` first: `dialogs.spec.ts` (it Tabs to a button below the
-  Initiatives list, 150 presses at most), `shell.spec.ts`, the `timeline*.spec.ts`
-  specs and `wide.spec.ts`, which load the unfiltered Timeline again and again, then
-  `chromium` with every other spec. The store only grows, and an unfiltered Timeline
-  takes seconds to draw once it holds thousands of tasks; run last, those specs failed
-  the first run on the agent.
-  `ci/suitecheck` fails if that order is lost. Only `GET /healthz` is open.
+  specs run with the same bounds. The config never retries
+  (`retries: 0`) and starts no server: it has no `webServer`, `globalSetup` or
+  `globalTeardown`. Only `GET /healthz` is open.
   Each Playwright worker starts a board server of its own (`e2e/worker-server.ts`
   runs `e2e/serve.sh` in a directory of the worker's own) before its first test:
   its own port, work directory (binary and SQLite store) and API key, minted with
@@ -813,13 +806,18 @@ Scripts, each run through `ci/run.sh` unless noted:
   `keyedTest` (smoke, swagger) also sends the key and a `Board-Actor` header on every
   request. `e2e/worker-isolation.spec.ts` seeds a task through each of two workers
   and asks the other worker's server for it; the project `worker-isolation` runs
-  it alone, first, so that two workers are alive together. The global server
-  of `serve.sh` and `e2e/global-setup.ts` remain for now. Playwright runs once and
+  it alone, first, so that two workers are alive together; the `chromium` project
+  runs every other spec after it, in no particular order (no spec depends on
+  another's store, because no two workers share one, so the order of the specs
+  carries no constraint). `e2e/run-dir-reporter.ts` removes the run's directory
+  of worker directories when the run ends. Playwright runs once and
   the script does not repeat a failed run: a failure fails the suite.
   `junit-playwright.xml` and the HTML, Allure and JSON output (`playwright/`)
   land in the results directory, and `ci/summary.sh` counts the JUnit files.
-  `ci/suitecheck/playwright_test.go` pins this and fails if `retries` is not 0.
-  `e2e/serve.sh` also builds and starts `cmd/fake-oidc` (the mock OIDC provider,
+  `ci/suitecheck/playwright_test.go` pins this: it fails if `retries` is not 0, if
+  the config brings back a `webServer`, `globalSetup`, `globalTeardown` or
+  `sh serve.sh`, or if the worker-scoped server fixture is dropped.
+  `e2e/serve.sh`, which `e2e/worker-server.ts` runs once per worker, also builds and starts `cmd/fake-oidc` (the mock OIDC provider,
   test-only, signing in `operator@example.test`) and starts the binary with browser
   login against it (`BOARD_OIDC_*`, `BOARD_PUBLIC_URL`; the client secret is made
   up per run). `e2e/login.spec.ts` uses `test`, not `keyedTest`: it sends no key,

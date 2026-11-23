@@ -1,17 +1,17 @@
 #!/bin/sh
-# Start the real board binary for the Playwright specs: build the embedded UI
-# when it is missing, build the binary and the mock OIDC provider into $E2E_WORK,
-# migrate a fresh SQLite store there, and serve on $E2E_PORT, with browser login
-# against the mock provider, until Playwright stops this script. The
-# store holds no key: global-setup.ts mints one with `vh admin keys create`
-# once this server is up, and global-teardown.ts removes $E2E_WORK.
+# Start the real board binary for one Playwright worker (worker-server.ts runs this
+# once per worker): build the embedded UI when it is missing, build the binary and
+# the mock OIDC provider into $E2E_WORK, migrate a fresh SQLite store there, and
+# serve on $E2E_PORT, with browser login against the mock provider, until the
+# worker stops this script. The store holds no key: worker-server.ts mints one with
+# `vh admin keys create` once this server is up, and removes $E2E_WORK when it stops.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
-port=${E2E_PORT:?E2E_PORT is set by playwright.config.ts}
+port=${E2E_PORT:?E2E_PORT is set by worker-server.ts}
 
-work=${E2E_WORK:?E2E_WORK is set by playwright.config.ts}
+work=${E2E_WORK:?E2E_WORK is set by worker-server.ts}
 pid=
 mockpid=
 cleanup() {

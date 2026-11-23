@@ -200,7 +200,7 @@ Generic OpenID Connect; the app is provider-neutral (any issuer with discovery).
   test sign in an unverified email, reuse an earlier login's nonce, or rewrite a signed token's
   email. `cmd/vh` never imports it, so the release image does not hold it
   (`ci/repocheck` checks `go list -deps ./cmd/vh`). CI contacts no external identity provider.
-  `cmd/fake-oidc` runs it as a process for the Playwright specs (`e2e/serve.sh` starts it beside the
+  `cmd/fake-oidc` runs it as a process for the Playwright specs (`e2e/serve.sh`, run once per Playwright worker, starts it beside the
   real binary with a client secret made up for the run and passed through the environment, and
   points `VH_OIDC_ISSUER` at it); it is a test fixture like `cmd/fake-*`, and `cmd/vh` never
   imports it either.
@@ -4064,9 +4064,11 @@ frontend's coverage/CRAP/mutation gates.
 | Performance | `ci/perf.sh` (`ci/perf`, build tag `perf`) | §14, the Perf unit of the extended lane (after the Stability phase). |
 
 The Playwright layer lives in `e2e/` (own `package.json`, exact pins). `e2e/playwright.config.ts`
-sets `retries: 0` and the five reporters, picks a free port, and starts the real binary through
-`e2e/serve.sh`: it builds the checkout's `vh` binary, migrates a fresh temporary SQLite store, seeds
-it with an API key, and serves on that port with the embedded UI. `E2E_OUT` moves every
+sets `retries: 0` and the five reporters and starts no server (no `webServer`, `globalSetup` or
+`globalTeardown`): each Playwright worker starts the real binary on a free port of its own through
+`e2e/serve.sh` (run by `e2e/worker-server.ts`), which builds the checkout's `vh` binary, migrates a
+fresh temporary SQLite store and serves on that port with the embedded UI; the worker then mints its
+own API key with `vh admin keys create`. `E2E_OUT` moves every
 reporter's output (default `e2e/out/`). One spec runs: `smoke.spec.ts` loads `/` and asserts the
 shell rendered (the placeholder page fails it). Run one spec with
 `ci/run.sh sh -c 'cd e2e && npx playwright test smoke.spec.ts'` (after `npm ci` in `e2e/`).
@@ -4074,10 +4076,7 @@ shell rendered (the placeholder page fails it). Run one spec with
 nothing with them, and the script waits for it before it merges the JUnit files, so a failure still fails the suite), once: it is never repeated, and a failure fails the suite; the JUnit file is `junit-playwright.xml`.
 The suite runs no test twice: Vitest, Playwright, the Go package matrix and `features/TestFeatures` (once per database leg) each run once, with no repeat, no `gotestsum --rerun-fails` and no per-scenario Godog rerun, and a failure in any of the four makes `ci/suite.sh` exit non-zero. Any diagnostic rerun of failed tests would write only under the results directory and never change the exit status. `ci/suitecheck/noretry_test.go` pins each of the four points against the real script.
 `ci/suitecheck` fails if the config's `retries` is not 0.
-The config has two projects over the one server and store, `chromium-early` first: it runs `dialogs.spec.ts`, `shell.spec.ts`, the `timeline*.spec.ts` specs and
-`wide.spec.ts`, which load the unfiltered Timeline or every view in turn or reach a button by Tab alone below a list that only grows, and `chromium` runs the rest. The store only grows during a run, and an
-unfiltered Timeline takes seconds to draw once it holds thousands of tasks, so run last those specs failed on the Jenkins agent (and, when the script still repeated a failed run, the
-repeat took the Suite past its 45-minute bound). No spec, assertion or timeout changes. `ci/suitecheck` fails if that order is lost.
+The config has two projects: `worker-isolation` and `chromium`, which runs every other spec after it, in no required order, because no two workers share a store and so no spec's cost depends on what another spec has added. No spec, assertion or timeout changes.
 Each Playwright worker starts a board server of its own before its first test (`e2e/fixtures.ts`, worker-scoped fixtures over `e2e/worker-server.ts`): its own port, work directory, SQLite store and API key, so what one worker's specs seed is never seen by another's, and `e2e/store.ts` writes to the calling worker's store. Every `e2e/*.spec.ts` takes `test` from `fixtures.ts`, never from `@playwright/test` (`ci/suitecheck` fails otherwise), and `e2e/worker-isolation.spec.ts`, in a project of its own that every other project depends on, asserts that a task seeded through one worker's API is absent from the other's.
 
 Headline scenarios that define the product (must exist from the first iteration):

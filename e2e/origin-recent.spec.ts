@@ -31,7 +31,7 @@ async function post<T = Record<string, never>>(api: APIRequestContext, path: str
 // for `operator` and its owner column is then cleared in the run's own store, as the migration leaves a pre-operator key.
 function mintOwnerless(name: string, operator: string): string {
   const work = process.env.E2E_WORK;
-  if (!work) throw new Error('E2E_WORK is not set (playwright.config.ts sets it)');
+  if (!work) throw new Error('E2E_WORK is not set (the worker fixture in fixtures.ts sets it)');
   const env: NodeJS.ProcessEnv = {};
   for (const [variable, value] of Object.entries(process.env)) {
     if (!variable.startsWith('BOARD_') && !variable.startsWith('VH_')) env[variable] = value;

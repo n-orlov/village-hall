@@ -146,9 +146,11 @@ if [ -f web/package.json ]; then
 fi
 
 # --- 0b. Playwright: the real binary on a free port, the whole e2e suite (task 010, R11) ---
-# e2e/playwright.config.ts starts the binary built from this checkout (with the
-# UI step 0 just built embedded) with a server, port and SQLite store per worker,
-# and writes every reporter's output under $E2E_OUT. Playwright itself never
+# e2e/fixtures.ts starts the binary built from this checkout (with the UI step 0
+# just built embedded), one server per Playwright worker, each on a port, work
+# directory, SQLite store and API key of its own (the config has no webServer,
+# global setup or global teardown), and the config writes every reporter's output
+# under $E2E_OUT. Playwright itself never
 # retries (retries: 0) and neither does this script: the run happens once, and a
 # failure fails the suite. The JUnit file lands at <outdir>/junit-playwright.xml
 # and the HTML, Allure, JSON and trace output in <outdir>/playwright/. A

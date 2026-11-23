@@ -27,9 +27,70 @@ func playwrightRetriesProblem(cfg string) string {
 	return ""
 }
 
+// playwrightServerProblem returns "" when the Playwright config starts no
+// server of its own (no webServer, globalSetup or globalTeardown entry, no
+// serve.sh) and the worker fixture that does is in place, otherwise what is
+// wrong. fixtures is the text of e2e/fixtures.ts and workerServer that of
+// e2e/worker-server.ts: every worker starts the real binary on a free port of
+// its own, so one worker's specs never fill another's store.
+func playwrightServerProblem(cfg, fixtures, workerServer string) string {
+	for _, banned := range []string{"webServer", "globalSetup", "globalTeardown", "sh serve.sh"} {
+		for _, line := range strings.Split(stripTSComments(cfg), "\n") {
+			if strings.Contains(line, banned) {
+				return "the config brings back a global server: it has " + banned
+			}
+		}
+	}
+	if !strings.Contains(fixtures, "scope: 'worker'") || !strings.Contains(fixtures, "startServer(") {
+		return "e2e/fixtures.ts has no worker-scoped fixture starting a server per worker"
+	}
+	for _, want := range []string{"listen(0,", "serve.sh", "admin"} {
+		if !strings.Contains(workerServer, want) {
+			return "e2e/worker-server.ts: missing " + want
+		}
+	}
+	return ""
+}
+
+// stripTSComments drops the // comments of a TypeScript file, so that prose
+// about a removed server is not mistaken for a server.
+func stripTSComments(src string) string {
+	lines := strings.Split(src, "\n")
+	for i, l := range lines {
+		if at := strings.Index(l, "//"); at >= 0 && !strings.Contains(l[:at], "'") && !strings.Contains(l[:at], "`") {
+			lines[i] = l[:at]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestPlaywrightServerProblemFlagsAGlobalServer(t *testing.T) {
+	const cfg = "export default defineConfig({\n  retries: 0,\n  // no webServer here\n  projects: [],\n});\n"
+	const fixtures = "export const test = base.extend({ workerServer: [async () => { await startServer(dir); }, { scope: 'worker', auto: true }] });"
+	const workerServer = "probe.listen(0, '127.0.0.1'); spawn('sh', [join(dir, 'serve.sh')]); execFileSync(vh, ['admin', 'keys', 'create']);"
+	if got := playwrightServerProblem(cfg, fixtures, workerServer); got != "" {
+		t.Fatalf("a correct config was flagged: %s", got)
+	}
+	for name, tc := range map[string]struct{ cfg, fixtures, workerServer string }{
+		"web server back":    {strings.Replace(cfg, "projects", "webServer: { command: 'x' },\n  projects", 1), fixtures, workerServer},
+		"serve.sh back":      {strings.Replace(cfg, "projects", "x: 'sh serve.sh',\n  projects", 1), fixtures, workerServer},
+		"global setup back":  {strings.Replace(cfg, "projects", "globalSetup: './g.ts',\n  projects", 1), fixtures, workerServer},
+		"global teardown":    {strings.Replace(cfg, "projects", "globalTeardown: './g.ts',\n  projects", 1), fixtures, workerServer},
+		"worker scope gone":  {cfg, strings.Replace(fixtures, "scope: 'worker'", "scope: 'test'", 1), workerServer},
+		"worker server gone": {cfg, strings.Replace(fixtures, "startServer(", "start(", 1), workerServer},
+		"no free port":       {cfg, fixtures, strings.Replace(workerServer, "listen(0,", "listen(8080,", 1)},
+		"no key minted":      {cfg, fixtures, strings.Replace(workerServer, "'admin'", "'x'", 1)},
+	} {
+		if playwrightServerProblem(tc.cfg, tc.fixtures, tc.workerServer) == "" {
+			t.Errorf("%s: not flagged", name)
+		}
+	}
+}
+
 // TestPlaywrightConfigNeverRetries is the R11/task 010 probe: the Playwright
-// config in e2e/ sets retries: 0, carries the five reporters, and starts the
-// real binary (not a mock) on a free port.
+// config in e2e/ sets retries: 0 and carries the five reporters; the real
+// binary (not a mock) is started per worker on a free port by the worker
+// fixture, and the config starts no server of its own (task 002, R4).
 func TestPlaywrightConfigNeverRetries(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
@@ -43,81 +104,21 @@ func TestPlaywrightConfigNeverRetries(t *testing.T) {
 	if problem := playwrightRetriesProblem(cfg); problem != "" {
 		t.Errorf("e2e/playwright.config.ts: %s", problem)
 	}
-	for _, want := range []string{`['html'`, `['list']`, `['allure-playwright'`, `['json'`, `['junit'`, `webServer`, `sh serve.sh`, `listen(0,`} {
+	for _, want := range []string{`['html'`, `['list']`, `['allure-playwright'`, `['json'`, `['junit'`} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("e2e/playwright.config.ts: missing %q", want)
 		}
 	}
-}
-
-var earlySpecsList = regexp.MustCompile(`(?s)const earlySpecs = \[([^\]]*)\]`)
-
-// playwrightEarlyProblem returns "" when the config runs the volume-sensitive
-// specs (the navigation chrome, every Timeline spec, the wide layout and the
-// dialogs spec, which Tabs past a list that only grows) in a
-// project listed before the project that runs every other spec, and keeps
-// those specs out of the second one, otherwise what is wrong. The shared e2e
-// store only grows, an unfiltered Timeline takes seconds to draw at the end
-// of the run, and these specs load it many times: run last they failed the
-// first run on the Jenkins agent and the repeat took the Suite past its
-// 45-minute bound.
-func playwrightEarlyProblem(cfg string) string {
-	list := earlySpecsList.FindStringSubmatch(cfg)
-	if list == nil {
-		return "no `const earlySpecs = [...]` list"
-	}
-	for _, want := range []string{"dialogs.spec.ts", "shell.spec.ts", "timeline*.spec.ts", "wide.spec.ts"} {
-		if !strings.Contains(list[1], "'"+want+"'") {
-			return "earlySpecs does not name " + want
-		}
-	}
-	early := strings.Index(cfg, "name: 'chromium-early'")
-	main := strings.Index(cfg, "name: 'chromium',")
-	if early < 0 || main < 0 || early > main {
-		return "the chromium-early project must be listed before the chromium project"
-	}
-	earlyLine := cfg[early:main]
-	if !strings.Contains(earlyLine, "testMatch: earlySpecs") {
-		return "the chromium-early project must match earlySpecs"
-	}
-	if !strings.Contains(cfg[main:], "testIgnore: earlySpecs") {
-		return "the chromium project must ignore earlySpecs"
-	}
-	return ""
-}
-
-func TestPlaywrightRunsTheVolumeSensitiveSpecsFirst(t *testing.T) {
-	root, err := repositoryRoot()
+	fixtures, err := os.ReadFile(filepath.Join(root, "e2e", "fixtures.ts"))
 	if err != nil {
-		t.Fatalf("repositoryRoot: %v", err)
+		t.Fatalf("read e2e/fixtures.ts: %v", err)
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "e2e", "playwright.config.ts"))
+	workerServer, err := os.ReadFile(filepath.Join(root, "e2e", "worker-server.ts"))
 	if err != nil {
-		t.Fatalf("read e2e/playwright.config.ts: %v", err)
+		t.Fatalf("read e2e/worker-server.ts: %v", err)
 	}
-	if problem := playwrightEarlyProblem(string(raw)); problem != "" {
-		t.Errorf("e2e/playwright.config.ts: %s", problem)
-	}
-}
-
-func TestPlaywrightEarlyProblemFlagsALostOrdering(t *testing.T) {
-	const good = "const earlySpecs = ['dialogs.spec.ts', 'shell.spec.ts', 'timeline*.spec.ts', 'wide.spec.ts'];\n" +
-		"projects: [\n{ name: 'chromium-early', testMatch: earlySpecs },\n{ name: 'chromium', testMatch: '*.spec.ts', testIgnore: earlySpecs },\n]"
-	if got := playwrightEarlyProblem(good); got != "" {
-		t.Fatalf("a correct config was flagged: %s", got)
-	}
-	for name, cfg := range map[string]string{
-		"no list":           strings.Replace(good, "const earlySpecs", "const other", 1),
-		"timeline dropped":  strings.Replace(good, " 'timeline*.spec.ts',", "", 1),
-		"shell dropped":     strings.Replace(good, "'shell.spec.ts', ", "", 1),
-		"dialogs dropped":   strings.Replace(good, "'dialogs.spec.ts', ", "", 1),
-		"order swapped":     "const earlySpecs = ['dialogs.spec.ts', 'shell.spec.ts', 'timeline*.spec.ts', 'wide.spec.ts'];\n{ name: 'chromium', testIgnore: earlySpecs },\n{ name: 'chromium-early', testMatch: earlySpecs },",
-		"early not matched": strings.Replace(good, "testMatch: earlySpecs", "testMatch: '*.spec.ts'", 1),
-		"main not ignoring": strings.Replace(good, "testIgnore: earlySpecs", "testMatch: '*.spec.ts'", 1),
-	} {
-		if playwrightEarlyProblem(cfg) == "" {
-			t.Errorf("%s: not flagged", name)
-		}
+	if problem := playwrightServerProblem(cfg, string(fixtures), string(workerServer)); problem != "" {
+		t.Errorf("e2e: %s", problem)
 	}
 }
 
