@@ -136,7 +136,7 @@ export class KeysStore {
    * are untouched, and a failed read keeps the list and says why in the inline error. Newest outcome wins (`Fetches`).
    */
   async refresh(): Promise<void> {
-    const ticket = this.fetches.begin();
+    const ticket = this.fetches.begin(true);
     let outcome: Partial<KeysState>;
     try {
       outcome = { keys: await this.api.list(), error: undefined };
@@ -144,7 +144,7 @@ export class KeysStore {
       outcome = { error: errorText(e) };
     }
     const shown = this.fetches.end(ticket) ? outcome : {};
-    this.set({ ...shown, loading: this.fetches.busy && this.current.loading });
+    this.set({ ...shown, loading: this.fetches.busy });
   }
 
   /** Makes the key, keeps it for the page to show once, and reloads the list. Whether it worked; on a refusal `formError` says why. */

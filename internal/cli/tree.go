@@ -14,6 +14,7 @@ import (
 var commandTree = map[string][]flagSpec{
 	"version":           nil,
 	"serve":             nil,
+	"healthcheck":       healthcheckFlags,
 	"update":            updateFlags,
 	"whoami":            whoamiFlags,
 	"init add":          initAddFlags,

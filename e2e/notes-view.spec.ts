@@ -233,7 +233,16 @@ for (const vp of viewports) {
       await goTo(fresh, 'Initiatives');
       await expect(fresh).toHaveURL(/#\/initiatives$/);
       await expect(fresh.getByTestId('notes-view')).toHaveCount(0, FIVE_SECONDS);
+      // The Initiatives list (status=open) is read page by page, many pages on a long run's board: wait for its last page
+      // itself, then give the rows their usual bound to draw.
+      const list = fresh.waitForResponse(async (response) => {
+        const url = new URL(response.url());
+        if (url.pathname !== '/api/v1/initiatives' || url.searchParams.get('status') !== 'open') return false;
+        const body = (await response.json().catch(() => null)) as { next_after?: string } | null;
+        return body !== null && body.next_after === undefined;
+      });
       lookups.release(); // the Initiatives list waits on the same held lookup, so it shows only after the release
+      await list;
       await expect(fresh.getByTestId('initiative-row').first()).toBeVisible(FIVE_SECONDS);
       await fresh.waitForTimeout(500);
       await expect(fresh).toHaveURL(/#\/initiatives$/);

@@ -28,7 +28,8 @@
 // exact ID; the id names the job, so another branch's build with the same
 // number never matches) and stashes its ci-results. Quality waits for Suite (coverage),
 // E2E (Playwright's results) and Image (the image tar). The report runs once
-// at the end over every unit's stash.
+// at the end over every unit's stash. An attempt cut off before its stash (its
+// own bound, a lost agent) archives the logs and JUnit files written so far.
 //
 // Phases; each phase's units run in parallel:
 //   1. Core (every build): Lint, Suite, E2E, Image, Allure smoke, then
@@ -245,6 +246,7 @@ def runUnit(Map u) {
               stash name: 'res-' + slug(u.name), includes: 'ci-results/**',
                     excludes: 'ci-results/board-image.tar,ci-results/board-image-oci.tar', allowEmpty: true
               stashedUnits[u.name] = true
+              a.stashed = true
               if (u.extraStash) {
                 u.extraStash()
               }
@@ -261,6 +263,20 @@ def runUnit(Map u) {
               }
             } catch (Throwable c) {
               echo "unit ${u.name}: container cleanup on ${a.node} skipped: ${c}"
+            }
+            // An attempt cut off before its stash (its own bound fired, or the
+            // agent went away) archives what its command had written so far: the
+            // post report wipes ci-results in this workspace, and E2E's first run
+            // log and JUnit are the only record of which tests failed before the
+            // repeat ran into the bound (PR-1 #8 lost them).
+            if (!a.stashed && a.outcome == null) {
+              try {
+                timeout(time: 3, unit: 'MINUTES') {
+                  archiveArtifacts artifacts: 'ci-results/*.log, ci-results/junit-*.xml, ci-results/flaky-*.txt', allowEmptyArchive: true
+                }
+              } catch (Throwable c) {
+                echo "unit ${u.name}: partial results on ${a.node} not archived: ${c}"
+              }
             }
           }
         }

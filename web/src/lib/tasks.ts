@@ -329,7 +329,7 @@ export class TasksStore {
    * never as a toast. Overlapping fetches obey the same newest-wins rule as `load`.
    */
   async refresh(): Promise<void> {
-    const ticket = this.fetches.begin();
+    const ticket = this.fetches.begin(true);
     let outcome: Partial<TasksState>;
     try {
       outcome = { tasks: await this.api.list(this.current.filter), error: undefined };
@@ -337,7 +337,7 @@ export class TasksStore {
       outcome = { error: errorText(e) };
     }
     const shown = this.fetches.end(ticket) ? outcome : {};
-    this.set({ ...shown, loading: this.fetches.busy && this.current.loading });
+    this.set({ ...shown, loading: this.fetches.busy });
   }
 
   /** Switches to a filter and fetches the list under it. */

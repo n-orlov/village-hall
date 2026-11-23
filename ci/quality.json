@@ -137,7 +137,8 @@
                 "actorops.go",
                 "login.go",
                 "loginops.go",
-                "keyops.go"
+                "keyops.go",
+                "logging.go"
             ],
             "internal/cli": [
                 "adminkeys.go",
@@ -151,6 +152,7 @@
                 "client.go",
                 "events.go",
                 "finish.go",
+                "healthcheck.go",
                 "helpagent.go",
                 "initedit.go",
                 "initiatives.go",
@@ -235,6 +237,7 @@
                     "api.go",
                     "auth.go",
                     "idempotency.go",
+                    "logging.go",
                     "login.go",
                     "server.go",
                     "taskattention.go",
@@ -251,6 +254,7 @@
                     "cli.go",
                     "client.go",
                     "finish.go",
+                    "healthcheck.go",
                     "helpagent.go",
                     "initedit.go",
                     "initiatives.go",

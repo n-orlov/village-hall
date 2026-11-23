@@ -66,3 +66,35 @@ describe('errorText', () => {
     expect(errorText(42)).toBe('42');
   });
 });
+
+describe('Fetches quiet (live refresh) fetches', () => {
+  it('a quiet fetch takes part in newest-wins but is never busy', () => {
+    const f = new Fetches();
+    const q = f.begin(true);
+    expect(f.busy).toBe(false);
+    expect(f.end(q)).toBe(true);
+    expect(f.busy).toBe(false);
+  });
+
+  it('overlapping quiet fetches do not hold a landed load busy', () => {
+    const f = new Fetches();
+    const load = f.begin();
+    const r1 = f.begin(true);
+    expect(f.end(load)).toBe(true);
+    expect(f.busy).toBe(false);
+    const r2 = f.begin(true);
+    expect(f.end(r1)).toBe(true);
+    expect(f.busy).toBe(false);
+    expect(f.end(r2)).toBe(true);
+  });
+
+  it('a load stays busy until it lands even while quiet fetches land around it', () => {
+    const f = new Fetches();
+    const r = f.begin(true);
+    const load = f.begin();
+    expect(f.end(r)).toBe(true);
+    expect(f.busy).toBe(true);
+    expect(f.end(load)).toBe(true);
+    expect(f.busy).toBe(false);
+  });
+});

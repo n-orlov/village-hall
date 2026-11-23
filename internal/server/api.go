@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -36,7 +37,8 @@ func parameterUnreadable(w http.ResponseWriter, _ *http.Request, err error) {
 	writeProblem(w, http.StatusBadRequest, err.Error())
 }
 
-func responseFailed(w http.ResponseWriter, _ *http.Request, _ error) {
+func responseFailed(w http.ResponseWriter, r *http.Request, err error) {
+	noteOpError(r, err)
 	writeProblem(w, http.StatusInternalServerError, "the request could not be answered")
 }
 
@@ -70,6 +72,8 @@ type operations struct {
 	ready        Readiness
 	// ui is the app the server serves at /; nil means the embedded build.
 	ui fs.FS
+	// logger is where the server logs (WithLogger); it discards by default.
+	logger *slog.Logger
 }
 
 var _ StrictServerInterface = operations{}

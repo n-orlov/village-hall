@@ -23,14 +23,24 @@ async function openForm(page: Page) {
   return dialog;
 }
 
-// Holds every GET of the list until the test releases it by its order (0 = the first fetch). Each held GET is
-// answered from the server as it stood when the request was made, so a fetch released late carries an older list;
-// `fail` answers it with a 503 problem document instead.
-async function holdListGets(page: Page, pattern: (url: URL) => boolean) {
+// Holds the first `hold` GETs of the list (the first fetch and the reload after the test's own write) until the test
+// releases each by its order (0 = the first fetch). Each held GET is answered from the server as it stood when the
+// request was made, so a fetch released late carries an older list; `fail` answers it with a 503 problem document instead.
+// The test's own write also reaches the page as a live event, whose refresh is a further GET 500 ms later (the live
+// debounce): one the test never releases would keep the list loading for good once the test runs slower than that, as
+// it does on a loaded agent. A GET past the held ones waits until every held one is released, then lands, newest.
+async function holdListGets(page: Page, pattern: (url: URL) => boolean, hold = 2) {
   const held: { release: (fail?: boolean) => void }[] = [];
+  let released = 0;
+  let allReleased: () => void = () => undefined;
+  const afterHeld = new Promise<void>((resolve) => (allReleased = resolve));
   await page.route(pattern, async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
     const response = await route.fetch();
+    if (held.length >= hold) {
+      await afterHeld;
+      return route.fulfill({ response });
+    }
     const fail = await new Promise<boolean>((resolve) => held.push({ release: (f = false) => resolve(f) }));
     if (fail) return route.fulfill({ status: 503, contentType: 'application/problem+json', json: { title: 'Unavailable', status: 503, detail: 'The list is unavailable.' } });
     return route.fulfill({ response });
@@ -41,6 +51,8 @@ async function holdListGets(page: Page, pattern: (url: URL) => boolean) {
     release: async (n: number, fail = false) => {
       const landed = page.waitForResponse((r) => r.request().method() === 'GET' && pattern(new URL(r.url())));
       held[n]!.release(fail);
+      released += 1;
+      if (released === hold) allReleased();
       await landed;
       // Lets the page parse the answer and render it before the test looks.
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -128,15 +129,22 @@ func serveRefused(t *testing.T, url, addr string, migrate bool) (int, string) {
 	defer cancel()
 	var errb bytes.Buffer
 	code := serveUntil(ctx, &errb, func(string) string { return "" }, url, addr, migrate)
-	return code, errb.String()
+	return code, withoutLogLines(t, errb.String())
 }
 
-// serveReady runs serveUntil against url on a free port, waits until /healthz
+// serveReady is serveReadyLog with the JSON log lines left out of stderr.
+func serveReady(t *testing.T, url string, migrate bool) (int, string) {
+	t.Helper()
+	code, errs := serveReadyLog(t, url, migrate)
+	return code, withoutLogLines(t, errs)
+}
+
+// serveReadyLog runs serveUntil against url on a free port, waits until /healthz
 // answers 200 (it does even on an unmigrated store), then cancels it and
 // returns its exit code and stderr. Startup time does not count against the
 // server's lifetime, so a loaded machine cannot turn a slow start into a
 // deadline error.
-func serveReady(t *testing.T, url string, migrate bool) (int, string) {
+func serveReadyLog(t *testing.T, url string, migrate bool) (int, string) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -380,4 +388,22 @@ func TestReopenLeasedLeavesADatabaseWithoutTheSchemaAlone(t *testing.T) {
 	if err := reopenLeased(ctx, st); err != nil {
 		t.Errorf("migrated database: %v", err)
 	}
+}
+
+// withoutLogLines drops serve's JSON log lines from stderr, failing the test on
+// one that is not a JSON object with a time, a level and a message.
+func withoutLogLines(t *testing.T, stderr string) string {
+	t.Helper()
+	var rest strings.Builder
+	for _, line := range strings.SplitAfter(stderr, "\n") {
+		if !strings.HasPrefix(line, "{") {
+			rest.WriteString(line)
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil || rec["time"] == nil || rec["level"] == nil || rec["msg"] == nil {
+			t.Errorf("bad log line %q", line)
+		}
+	}
+	return rest.String()
 }

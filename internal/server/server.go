@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -56,7 +57,7 @@ func NewHandler(ready Readiness, verify KeyVerifier, login *Login, keys *auth.Ke
 // newHandler is NewHandler and the operations behind it, which Serve reads the
 // write timeout and the stream hub from.
 func newHandler(ready Readiness, verify KeyVerifier, login *Login, keys *auth.Keys, opts ...Option) (http.Handler, operations) {
-	ops := operations{ready: ready, loginOps: loginOps{login: login}, keyOps: keyOps{keys: keys}}
+	ops := operations{ready: ready, loginOps: loginOps{login: login}, keyOps: keyOps{keys: keys}, logger: discardLogger()}
 	for _, opt := range opts {
 		opt(&ops)
 	}
@@ -83,7 +84,7 @@ func newHandler(ready Readiness, verify KeyVerifier, login *Login, keys *auth.Ke
 	if ops.hub != nil {
 		h = wakeFeedAfterWrites(h, ops.hub.feed)
 	}
-	return withProblemNext(authenticated(h, verify, login)), ops
+	return logged(withProblemNext(authenticated(h, verify, login)), ops.logger), ops
 }
 
 // wakeFeedAfterWrites wakes the change feed once a request that may have
@@ -232,17 +233,20 @@ func Serve(ctx context.Context, addr string, ready Readiness, verify KeyVerifier
 
 func serveOn(ctx context.Context, ln net.Listener, ready Readiness, verify KeyVerifier, login *Login, keys *auth.Keys, opts ...Option) error {
 	h, ops := newHandler(ready, verify, login, keys, opts...)
-	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, WriteTimeout: ops.writeTimeout}
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, WriteTimeout: ops.writeTimeout,
+		ErrorLog: slog.NewLogLogger(ops.logger.Handler(), slog.LevelError)}
 	if ops.hub != nil {
 		srv.RegisterOnShutdown(ops.hub.Close)
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
+	ops.logger.Info("listening", "addr", ln.Addr().String())
 	select {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
 	}
+	ops.logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

@@ -102,7 +102,7 @@ export class NotesViewStore {
    * fails keeps the notes it had and says why in the inline error, and an answer for a filter since replaced is dropped.
    */
   async refresh(): Promise<void> {
-    const ticket = this.fetches.begin();
+    const ticket = this.fetches.begin(true);
     const filter = this.current.filter;
     let outcome: Partial<NotesViewState>;
     try {
@@ -111,7 +111,7 @@ export class NotesViewStore {
       outcome = { error: errorText(e) };
     }
     const show = this.fetches.end(ticket) && filter === this.current.filter;
-    this.publish({ ...(show ? outcome : {}), loading: this.fetches.busy && this.current.loading });
+    this.publish({ ...(show ? outcome : {}), loading: this.fetches.busy });
   }
 
   /** A new filter starts again from the first page. */

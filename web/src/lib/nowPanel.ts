@@ -49,7 +49,7 @@ export class NowStore {
 
   /** Reads the live leases again for a live event: the panel keeps what it shows (never `loading`); a failed read keeps the leases and says why. */
   async refresh(): Promise<void> {
-    const ticket = this.fetches.begin();
+    const ticket = this.fetches.begin(true);
     let outcome: Partial<NowState>;
     try {
       outcome = { leases: await this.api.liveLeases(), error: undefined };
@@ -57,7 +57,7 @@ export class NowStore {
       outcome = { error: errorText(e) };
     }
     const shown = this.fetches.end(ticket) ? outcome : {};
-    this.set({ ...shown, loading: this.fetches.busy && this.current.loading });
+    this.set({ ...shown, loading: this.fetches.busy });
   }
 }
 

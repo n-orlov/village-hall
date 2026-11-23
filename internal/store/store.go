@@ -9,9 +9,11 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // the Postgres database/sql driver
 	"github.com/pressly/goose/v3"
@@ -245,17 +247,37 @@ func (s *Store) CheckSchema(ctx context.Context) error {
 // Migrate applies every embedded migration that is not applied yet. It refuses
 // a database whose schema is newer than the binary.
 func (s *Store) Migrate(ctx context.Context) error {
+	_, err := s.MigrateApplied(ctx)
+	return err
+}
+
+// AppliedMigration is one migration MigrateApplied applied: its goose version,
+// its file name and how long it took.
+type AppliedMigration struct {
+	Version  int64
+	Source   string
+	Duration time.Duration
+}
+
+// MigrateApplied is Migrate, and returns the migrations it applied, in the
+// order it applied them (none when the database was already current).
+func (s *Store) MigrateApplied(ctx context.Context) ([]AppliedMigration, error) {
 	if err := s.CheckSchema(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	p, err := s.provider()
 	if err != nil {
-		return fmt.Errorf("prepare migrations: %w", err)
+		return nil, fmt.Errorf("prepare migrations: %w", err)
 	}
-	if _, err := p.Up(ctx); err != nil {
-		return fmt.Errorf("apply migrations: %w", err)
+	results, err := p.Up(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("apply migrations: %w", err)
 	}
-	return nil
+	applied := make([]AppliedMigration, 0, len(results))
+	for _, r := range results {
+		applied = append(applied, AppliedMigration{Version: r.Source.Version, Source: path.Base(r.Source.Path), Duration: r.Duration})
+	}
+	return applied, nil
 }
 
 // MigrateTo applies the embedded migrations up to and including version, and

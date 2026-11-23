@@ -58,6 +58,10 @@ The image's default command is `vh serve`. It listens on `VH_LISTEN` (`:8080`), 
 database named by `VH_DB_URL` (default `sqlite:///data/board.db`, or `postgres://…`), applies
 the embedded migrations, and serves the UI, the API (`/api/v1`, docs at `/api/docs`) and
 `GET /healthz`. Village Hall does no TLS itself: put it behind a terminating HTTPS proxy.
+The image has no shell, so the binary is its own health probe: `vh healthcheck` GETs the local
+`/healthz` and exits 0 or 1 (Compose: `healthcheck: test: ["CMD", "/vh", "healthcheck"]`). The
+server logs JSON lines on stderr: its start (version, revision, schema), each migration applied,
+shutdown, and every 5xx response (unless the client went away) or recovered panic; there is no access log.
 
 All configuration is by `VH_*` environment variables (SPEC §13); each older `BOARD_*` name is still accepted. The ones most deployments set:
 

@@ -250,7 +250,7 @@ export class InitiativesStore {
    * read keeps the list it had. Overlapping fetches obey the same newest-wins rule as `load`.
    */
   async refresh(): Promise<void> {
-    const ticket = this.fetches.begin();
+    const ticket = this.fetches.begin(true);
     let outcome: Partial<InitiativesState>;
     try {
       outcome = { initiatives: await this.api.list(this.current.filter), error: undefined };
@@ -258,7 +258,7 @@ export class InitiativesStore {
       outcome = { error: errorText(e) };
     }
     const shown = this.fetches.end(ticket) ? outcome : {};
-    this.set({ ...shown, loading: this.fetches.busy && this.current.loading });
+    this.set({ ...shown, loading: this.fetches.busy });
   }
 
   /** Switches the status filter and fetches the list under it. */

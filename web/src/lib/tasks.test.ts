@@ -212,6 +212,25 @@ describe('TasksStore refresh (a live event)', () => {
     expect(s.state.loading).toBe(false);
     expect(s.state.tasks.map((t) => t.ref)).toEqual(['x']);
   });
+
+  it('refreshes that keep overlapping do not hold the skeleton once the first load has landed', async () => {
+    const { gates, list } = gated();
+    const s = new TasksStore({ list }, () => undefined);
+    const first = s.load();
+    await tick();
+    const r1 = s.refresh();
+    gates[0]!.resolve([task('a')]);
+    await first;
+    expect(s.state.loading).toBe(false);
+    const r2 = s.refresh();
+    gates[1]!.resolve([task('b')]);
+    await r1;
+    expect(s.state).toMatchObject({ loading: false });
+    expect(s.state.tasks.map((t) => t.ref)).toEqual(['b']);
+    gates[2]!.resolve([task('c')]);
+    await r2;
+    expect(s.state.tasks.map((t) => t.ref)).toEqual(['c']);
+  });
 });
 
 describe('affectsTasks', () => {

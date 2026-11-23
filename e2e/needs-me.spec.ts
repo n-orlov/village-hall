@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { BANDS } from '../web/src/lib/nowBands';
-import { initiativeChip, openChips, pickInitiative, pickTag, tagChip } from './chips';
+import { catalogRead, initiativeChip, openChips, pickInitiative, pickTag, tagChip } from './chips';
 import { band, items, showAllBands } from './now';
 
 // The Needs me bands of the Now view (PRD R1, R9, SPEC 5.3 and 11): four bands in order with their counts and empty states,
@@ -187,7 +187,9 @@ for (const vp of viewports) {
 
     test('the tag and initiative filters live in the fragment and survive a reload', async ({ page, playwright, baseURL }) => {
       const s = await seed(playwright, baseURL, `filt-${vp.name}`);
+      const firstCatalog = catalogRead(page, s.slug);
       await page.goto('/#/now');
+      await firstCatalog;
       await openChips(page);
       await expect(tagChip(page, s.tag)).toBeVisible(FIVE_SECONDS);
       await pickTag(page, s.tag);
@@ -198,7 +200,9 @@ for (const vp of viewports) {
       await pickInitiative(page, s.slug);
       await expect(page).toHaveURL(new RegExp(`#/now\\?tag=${s.tag}&initiative=${s.slug}$`));
 
+      const reloadCatalog = catalogRead(page, s.slug);
       await page.reload();
+      await reloadCatalog;
       await expect(tagChip(page, s.tag)).toHaveAttribute('aria-pressed', 'true', FIVE_SECONDS);
       await expect(initiativeChip(page, s.slug)).toHaveAttribute('aria-pressed', 'true');
       await expect(page).toHaveURL(new RegExp(`#/now\\?tag=${s.tag}&initiative=${s.slug}$`));
