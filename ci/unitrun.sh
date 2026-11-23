@@ -47,7 +47,7 @@ case $bound in
 esac
 [ "$bound" -gt 0 ] || usage
 
-slug=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//')
+slug=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//')
 summary="$outdir/unit-failure-$slug.txt"
 kept="$outdir/unit-kept-$slug.txt"
 mkdir -p "$outdir"
@@ -70,6 +70,7 @@ if { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; } && [ "$elapsed" -ge "$bound" ]; t
     # build and the unit, and the role keeps the job's own container out.
     if [ -n "${RALPHD_RUN_ID:-}" ] && command -v docker >/dev/null 2>&1; then
         ids=$(docker ps -aq --filter "label=ralphd.run=$RALPHD_RUN_ID" --filter label=ralphd.role=sibling 2>/dev/null)
+        # shellcheck disable=SC2086 # $ids is a newline-separated list of container ids: it is split on purpose
         [ -z "$ids" ] || docker rm -f $ids >/dev/null 2>&1
     fi
 fi
