@@ -336,11 +336,23 @@ for (const vp of viewports) {
       await expect(events(page).first().getByTestId('event-summary')).toHaveText(`task ${ref} reopened`);
 
       // Someone else finishes the task while this page is open: the stale Done is refused, inline, and the page is unchanged.
+      // The page's reads of the task are held until then, so its live refresh (500 ms after the event) cannot redraw the
+      // page as done before the stale Done is pressed, however slow the host; released, that refresh shows done.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const taskReads = `**/api/v1/tasks/${ref}`;
+      await page.route(taskReads, async (route) => {
+        if (route.request().method() === 'GET') await held;
+        await route.fallback();
+      });
       await post(api, `/api/v1/tasks/${ref}/done`, {}, 200);
       await actions(page).getByRole('button', { name: 'Done' }).click();
       await expect(page.getByTestId('action-error')).toBeVisible();
       await expect(page.getByTestId('action-error')).toContainText('done');
       await expect(page.getByTestId('task-status')).toHaveText('open');
+      release();
+      await expect(page.getByTestId('task-status')).toHaveText('done');
+      await page.unroute(taskReads);
       await api.dispose();
     });
 
