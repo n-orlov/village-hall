@@ -77,9 +77,9 @@ for (const vp of viewports) {
     test.use({ viewport: vp.size });
     let seeded: Awaited<ReturnType<typeof seed>>;
 
-    test.beforeAll(async ({ playwright }, info) => {
+    test.beforeAll(async ({ playwright, baseURL }) => {
       const api = await playwright.request.newContext({
-        baseURL: info.project.use.baseURL,
+        baseURL,
         extraHTTPHeaders: { Authorization: `Bearer ${process.env.E2E_API_KEY}`, 'Board-Actor': 'playwright' },
       });
       seeded = await seed(api, `e2e-ip-${vp.name}`);

@@ -97,3 +97,61 @@ func TestE2EImportCheckNamesEveryForm(t *testing.T) {
 		t.Errorf("offenders = %q, want %q", got, want)
 	}
 }
+
+// projectBaseURL matches a read of the config's static baseURL (`info.project.use.baseURL`): that address is the
+// config's own, and no server listens there once every worker starts its own, so a spec reaches its worker's
+// server through the `baseURL` fixture instead.
+var projectBaseURL = regexp.MustCompile(`\.use\.baseURL\b`)
+
+// specsReadingProjectBaseURL names every e2e/*.spec.ts under dir that reads the config's static baseURL.
+func specsReadingProjectBaseURL(t *testing.T, dir string) []string {
+	t.Helper()
+	files := os.DirFS(dir)
+	specs, err := fs.Glob(files, "*.spec.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var offenders []string
+	for _, spec := range specs {
+		raw, err := fs.ReadFile(files, spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if projectBaseURL.Match(raw) {
+			offenders = append(offenders, filepath.Base(spec))
+		}
+	}
+	sort.Strings(offenders)
+	return offenders
+}
+
+func TestE2ESpecsReachTheirWorkersServerByTheBaseURLFixture(t *testing.T) {
+	dir := os.Getenv("SUITECHECK_E2E_DIR")
+	if dir == "" {
+		root, err := repositoryRoot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir = filepath.Join(root, "e2e")
+	}
+	if offenders := specsReadingProjectBaseURL(t, dir); len(offenders) > 0 {
+		t.Errorf("%d spec(s) under %s read `info.project.use.baseURL`, the address no worker serves; take `baseURL` from the test's fixtures: %s",
+			len(offenders), dir, strings.Join(offenders, ", "))
+	}
+}
+
+func TestE2EBaseURLCheckNamesTheStaticAddressOnly(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("static.spec.ts", "const api = await playwright.request.newContext({ baseURL: info.project.use.baseURL });\n")
+	write("fixture.spec.ts", "test.beforeAll(async ({ playwright, baseURL }) => { await playwright.request.newContext({ baseURL }); });\n")
+	got := strings.Join(specsReadingProjectBaseURL(t, dir), " ")
+	if got != "static.spec.ts" {
+		t.Errorf("offenders = %q, want %q", got, "static.spec.ts")
+	}
+}
