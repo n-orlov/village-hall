@@ -51,7 +51,9 @@ usage() {
 out=$1
 shift
 if [ $# -gt 0 ]; then
-    [ "$1" = "--" ] && [ $# -ge 2 ] || usage
+    if [ "$1" != "--" ] || [ $# -lt 2 ]; then
+        usage
+    fi
     shift
     "$0" -i "$interval" -w "$warm" -p "$proc" "$out" &
     sampler=$!
