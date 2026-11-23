@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
-import { expectInitiatives, initiativeChip, pickInitiative, showAllInitiatives } from './chips';
+import { expectInitiatives, initiativeChip, showAllInitiatives } from './chips';
 
 // The Tasks view's sort and saved view state (PRD R16, SPEC 11): the table sorts by its columns through the shared sort control, the sort rides in the fragment query next to the filters, the whole query is
 // saved under `vh.view.v1.tasks` and restored on a bare `#/tasks` with one fetch, a fragment with its own query wins,
@@ -133,9 +133,11 @@ for (const vp of viewports) {
       const { slug, refs } = await seed(api, `e2e-tv-restore-${vp.name}`);
       const [mango, apple, , cherry] = refs;
 
-      await page.goto('/#/tasks');
+      // Opened on its own initiative, not bare: the bare view lists the whole shared board, many pages on a long run,
+      // and this test's budget is for the restore, not for store-sized reads (20 s of 30 on the agent near the end).
+      await page.goto(`/#/tasks?initiative=${slug}`);
+      await expectInitiatives(page, [slug]);
       await expect(page.getByTestId('status-filter')).toHaveValue('not-closed');
-      await pickInitiative(page, slug);
       await page.getByTestId('status-filter').selectOption('all');
       await expect.poll(() => tableRefs(page)).toEqual([mango, apple, refs[2], cherry]);
       await sortBy(page, phone, 'title', 'desc');

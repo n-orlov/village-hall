@@ -4116,7 +4116,7 @@ nightly timer) and **Mutation** (only with `MUTATION=true`, `MUTATION_FULL=true`
 run side by side; **Perf** follows them, alone, when the Stability unit passed. A nightly build with
 full mutation takes about 130 minutes, an incremental one about an hour, Core about 33 of them. Each unit attempt removes
 the sibling containers it labelled, by exact ID (a Mutation unit's Postgres testcontainers carry the attempt label too: `ci/mutation.sh` hands `BOARD_CI_RUN_ID` to gremlins, so they are reaped; each parallel unit has its own attempt id, so none removes another's; the id names the job as well as the build number, so another branch's build with the same number never matches); a unit that fails its command is rerun once (a pass
-there marks the build UNSTABLE), an infrastructure failure gets another attempt, and a unit that runs out its own time bound on a node fails without a retry. The
+there marks the build UNSTABLE), an infrastructure failure gets another attempt, and a unit that runs out its own time bound on a node fails without a retry. An attempt cut off before its stash (its own bound, a lost agent) archives the `ci-results/*.log`, `junit-*.xml` and `flaky-*.txt` its command had written so far, before the post report wipes `ci-results` in that workspace: a timed-out E2E still names the tests its first run failed (`playwright-run1.log`, `junit-playwright-run1.xml`). The
 `Jenkinsfile`'s header comment is the authoritative description:
 
 | unit | as in deck | board specifics |

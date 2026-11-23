@@ -198,3 +198,32 @@ func TestJenkinsfileQualityReadsBothSuiteAndE2E(t *testing.T) {
 		"stashes not recorded":        replaceOnce(t, jf, "stashedUnits[u.name] = true", ""),
 	})
 }
+
+// partialResultsProblems: an attempt cut off before its stash (its own bound,
+// a lost agent) archives the logs and JUnit files its command wrote so far,
+// since the post report wipes ci-results in the same workspace and E2E's first
+// run is otherwise the only record of which tests failed.
+func partialResultsProblems(jf string) []string {
+	var problems []string
+	run := functionBody(jf, "def runUnit(Map u) {")
+	if !strings.Contains(run, "a.stashed = true") {
+		problems = append(problems, "runUnit does not record that an attempt stashed")
+	}
+	i := strings.Index(run, "if (!a.stashed && a.outcome == null) {")
+	if i < 0 {
+		return append(problems, "runUnit does not archive an attempt cut off before its stash")
+	}
+	if !strings.Contains(run[i:], "archiveArtifacts artifacts: 'ci-results/*.log, ci-results/junit-*.xml") {
+		problems = append(problems, "a cut-off attempt does not archive its logs and JUnit files")
+	}
+	return problems
+}
+
+func TestJenkinsfileArchivesACutOffUnitsPartialResults(t *testing.T) {
+	jf := readRepoFile(t, "Jenkinsfile")
+	expectProblems(t, jf, partialResultsProblems, map[string]string{
+		"stash not recorded": replaceOnce(t, jf, "              a.stashed = true\n", ""),
+		"no archive branch":  replaceOnce(t, jf, "if (!a.stashed && a.outcome == null) {", "if (false) {"),
+		"logs not archived":  replaceOnce(t, jf, "archiveArtifacts artifacts: 'ci-results/*.log, ci-results/junit-*.xml", "archiveArtifacts artifacts: 'ci-results/none"),
+	})
+}
