@@ -167,6 +167,27 @@ summary. `ci/repocheck/unitrun_test.go` runs the script against a stub command
 that writes a failing junit case and finished reports and is killed by a short
 bound, and fails for a plain pass-through.
 
+### Load samples: `ci/loadsample.sh`
+
+R6 chooses the Playwright worker count from, and judges its load ceiling (the
+1-minute load average at most 12 on every sample) on, load measured during a
+push build. The E2E unit (`sample: true` in the `Jenkinsfile`) runs its command
+under `ci/loadsample.sh ci-results/load-samples.txt -- ci/unitrun.sh ...`, on
+int21h-ws itself, outside the CI container. The script appends one row per
+interval (60 s by default, `-i`) to the file: a UTC timestamp, `load1=` (the
+first field of `/proc/loadavg`), `busy=` and `iowait=` (percent of all CPU time
+between two reads of the `cpu` line of `/proc/stat`). The first row is written 1 s
+(`-w`) after the start and the command starts once it is on disk; a final row is
+written when the command ends, and the script exits with the command's exit
+status. Without a command it samples until TERM or INT, writes its last row and
+exits 0. The report archives `ci-results/load-samples.txt`
+(`ci-results/**/*.txt`) with the build's other artifacts. The file covers the
+E2E unit's command, which runs beside Suite, Image and Allure smoke, so it is
+the load of the whole Core phase from the point E2E starts.
+`ci/repocheck/loadsample_test.go` runs the script against a fake proc directory
+at a short interval (rows, fields, the exact percentages, a clean stop on TERM,
+the command's exit status) and checks the Jenkinsfile runs the E2E unit under it.
+
 ### What Quality and the report read from a failed or cut unit
 
 Quality runs once Suite, E2E and Image have ended, whatever their outcome, and
@@ -649,6 +670,8 @@ The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
   flaky or leg-divergence list.
 - `ci/attempt-id.sh` (tested by `ci/repocheck/attemptid_test.go`): the cleanup id
   of a unit attempt, unique per job, build, unit and attempt.
+- `ci/loadsample.sh` (tested by `ci/repocheck/loadsample_test.go`): the per-minute
+  load average, CPU busy and iowait samples of the E2E unit's run.
 - `ci/junit2allure`, `ci/junitflaky`, `ci/allureverify`: JUnit to Allure
   conversion, the flaky-test list, and the check that the Allure report keeps
   the Godog steps and issue links.

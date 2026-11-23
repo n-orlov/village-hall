@@ -54,6 +54,12 @@
 // to the console and the build description and to
 // ci-results/unit-failure-<unit>.txt in the unit's stash.
 //
+// Load samples (R6): the E2E unit (sample: true) runs under ci/loadsample.sh,
+// on int21h-ws, for the whole run of its command: one row per minute of load
+// average (1 minute), CPU busy and iowait in ci-results/load-samples.txt, which
+// the report archives. The ceiling (load at most 12 on every row) and the
+// Playwright worker count are judged on that file.
+//
 // Phases; each phase's units run in parallel:
 //   1. Core (every build): Lint, Suite, E2E, Image, Allure smoke, then
 //      Quality (4 executors: Quality waits for Suite, E2E and Image without
@@ -225,8 +231,12 @@ String classify(Throwable e, Map a) {
 // status (124: cut by the bound). Only runUnit's units call it.
 int unitSh(Map m) {
   writeFile file: '.unit-command', text: m.script + '\n'
+  // A unit marked sample: true runs under ci/loadsample.sh, which appends a
+  // row of load average, CPU busy and iowait per minute to
+  // ci-results/load-samples.txt for the whole run of its command.
+  String sampler = env.BOARD_UNIT_SAMPLE ? 'ci/loadsample.sh "$BOARD_CI_OUT/load-samples.txt" -- ' : ''
   int rc = sh(returnStatus: true,
-              script: 'ci/unitrun.sh "$BOARD_UNIT_NAME" "$BOARD_UNIT_BOUND_SECONDS" "$BOARD_CI_OUT" -- sh -xe .unit-command')
+              script: sampler + 'ci/unitrun.sh "$BOARD_UNIT_NAME" "$BOARD_UNIT_BOUND_SECONDS" "$BOARD_CI_OUT" -- sh -xe .unit-command')
   String summary = "${env.BOARD_CI_OUT}/unit-failure-${slug(env.BOARD_UNIT_NAME)}.txt"
   if (rc != 0 && fileExists(summary)) {
     String text = readFile(summary).trim()
@@ -288,7 +298,7 @@ def runUnit(Map u) {
               int left = u.minutes * 60 - (int) ((nowMs() - a.start) / 1000) - 120
               withEnv(["RALPHD_RUN_ID=${runId}", "BOARD_CI_SHA=${commitSha}",
                        "BOARD_IMAGE_REVISION=${commitSha}", "BOARD_IMAGE_VERSION=${imageVersion}",
-                       "BOARD_UNIT_NAME=${u.name}", "BOARD_UNIT_BOUND_SECONDS=${left > 60 ? left : 60}"]) {
+                       "BOARD_UNIT_NAME=${u.name}", "BOARD_UNIT_SAMPLE=${u.sample ? 'yes' : ''}", "BOARD_UNIT_BOUND_SECONDS=${left > 60 ? left : 60}"]) {
                 int rc = u.body()
                 // -1: the durable-task wrapper died (agent restart killed its
                 // process group), so the command never finished. 124: the
@@ -621,7 +631,7 @@ pipeline {
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh') }]
           // Playwright alone (BOARD_CI_PLAYWRIGHT=only): every spec, one worker,
           // run once with no repeat of a failed run. 120 minutes on every build.
-          units << [name: 'E2E', minutes: 120, signal: 'E2E',
+          units << [name: 'E2E', minutes: 120, signal: 'E2E', sample: true,
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
           // Both platforms cross-built and never pushed; the amd64 image is run
           // and probed.
