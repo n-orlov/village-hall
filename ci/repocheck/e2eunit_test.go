@@ -142,8 +142,8 @@ func timeoutPolicyProblems(jf string) []string {
 			problems = append(problems, "the own-timeout branch comes after the rerun branch, which would rerun it")
 		}
 	}
-	if !strings.Contains(run, "timeout(time: 45 + u.minutes, unit: 'MINUTES')") {
-		problems = append(problems, "queue wait is no longer capped")
+	if strings.Contains(run, "45 + u.minutes") {
+		problems = append(problems, "queue wait is capped at the unit's bound plus 45 minutes again, not at 30 (queuecap_test.go pins the cap)")
 	}
 	if !strings.Contains(run, "infra++") || !strings.Contains(run, "if (infra >= 3 || attempts.size() >= maxAttempts) {") {
 		problems = append(problems, "infrastructure failures no longer keep their retries")

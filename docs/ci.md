@@ -119,7 +119,7 @@ for Postgres (two servers or two feeds on one Postgres database) runs as a
 Postgres helpers fail a test that asks for a container on `BOARD_DB_LEG=sqlite`. The Postgres leg of those packages, and
 both legs of `features/TestFeatures`, run in the Suite unit (`ci/suite.sh`),
 where the Go matrix still runs both legs. An infrastructure failure (agent lost, Docker unavailable, a wait
-with no free node) gets another attempt, up to three. A failing command is not
+past the 30-minute queue cap) gets another attempt, up to three. A failing command is not
 rerun and nothing marks the build UNSTABLE for a flake (an attempt outcome
 `fail:<exit status>` fails the unit at once): `runUnit` asks
 `ci/rerun-decision.sh <outcome>`, which answers rerun only for `infra:*`
@@ -133,9 +133,17 @@ passes). A unit that runs on a
 node and hits its own time bound (`timeout(time: u.minutes)`) is a failure, not
 an infrastructure failure, and is not retried: the attempt's outcome is
 `fail:timeout` and the unit fails at once (three 45-minute attempts of a Suite
-that cannot fit used to cost a push build over two hours). Only queue wait with no
-node (`infra:no-node`, capped at 45 minutes beyond the unit's bound) keeps its
-retries. The build page carries a per-unit timing table
+that cannot fit used to cost a push build over two hours). Only a queue wait keeps
+its retries: a unit's wait for a node is capped at 30 minutes (`QUEUE_CAP_MINUTES`
+in the `Jenkinsfile`, the 30-minute queue cap; it replaced a timeout of the unit's
+bound plus 45 minutes, so a Suite could wait 90 minutes). `runUnit` runs each
+attempt's node block under `queueCapped`, a watcher that cancels a node request
+still queued at the cap, and asks `ci/queue-cap.sh <seconds waited> <cap minutes>`
+once the node is taken (exit 1 past the cap, `queue-wait` on stdout, exit 0 and
+`within-cap` otherwise; plain sh, tested by `ci/repocheck`). Either way the
+attempt's outcome is `infra:queue-wait`, the build summary says "queue wait over
+30 min", and the attempt keeps its infrastructure retries (up to three). The cap
+covers the wait only: the unit's own bound starts with its node. The build page carries a per-unit timing table
 (`ci-results/distributed/timing.md`).
 
 ### Unit runs: `ci/unitrun.sh`

@@ -10,8 +10,9 @@
 //
 // Retry policy, per unit (on the same node: there is only one):
 //   - infrastructure failure (agent lost, Docker unavailable, checkout or CI
-//     image build failed, the attempt went silent, no executor free for the
-//     whole wait): another attempt, up to 3 infrastructure failures;
+//     image build failed, the attempt went silent, no executor free within
+//     the 30-minute queue cap): another attempt, up to 3 infrastructure
+//     failures;
 //   - the unit's command fails (an attempt outcome fail:<exit status>): the
 //     unit fails and is not rerun, and nothing marks a build UNSTABLE for a
 //     flake: a rerun that passed would only hide a test that cannot be
@@ -22,7 +23,13 @@
 //   - the unit runs out its own time bound on a node (its minutes below): a
 //     failure, not an infrastructure failure, and never retried (operator
 //     ruling 001-WAVE: three 45-minute attempts of a Suite that cannot fit
-//     cost a push build 2 h 15 min). Only a wait with no node stays infra.
+//     cost a push build 2 h 15 min). Only a queue wait stays infra.
+// A unit's wait for a node is capped at 30 minutes (QUEUE_CAP_MINUTES, which
+// ci/queue-cap.sh decides on, tested by ci/repocheck): an attempt still queued
+// then is cancelled, one that got its node after more than the cap fails on
+// it, either way as infra:queue-wait ("queue wait" in the build summary), and
+// keeps its infrastructure retries. The cap covers the wait only: the unit's
+// own bound starts with its node.
 // A unit may cap its attempts (maxAttempts: each full mutation unit has one).
 // Each attempt labels its containers with the id ci/attempt-id.sh prints (job,
 // build, unit, attempt) and removes them by it.
@@ -180,6 +187,9 @@ import groovy.transform.Field
 // reads the field again (a StackOverflowError on a superseded build).
 @Field boolean supersedeSeen = false
 @Field final String AMD = 'board-test && amd64 && docker'
+// The longest an attempt waits for a node (see the header); ci/queue-cap.sh's
+// default cap is the same number (ci/repocheck pins both).
+@Field final int QUEUE_CAP_MINUTES = 30
 // Full mutation's units (see the header): every lane of ci/quality.json's
 // mutation_go.lanes in exactly one unit (ci/repocheck checks the union), and
 // lane base carries Stryker, which ci/mutation.sh runs after the unit's
@@ -303,6 +313,35 @@ String historyBuild() {
 @NonCPS
 String slug(String s) { s.toLowerCase().replaceAll('[^a-z0-9]+', '-') }
 
+// Runs body (the attempt's node block) beside a watcher that ends the wait for
+// a node at the cap: a still-queued attempt is cancelled (failFast interrupts
+// the branch waiting in the queue) and a.capped is set, so runUnit names it
+// infra:queue-wait. The watcher ends as soon as the node is taken or the body
+// ends. The cap covers the wait only, never the unit's run on its node.
+def queueCapped(Map a, Closure body) {
+  parallel([
+    failFast: true,
+    'run': {
+      try {
+        body()
+        a.runEnded = true
+      } catch (Throwable e) {
+        a.runEnded = true
+        throw e
+      }
+    },
+    'queue cap': {
+      while (!a.node && !a.runEnded) {
+        if (nowMs() - a.queued > QUEUE_CAP_MINUTES * 60000L) {
+          a.capped = true
+          error("queue wait: no node within ${QUEUE_CAP_MINUTES} minutes")
+        }
+        sleep time: 10, unit: 'SECONDS'
+      }
+    },
+  ])
+}
+
 // What ended an attempt that threw. Returns null for an abort of the whole
 // build, which must propagate; otherwise an 'infra:<why>' outcome, or
 // 'fail:timeout' for a unit that ran out its own time bound on a node.
@@ -385,8 +424,8 @@ def runUnit(Map u) {
     // container, so a null id means there is nothing to clean up.
     String runId = null
     try {
-      // Queue wait (no free executor) is capped too: 45 minutes.
-      timeout(time: 45 + u.minutes, unit: 'MINUTES') {
+      // Queue wait (no free executor) is capped: 30 minutes (queueCapped).
+      queueCapped(a) {
         node(AMD) {
           a.node = env.NODE_NAME
           a.start = nowMs()
@@ -402,6 +441,13 @@ def runUnit(Map u) {
               }
               checkout scm
               sh 'git clean -ffdxq'
+              // A node taken just past the cap (the watcher polls every 10 s):
+              // ci/queue-cap.sh decides, and the attempt is infrastructure.
+              int waited = (int) ((a.start - a.queued) / 1000)
+              if (sh(returnStatus: true, script: "ci/queue-cap.sh ${waited} ${QUEUE_CAP_MINUTES}") != 0) {
+                a.outcome = 'infra:queue-wait'
+                return
+              }
               if (!commitSha) {
                 commitSha = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                 imageVersion = sh(returnStdout: true, script: 'git describe --tags --exact-match HEAD 2>/dev/null || git rev-parse --short=7 HEAD').trim()
@@ -479,7 +525,7 @@ def runUnit(Map u) {
         }
       }
     } catch (Throwable e) {
-      String why = classify(e, a)
+      String why = (a.capped && !isSuperseded()) ? 'infra:queue-wait' : classify(e, a)
       if (why == null) {
         a.outcome = 'aborted'
         a.end = nowMs()
@@ -532,7 +578,12 @@ String attemptSummary(List attempts) {
   int infras = attempts.count { it.outcome?.startsWith('infra') }
   def parts = []
   if (infras) {
-    parts << "${infras} infrastructure failure" + (infras == 1 ? '' : 's')
+    String waits = ''
+    int queued = attempts.count { it.outcome == 'infra:queue-wait' }
+    if (queued) {
+      waits = " (${queued} queue wait over ${QUEUE_CAP_MINUTES} min)"
+    }
+    parts << "${infras} infrastructure failure" + (infras == 1 ? '' : 's') + waits
   }
   if (fails) {
     parts << "${fails} test failure" + (fails == 1 ? '' : 's')
