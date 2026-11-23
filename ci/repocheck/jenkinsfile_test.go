@@ -124,7 +124,7 @@ func expectProblems(t *testing.T, good string, check func(string) []string, doct
 
 // phaseProblems: the phases Core, Stability and Mutation (side by side, the
 // two parallel stages of one phase), Perf, in that order; Core's units are
-// Lint, Suite, E2E, Image and Allure smoke with Quality after Suite, E2E and Image;
+// Lint, Web UI, Suite, E2E, Image and Allure smoke with Quality after Suite, E2E and Image;
 // Stability needs EXTENDED or the nightly timer; Mutation is gated on
 // CI_MUTATION alone (EXTENDED on its own runs no mutation); a phase runs only
 // while the build has not failed; each unit runs its command.
@@ -139,8 +139,8 @@ func phaseProblems(jf string) []string {
 		problems = append(problems, "Stability and Mutation are not the two parallel stages of one phase (stages "+got+")")
 	}
 	core, _ := jenkinsStage(jf, "Core")
-	if got := strings.Join(coreUnits(core), ","); got != "Lint,Suite,E2E,Image,Allure smoke" {
-		problems = append(problems, "Core units are "+got+", want Lint,Suite,E2E,Image,Allure smoke")
+	if got := strings.Join(coreUnits(core), ","); got != "Lint,Web UI,Suite,E2E,Image,Allure smoke" {
+		problems = append(problems, "Core units are "+got+", want Lint,Web UI,Suite,E2E,Image,Allure smoke")
 	}
 	if !strings.Contains(core, "branches['Quality'] = {") || !strings.Contains(core, "stage('Quality') {") {
 		problems = append(problems, "Core does not run Quality as a branch of its own")
@@ -389,7 +389,7 @@ func qualityProblems(jf string) []string {
 	quality := core[i:]
 	for _, want := range []string{
 		`ci/run.sh ci/quality.sh "$BOARD_CI_OUT" ci/quality.json --mutation-deferred`,
-		"needs: ['res-suite', 'res-e2e', 'res-image', 'image']",
+		"needs: ['res-suite', 'res-e2e', 'res-image', 'image', 'web-dist']",
 		"catchError(buildResult: 'FAILURE', stageResult: 'FAILURE')",
 		"env.QUALITY_RESULT = results['Quality'] == 'fail' ? 'failing' : 'passing'",
 	} {
@@ -408,8 +408,8 @@ func TestJenkinsfileRunsTheQualityGates(t *testing.T) {
 	jf := readRepoFile(t, "Jenkinsfile")
 	expectProblems(t, jf, qualityProblems, map[string]string{
 		"gates that read missing mutation reports": replaceOnce(t, jf, " --mutation-deferred", ""),
-		"a Quality unit without the image":         replaceOnce(t, jf, "needs: ['res-suite', 'res-e2e', 'res-image', 'image']", "needs: ['res-suite', 'res-e2e']"),
-		"a Quality unit without E2E's results":     replaceOnce(t, jf, "needs: ['res-suite', 'res-e2e', 'res-image', 'image']", "needs: ['res-suite', 'res-image', 'image']"),
+		"a Quality unit without the image":         replaceOnce(t, jf, "needs: ['res-suite', 'res-e2e', 'res-image', 'image', 'web-dist']", "needs: ['res-suite', 'res-e2e', 'web-dist']"),
+		"a Quality unit without E2E's results":     replaceOnce(t, jf, "needs: ['res-suite', 'res-e2e', 'res-image', 'image', 'web-dist']", "needs: ['res-suite', 'res-image', 'image', 'web-dist']"),
 		"a red gate that cannot fail the build":    replaceOnce(t, jf, "      catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {\n                env.QUALITY_RESULT", "      catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {\n                env.QUALITY_RESULT"),
 		"no quality badge result":                  replaceOnce(t, jf, "env.QUALITY_RESULT = results['Quality'] == 'fail' ? 'failing' : 'passing'", ""),
 	})

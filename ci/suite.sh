@@ -22,7 +22,7 @@
 #   BOARD_CI_OUT=/path/to/artifacts ci/suite.sh   # keep the JUnit files
 #   ci/suite.sh /path/to/artifacts               # same, as a positional argument
 #   BOARD_CI_PLAYWRIGHT=skip ci/suite.sh         # everything but the Playwright step
-#   BOARD_CI_PLAYWRIGHT=only ci/suite.sh         # only the web build and Playwright
+#   BOARD_CI_PLAYWRIGHT=only ci/suite.sh         # only Playwright (and the web build, if none is stashed)
 #
 # The Go package matrix's JUnit (<outdir>/junit-go.xml) is also what ci/pkgtime
 # reads in the Quality unit: a budgeted package (ci/pkgtime/budgets.json) whose
@@ -33,13 +33,21 @@
 # local Sweep runs). The Jenkinsfile runs two units from this
 # one script, in parallel: Suite with `skip` (the web build and Vitest, the Go
 # passes, the merged files; no Playwright, and no junit-playwright.xml)
-# and E2E with `only` (`npm ci` and the web build in e2e's checkout, then
-# the Playwright step, writing only the Playwright files; no Vitest, no Go
-# pass). Any other value is refused. The step itself is the same in `with` and
+# and E2E with `only` (the Playwright step, writing only the Playwright files,
+# on the web build the Web UI unit stashed; no Vitest, no Go pass). Any other
+# value is refused. The step itself is the same in `with` and
 # `only`: every spec, once. The step also leaves <outdir>/junit-playwright-partial.xml
 # (e2e/partial-junit-reporter.ts, tests finished so far) while it runs and removes it
 # when the complete junit-playwright.xml exists: a run cut by its bound keeps it, and
 # Quality's units section names the failing tests from it (task 006).
+#
+# The web UI is built once per CI build (R9 l): the Jenkinsfile's Web UI unit runs
+# ci/web-build.sh (`npm ci`, `npm run build`, then a marker file in
+# internal/webui/dist) and stashes dist; Suite, E2E and Quality unstash it. With
+# that marker and an index.html present, this script runs no `npm run build`
+# (Suite still runs `npm ci` in web/ for Vitest; E2E runs no web npm at all);
+# with no marker (a local run, a dist built another way) it builds as before.
+# ci/suitecheck pins both cases with a stub npm.
 #
 # BOARD_E2E_WORKERS (task 010, R6): how many Playwright workers the step runs,
 # the one place the count reaches the config from. It is defined once, as
@@ -142,6 +150,15 @@ overall_status=0
 # reports to <outdir>/web-coverage/. It runs once: a failure fails the suite.
 # A checkout with no web/ (the suitecheck fixtures) skips this step.
 vitest_junit="$outdir/junit-vitest.xml"
+# The stashed web build (R9 l): ci/web-build.sh, run once per CI build by the
+# Jenkinsfile's Web UI unit, leaves internal/webui/dist and a marker beside it,
+# and the units that need the UI unstash both. With the marker (and an
+# index.html) here, no web build runs in this script; without it (a local run, a
+# dist built another way, a stale one) the script builds as it always did.
+web_stashed=no
+if [ -f internal/webui/dist/.ci-stashed-build ] && [ -f internal/webui/dist/index.html ]; then
+    web_stashed=yes
+fi
 # The E2E unit (BOARD_CI_PLAYWRIGHT=only) builds the web UI for Playwright and
 # writes none of Vitest's files.
 if [ -f web/package.json ]; then
@@ -150,7 +167,15 @@ if [ -f web/package.json ]; then
     if [ "$playwright_mode" = only ]; then
         web_build_log="$outdir/web-build-e2e.log"
     fi
-    if ! (cd web && npm ci --no-audit --no-fund && npm run build) > "$web_build_log" 2>&1; then
+    if [ "$web_stashed" = yes ]; then
+        # The build is the Jenkins "Web UI" unit's, unstashed here (R9 l): no
+        # `npm run build`. Vitest still needs web/node_modules, so Suite installs.
+        echo "ci/suite.sh: using the stashed web UI build (internal/webui/dist), no web build"
+        if [ "$playwright_mode" != only ] && ! (cd web && npm ci --no-audit --no-fund) > "$web_build_log" 2>&1; then
+            echo "ci/suite.sh: web npm ci failed (see $web_build_log)" >&2
+            overall_status=1
+        fi
+    elif ! (cd web && npm ci --no-audit --no-fund && npm run build) > "$web_build_log" 2>&1; then
         echo "ci/suite.sh: web build failed (see $web_build_log)" >&2
         overall_status=1
     fi

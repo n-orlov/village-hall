@@ -69,7 +69,19 @@
 // board-ci:local (ci/jenkins-image.sh; cached by the Docker daemon), runs,
 // removes the sibling containers it labelled (ralphd.run=<attempt id>, by
 // exact ID; the id names the job, so another branch's build with the same
-// number never matches) and stashes its ci-results. Quality waits for Suite (coverage),
+// number never matches) and stashes its ci-results.
+//
+// The web UI is built once per build (R9 l): the Web UI unit runs
+// ci/web-build.sh (`npm ci`, `npm run build` into internal/webui/dist, a marker
+// file beside it) and stashes dist as web-dist. Suite, E2E and Quality unstash
+// it (`needs`); Suite and E2E also wait for the unit's signal without holding
+// an executor (`after`) and do not run when it failed. ci/suite.sh finds the
+// marker and runs no `npm run build`; Suite still runs `npm ci` in web/ for
+// Vitest, and Quality runs `npm ci` only because crap-ts and the openapi gates
+// read web/node_modules. Only the Image unit's Dockerfile builds the UI again,
+// inside the image (ci/repocheck webbuildonce_test.go pins the stash reuse).
+//
+// Quality waits for Suite (coverage),
 // E2E (Playwright's results) and Image (the image tar; the Image unit builds the
 // image once and its release dry run reuses that tar). The report runs once
 // at the end over every unit's stash. An attempt cut off before its stash (its
@@ -109,7 +121,7 @@
 // is over its budget, or that has no testsuite in the junit, fails the unit.
 //
 // Phases; each phase's units run in parallel:
-//   1. Core (every build): Lint, Suite, E2E, Image, Allure smoke, then
+//   1. Core (every build): Lint, Web UI, Suite, E2E, Image, Allure smoke, then
 //      Quality (4 executors: Quality waits for Suite, E2E and Image without
 //      holding one). Suite is ci/suite.sh with BOARD_CI_PLAYWRIGHT=skip (45
 //      minutes, 120 EXTENDED) and E2E is the same script with
@@ -740,6 +752,15 @@ def unitBranch(Map u) {
     stage(u.name) {
       catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
         try {
+          if (u.after) {
+            // A unit that needs another's stash waits for it without holding an
+            // executor, and does not run when that unit left no build to use.
+            waitUntil(initialRecurrencePeriod: 5000) { signals[u.after] == true }
+            if (results[u.after] != 'pass') {
+              results[u.name] = 'fail'
+              error("${u.name}: not run, the ${u.after} unit it needs did not pass")
+            }
+          }
           runUnit(u)
         } finally {
           if (u.signal) {
@@ -834,13 +855,21 @@ pipeline {
           def units = []
           // gofmt, go vet, tidy drift, golangci-lint.
           units << [name: 'Lint', minutes: 30, body: { sh(returnStatus: true, script: 'ci/run.sh ci/lint.sh') }]
-          // Everything but Playwright: the web build and Vitest, the Go passes
-          // and the merged files (BOARD_CI_PLAYWRIGHT=skip, ci/suite.sh header).
-          units << [name: 'Suite', minutes: nightly ? 120 : 45, signal: 'Suite',
+          // The web UI, built once per build (R9 l): ci/web-build.sh writes
+          // internal/webui/dist, which the unit stashes as web-dist. Suite, E2E and
+          // Quality (needs, below) wait for it and unstash it, and run no web build
+          // of their own (ci/suite.sh finds the build's marker). The Image unit's
+          // Dockerfile builds its own, inside the image.
+          units << [name: 'Web UI', minutes: 15, signal: 'Web UI',
+                    body: { sh(returnStatus: true, script: 'ci/run.sh ci/web-build.sh') },
+                    extraStash: { stash name: 'web-dist', includes: 'internal/webui/dist/**', allowEmpty: true }]
+          // Everything but Playwright: Vitest, the Go passes and the merged files
+          // (BOARD_CI_PLAYWRIGHT=skip, ci/suite.sh header), on the stashed web build.
+          units << [name: 'Suite', minutes: nightly ? 120 : 45, signal: 'Suite', after: 'Web UI', needs: ['web-dist'],
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh') }]
           // Playwright alone (BOARD_CI_PLAYWRIGHT=only): every spec, on
           // E2E_WORKERS workers, run once with no repeat of a failed run. 120 minutes on every build.
-          units << [name: 'E2E', minutes: 120, signal: 'E2E', sample: true,
+          units << [name: 'E2E', minutes: 120, signal: 'E2E', sample: true, after: 'Web UI', needs: ['web-dist'],
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
           // Both platforms cross-built and never pushed; the amd64 image is run
           // and probed. The root Dockerfile is built once per architecture, by the
@@ -886,13 +915,15 @@ pipeline {
                   error('Quality: no results to read from ' + lost.join(', ') + ' (' +
                         lost.collect { it + ': ' + (results[it] ?: 'no result') + ', ' + (attemptLog[it] ? attemptSummary(attemptLog[it]) : 'no attempt') }.join('; ') + ')')
                 }
-                runUnit([name: 'Quality', minutes: 30, needs: ['res-suite', 'res-e2e', 'res-image', 'image'],
+                runUnit([name: 'Quality', minutes: 30, needs: ['res-suite', 'res-e2e', 'res-image', 'image', 'web-dist'],
                          body: {
                            if (env.CI_NIGHTLY == 'true') {
                              sh "ci/run.sh sh -c 'rm -rf /go-cache/trivy/db /go-cache/trivy/java-db /go-cache/xdg-cache/govulncheck'"
                            }
-                           // crap-ts and the openapi gates read web/node_modules, which
-                           // Suite installed in its own workspace, not this one.
+                           // Quality builds no web UI: it unstashes the Web UI unit's dist
+                           // (needs above). It runs `npm ci` only because crap-ts and the
+                           // openapi gates read web/node_modules, which Suite installed in
+                           // its own workspace, not this one.
                            int rc = sh(returnStatus: true, script: "ci/run.sh sh -c '[ -d web/node_modules ] || (cd web && npm ci --no-audit --no-fund)'")
                            if (rc != 0) {
                              return rc

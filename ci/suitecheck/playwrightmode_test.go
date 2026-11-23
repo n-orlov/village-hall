@@ -51,6 +51,13 @@ type modeRun struct {
 
 func runSuiteMode(t *testing.T, mode string, extraEnv ...string) modeRun {
 	t.Helper()
+	return runSuiteWithDist(t, mode, nil, extraEnv...)
+}
+
+// runSuiteWithDist is runSuiteMode with files laid down under internal/webui/dist
+// first (the web build a CI unit unstashed), keyed by their names in dist.
+func runSuiteWithDist(t *testing.T, mode string, dist map[string]string, extraEnv ...string) modeRun {
+	t.Helper()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Fatalf("go toolchain not on PATH: %v", err)
 	}
@@ -74,6 +81,15 @@ func runSuiteMode(t *testing.T, mode string, extraEnv ...string) modeRun {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(module, rel), []byte("{}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, body := range dist {
+		p := filepath.Join(module, "internal", "webui", "dist", name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

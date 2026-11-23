@@ -174,7 +174,7 @@ func qualityReadsBothUnitsProblems(jf string) []string {
 	quality := core[i:]
 	for _, want := range []string{
 		"signals['Suite'] == true && signals['E2E'] == true",
-		"needs: ['res-suite', 'res-e2e', 'res-image', 'image']",
+		"needs: ['res-suite', 'res-e2e', 'res-image', 'image', 'web-dist']",
 		"def lost = ['Suite', 'E2E', 'Image'].findAll { !stashedUnits[it] }",
 		"error('Quality: no results to read from ' + lost.join(', ')",
 	} {

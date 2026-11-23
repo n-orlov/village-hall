@@ -268,7 +268,7 @@ minutes with full mutation, Core about 33 of them:
 
 | phase | units | runs |
 |---|---|---|
-| Core | Lint (`ci/run.sh ci/lint.sh`), Suite (`BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh`: everything but Playwright), E2E (`BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh`: Playwright alone), Image (`ci/image-build.sh` then `ci/image-check.sh`, then the release dry run `ci/release-check.sh`), Allure smoke (the Godog formatter fixture, then `ci/allure-smoke.sh`), and Quality (`ci/run.sh ci/quality.sh ci-results ci/quality.json --mutation-deferred`, then `ci/run.sh go run ./ci/pkgtime`), which waits for Suite (its coverage), E2E (Playwright's results) and Image (the tar) without holding an executor | every build |
+| Core | Lint (`ci/run.sh ci/lint.sh`), Web UI (`ci/run.sh ci/web-build.sh`: `npm ci` and the one web build of the whole CI build, stashed as `web-dist`), Suite (`BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh`: everything but Playwright), E2E (`BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh`: Playwright alone), Image (`ci/image-build.sh` then `ci/image-check.sh`, then the release dry run `ci/release-check.sh`), Allure smoke (the Godog formatter fixture, then `ci/allure-smoke.sh`), and Quality (`ci/run.sh ci/quality.sh ci-results ci/quality.json --mutation-deferred`, then `ci/run.sh go run ./ci/pkgtime`), which waits for Suite (its coverage), E2E (Playwright's results) and Image (the tar) without holding an executor; Suite and E2E wait for Web UI the same way, and Suite, E2E and Quality unstash `web-dist` | every build |
 | Stability | one unit (one executor) running `ci/stability.sh 1` three times side by side, each run in its own clone of the checkout and its own stage (`Stability 1` to `3`), beside Mutation | `EXTENDED=true` or the nightly timer |
 | Mutation | one unit (diff), three units and a gate (full), or a plan, the units it gives work and a gate (incremental), beside Stability (below) | `MUTATION=true` or `MUTATION_FULL=true` or the nightly of `main` |
 | Perf | the Perf unit (`ci/run.sh ci/perf.sh ci-results`, 30 minutes), alone, when the Stability unit passed | `EXTENDED=true` or the nightly timer |
@@ -282,12 +282,31 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
 - **Core** runs on every build, a push build of `main` included. `EXTENDED=true`
   and the nightly timer also add `-race` (the Suite's limit goes from 45 to 120
   minutes) and fresh vulnerability databases to Core.
+- **Web UI** builds the web UI once per CI build (R9 l): the unit runs
+  `ci/web-build.sh` (`npm ci` and `npm run build` in `web/`, which write
+  `internal/webui/dist`, then a marker file `dist/.ci-stashed-build`, written only
+  after a successful build) and stashes `internal/webui/dist` as `web-dist`.
+  Suite, E2E and Quality unstash it (`needs: ['web-dist']`); Suite and E2E also
+  wait for the unit's signal without holding an executor, and do not run when it
+  did not pass (Quality then reports their missing results). With the marker and
+  an `index.html` present, `ci/suite.sh` runs no `npm run build`: Suite still
+  runs `npm ci` in `web/` because Vitest needs `web/node_modules`, E2E runs no
+  web npm command at all (the specs import only dependency-free files of
+  `web/src/lib`), and Quality runs `npm ci` only because the crap-ts and OpenAPI
+  gates read `web/node_modules` (a comment in the `Jenkinsfile` says so). With no
+  marker (a local run, a dist built another way) the script builds as before, so
+  a stale local dist is never taken for the stashed one. The Image unit's
+  `Dockerfile` still builds the UI inside the image. `ci/repocheck`
+  `webbuildonce_test.go` pins the single build and the stash dependencies of
+  Suite, E2E and Quality against doctored Jenkinsfiles and runs `ci/web-build.sh`
+  against a stub `npm`; `ci/suitecheck` `webstash_test.go` runs `ci/suite.sh` with
+  a stub `npm` and asserts no build with the stash present and one without it.
 - **E2E** is the Playwright suite in a unit of its own, in parallel with Suite,
   Lint, Image and Allure smoke on `int21h-ws` (operator ruling 001-WAVE): the
   Suite unit asks `ci/suite.sh` to skip the step (`BOARD_CI_PLAYWRIGHT=skip`) and
-  E2E asks it for only that step (`BOARD_CI_PLAYWRIGHT=only`: `npm ci` and the web
-  build, then Playwright once, with no repeat of a failed run; no Vitest, no Go
-  pass). E2E's bound is 120 minutes on push and `EXTENDED` builds alike; Suite's
+  E2E asks it for only that step (`BOARD_CI_PLAYWRIGHT=only`: Playwright once on
+  the web build the Web UI unit stashed, with no repeat of a failed run; no
+  Vitest, no Go pass). E2E's bound is 120 minutes on push and `EXTENDED` builds alike; Suite's
   stays 45 minutes (120 `EXTENDED`). Nothing else about Playwright changed: one
   worker, no `fullyParallel`, no shards, no added retry, no raised per-test
   timeout, no raised thread budget, and every test runs on every push build.
@@ -393,7 +412,7 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
     `mutation(incremental: N run, M reused from #K)`, or `mutation(full)
     [<reason>]` when it fell back.
 
-A red Lint, Suite, E2E, Image, Allure smoke, Quality, Stability, Perf or Mutation unit
+A red Lint, Web UI, Suite, E2E, Image, Allure smoke, Quality, Stability, Perf or Mutation unit
 fails the build. Within a phase the other units still finish, and a later phase
 does not start after a failure.
 
@@ -811,7 +830,9 @@ Scripts, each run through `ci/run.sh` unless noted:
   counters and the server flush; `ci/suitecheck` probes the suite's refusal per leg.
   When `web/package.json` exists it first runs `npm ci` and `npm run build` in
   `web/` (the build lands in `internal/webui/dist`, so the Go passes embed the
-  real UI rather than the placeholder page), then `npm run test` (Vitest with
+  real UI rather than the placeholder page; on Jenkins the Web UI unit's stashed
+  build, found by its marker, replaces the build and only `npm ci` runs for
+  Vitest), then `npm run test` (Vitest with
   `@vitest/coverage-v8`), writing `junit-vitest.xml`, `web-coverage/` and
   `vitest.log` into the results directory. Vitest runs once, and a failure fails
   the suite. `ci/suitecheck/vitest_test.go` pins the files and `noretry_test.go`
@@ -821,7 +842,7 @@ Scripts, each run through `ci/run.sh` unless noted:
   port and a SQLite store of its own); the script waits for it before it merges the
   JUnit files, replays its messages to stderr and fails the suite on its failure. On
   Jenkins that is not how it runs: the Suite unit sets `BOARD_CI_PLAYWRIGHT=skip` and
-  the E2E unit `BOARD_CI_PLAYWRIGHT=only` (the step in the foreground, after the web
+  the E2E unit `BOARD_CI_PLAYWRIGHT=only` (the step in the foreground, on the stashed web
   build, and nothing else), so the two run in parallel. Nothing is shortened: the same
   specs run with the same bounds. The config never retries
   (`retries: 0`) and starts no server: it has no `webServer`, `globalSetup` or

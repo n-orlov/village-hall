@@ -62,7 +62,7 @@ func lintUnitProblems(jf string) []string {
 	if !strings.Contains(core, "units << [name: 'Lint', minutes: 30, body: { sh(returnStatus: true, script: 'ci/run.sh ci/lint.sh') }]") {
 		problems = append(problems, "the Lint unit does not run ci/run.sh ci/lint.sh")
 	}
-	if !strings.Contains(jf, "catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {\n        try {\n          runUnit(u)") {
+	if !strings.Contains(jf, "catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {\n        try {") || !strings.Contains(functionBody(jf, "def unitBranch(Map u) {"), "runUnit(u)") {
 		problems = append(problems, "a red unit does not fail the build")
 	}
 	return problems
