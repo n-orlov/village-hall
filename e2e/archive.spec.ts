@@ -1,15 +1,12 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
 import { backdateInitiative, backdateTask } from './store';
+import { logicViewports } from './viewports';
 
 // The Archive view (PRD R7, SPEC 11): the closed tasks and closed initiatives of a 7, 30, 90 day or all window (the
 // default is 30), the window held in the fragment query, newest closed first. Reopen confirms in a dialog and brings the
 // item back to the Tasks view or the Initiatives list. The e2e store moves a `closed_at` back with e2e/store.ts, because
 // the API stamps the server's own clock and a spec cannot wait thirty days.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 
 const archiveRow = (page: Page, kind: 'task' | 'initiative', ref: string) => page.locator(`[data-testid=archive-row][data-kind=${kind}][data-ref="${ref}"]`);
@@ -57,7 +54,7 @@ async function seedInitiatives(api: APIRequestContext, name: string) {
   return { old, fresh };
 }
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

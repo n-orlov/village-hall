@@ -1,13 +1,10 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // The Timeline's window lives in the URL fragment (SPEC 11, R3): a settled pan or zoom rewrites `from` and `to` in place
 // (replaceState, so history.length does not grow), a reload opens on the same span, a fragment that names a window opens
 // on it, and the window is never saved: vh.view.v1.timeline holds the filters alone.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 const DAY = 86_400_000;
 const KEY = 'vh.view.v1.timeline';
@@ -52,7 +49,7 @@ const fragmentWindow = (page: Page) =>
 const saved = (page: Page) => page.evaluate((key) => window.localStorage.getItem(key), KEY);
 const historyLength = (page: Page) => page.evaluate(() => window.history.length);
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

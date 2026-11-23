@@ -2,6 +2,7 @@ import { expect, type Page, type Route } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { openChips, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // R7/R10 (SPEC 11, "Tag choices and saved filters on the task views"): a linked or restored tag chip names the sources its tag has
 // NOW, so the per-tag reads a link, a restoration or a hash change makes are applied in the order they began. An older read whose
@@ -9,10 +10,6 @@ import { openChips, tagChip } from './chips';
 // accessible name nor its hover text, whichever way the sources moved in between and whether the newer read was a link or a
 // restored filter. Each test seeds two initiatives of its own on the shared board: one whose tag is under test and an empty one
 // the filter names, so the combined result is always empty and only the per-tag answers can name the sources.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const views = [
   { id: 'tasks', key: 'vh.view.v1.tasks' },
   { id: 'now', key: 'vh.view.v1.attention' },
@@ -76,7 +73,7 @@ async function relink(page: Page, view: (typeof views)[number], slug: string) {
   await expect(tagChip(page, `${slug}-none`)).toHaveAttribute('aria-pressed', 'true');
 }
 
-for (const viewport of viewports) {
+for (const viewport of logicViewports) {
   for (const view of views) {
     test.describe(`${view.id} at ${viewport.name}`, () => {
       test.beforeEach(async ({ page }) => page.setViewportSize(viewport.size));

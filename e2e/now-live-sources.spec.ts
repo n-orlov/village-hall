@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { openChips, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // The chips of an open Now page follow the sources the board has now (PRD R1): an event that changes a tag's sources (an
 // initiative's tags, a task's tags) replaces the source information the page kept from earlier answers, also for a chip whose
@@ -36,12 +37,8 @@ async function holdLookup(page: Page, tag: string) {
   };
 }
 
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

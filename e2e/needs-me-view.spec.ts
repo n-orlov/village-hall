@@ -1,14 +1,11 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
 import { catalogRead, initiativeChip, openChips, pickInitiative, pickTag, revealInitiative, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // The Now view's saved filters (PRD R16, SPEC 11): the tag and initiative filters are saved under
 // `vh.view.v1.attention`, a bare `#/now` restores them before the first fetch (one `GET /attention/now`), a fragment
 // with its own query wins, Clear filters forgets them, and a restored initiative or tag the board does not have is dropped.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const KEY = 'vh.view.v1.attention';
 const FIVE_SECONDS = { timeout: 5000 };
 
@@ -57,7 +54,7 @@ async function holdLookups(page: Page) {
   return { release, held: () => held, answered };
 }
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

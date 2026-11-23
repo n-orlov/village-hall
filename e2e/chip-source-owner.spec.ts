@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { expectInitiatives, openChips, revealInitiative, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // R7/R10 (SPEC 11, "Tag choices and saved filters on the task views"): a read of a tag's sources belongs to the navigation that
 // began it. Once a newer navigation is current (a chip the user clicks, a window the user picks), the older one's answer names
@@ -9,10 +10,6 @@ import { expectInitiatives, openChips, revealInitiative, tagChip } from './chips
 // chosen chip names the sources its tag has now even when no row of the combined filter matches, and an abandoned link or
 // restoration cannot take one away. Each test seeds initiatives of its own on the shared board; the combined filter never
 // matches a row, so only the per-tag answers can name the chip's sources.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const views = ['tasks', 'now', 'timeline', 'archive'] as const;
 type Api = Awaited<ReturnType<typeof actorApi>>;
 const run = Date.now().toString(36).slice(-6);
@@ -78,7 +75,7 @@ async function holdLookup(page: Page, tag: string) {
 const labels = async (page: Page, tag: string) => ({ name: await tagChip(page, tag).getAttribute('aria-label'), hover: await tagChip(page, tag).getAttribute('title') });
 const named = (tag: string, sources: string) => ({ name: `${tag}, ${sources}`, hover: `${tag}: ${sources}` });
 
-for (const viewport of viewports) {
+for (const viewport of logicViewports) {
   test.describe(`chip source owner at ${viewport.name}`, () => {
     test.beforeEach(async ({ page }) => page.setViewportSize(viewport.size));
 

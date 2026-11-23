@@ -1,17 +1,14 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test as base } from './fixtures';
 import { expectInitiatives, pickInitiative } from './chips';
+import { logicViewports } from './viewports';
 
 // Signs in through the mock provider, so no API key rides along (see login.spec.ts).
 // The Tasks view `#/tasks` (filters held in the fragment's query) and the New task dialog, opened from the Tasks
-// view and from an initiative page with the initiative preset, at the phone and the desktop size. The database is
+// view and from an initiative page with the initiative preset, at the desktop size (the logic viewport). The database is
 // shared by the specs, so every test works on initiatives of its own and filters the view down to them.
 const test = base;
 
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 
 const taskRow = (page: Page, ref: string) => page.locator(`[data-testid=task-row][data-ref=${ref}]`);
 // Every task the view lists: the ones in Needs attention above the table, then the table's own (a task is in one of them).
@@ -35,7 +32,7 @@ async function initiative(api: APIRequestContext, slug: string) {
   await post(api, '/api/v1/initiatives', { slug, title: `Tasks ${slug}` }, 201);
 }
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

@@ -849,7 +849,20 @@ Scripts, each run through `ci/run.sh` unless noted:
   viewport only and waits for explicit readiness (a ready locator, then the recorded
   request list reading the same on two consecutive polls, `e2e/settle.ts`); no `e2e/*.ts` file
   waits for `networkidle` (`TestNoE2EFileWaitsForNetworkIdle` in `ci/suitecheck`, R9 h). `e2e/run-dir-reporter.ts` removes the run's directory
-  of worker directories when the run ends. Playwright runs once and
+  of worker directories when the run ends.
+  Logic and layout viewports (R9 i): `e2e/viewports.ts` exports `logicViewports` (desktop
+  only) and `layoutViewports` (phone and desktop). A spec with no viewport-dependent
+  assertion (no branch on the viewport, no phone-only locator, no tap, no width, scroll or
+  position measurement, no axe scan) takes its viewports from `logicViewports` and so runs
+  at the desktop width only; a spec that checks layout or touch behaviour keeps its phone
+  variant (shell, dialogs, touch, density, overflow, timeline-phone, wide, a11y, keys,
+  initiatives, history_restore, task_page, tasks-view, needs-me, timeline, timeline-active
+  and timeline-rows among them). Every phone-dropped spec still runs each test it had at
+  desktop. `TestPhoneDroppedSpecsUseLogicViewports` in `ci/suitecheck`
+  (`viewports_test.go`) holds the explicit list of phone-dropped specs: each imports
+  `logicViewports`, declares no viewport list of its own and contains none of those
+  patterns; any other file that uses `logicViewports` fails it.
+  Playwright runs once and
   the script does not repeat a failed run: a failure fails the suite.
   `junit-playwright.xml` and the HTML, Allure and JSON output (`playwright/`)
   land in the results directory, and `ci/summary.sh` counts the JUnit files.

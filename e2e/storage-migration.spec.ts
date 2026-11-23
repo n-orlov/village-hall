@@ -1,16 +1,13 @@
 import { mkdirSync } from 'node:fs';
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // R3: the app moves the browser storage of the earlier name (`board.*`) to `vh.*` before it reads any view state or
 // the theme. The test seeds the old keys before the first load (addInitScript, once: the guard in sessionStorage keeps
 // a reload from seeding them again), then asserts that the saved filter and the dark theme apply, that the board.* keys
-// are gone and that the vh.* ones hold the values. It also shoots the migrated page at both viewports in both themes
+// are gone and that the vh.* ones hold the values. It also shoots the migrated page at the logic viewport (desktop) in both themes
 // when E2E_SHOTS_DIR names a directory.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 
 async function post(api: APIRequestContext, path: string, data: object, status: number): Promise<{ ref: string }> {
   const response = await api.post(path, { data });
@@ -26,7 +23,7 @@ const stored = (page: Page, area: 'localStorage' | 'sessionStorage') =>
 
 const keysStartingWith = (all: Record<string, string | null>, prefix: string) => Object.keys(all).filter((k) => k.startsWith(prefix));
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size, colorScheme: 'light' });
 

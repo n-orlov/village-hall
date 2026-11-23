@@ -1,13 +1,10 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // The attention chip and order on the Initiatives list (PRD R2, SPEC 11): an initiative with a task that needs a person
 // shows a count chip and moves above the initiatives with nothing waiting, which keep their order. The board is shared
 // with the other specs, so each test makes two initiatives of its own and compares only those two.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 
 async function post<T = Record<string, never>>(api: APIRequestContext, path: string, data: object, status: number): Promise<T> {
@@ -39,7 +36,7 @@ async function seed(playwright: PlaywrightTestArgs['playwright'], baseURL: strin
   return { api, quiet, busy, busyTask: refs[busy]! };
 }
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

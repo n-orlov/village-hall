@@ -1,13 +1,10 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // The Notes view `#/notes` (PRD R10, SPEC 11): notes newest first, Post note with a task, an initiative or neither,
 // the six filters in the fragment's query, a body that expands and Load more. The board is shared with the other
 // specs, so every assertion is scoped by a filter that only this test's notes satisfy.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 
 async function apiContext(playwright: PlaywrightTestArgs['playwright'], baseURL: string | undefined) {
   return playwright.request.newContext({
@@ -55,7 +52,7 @@ async function filterBy(page: Page, fields: Record<string, string>, broadcast = 
   await page.getByTestId('apply-filters').click();
 }
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

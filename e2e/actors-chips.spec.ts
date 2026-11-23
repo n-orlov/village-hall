@@ -1,15 +1,12 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
 import { expectTags, openChips, pickTag, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // R7 on Actors (SPEC 11, "The chip filter on Actors"): the shared chip filter (tags only) keeps the actors whose live leases are on
 // tasks that carry every chosen tag (own, initiative or derived), the filter lives in the fragment and in the saved view state, and the
 // shared sort control reorders the narrowed rows. Each test seeds its own initiatives, tags and actors on the shared board and reads
 // only its own rows by handle.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const KEY = 'vh.view.v1.actors';
 
 async function post<T = { ref: string }>(api: APIRequestContext, path: string, data: object, status: number): Promise<T> {
@@ -59,7 +56,7 @@ const order = (page: Page, prefix: string) =>
 const saved = async (page: Page) => (JSON.parse((await page.evaluate((k) => localStorage.getItem(k), KEY)) as string) as { query: string }).query;
 const endsWith = (fragment: string) => new RegExp(`${fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

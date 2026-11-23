@@ -1,13 +1,10 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // The Notes view's saved filters (PRD R16, SPEC 11): the six filters are saved under `vh.view.v1.notes` when they
 // are applied, a bare `#/notes` restores them before the first fetch (one notes read), a fragment with its own query
 // wins, and Clear filters forgets them.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const KEY = 'vh.view.v1.notes';
 const FIVE_SECONDS = { timeout: 5000 };
 
@@ -66,7 +63,7 @@ async function apply(page: Page, fields: { author?: string; resource?: string; b
   await page.getByTestId('apply-filters').click();
 }
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

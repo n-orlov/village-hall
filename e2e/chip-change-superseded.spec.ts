@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { chosenTags, openChips, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // R7/R10 (SPEC 11, "Tag choices and saved filters on the task views"): only the navigation that is current reads the sources of
 // its tags or sets the filter. A chip the user clicks (or, on Archive, a window the user picks) is newer than a saved filter still
@@ -11,10 +12,6 @@ import { chosenTags, openChips, tagChip } from './chips';
 // restoration had named but not yet answered for, so that chip still names its source. Each test seeds
 // initiatives and tasks of its own on the shared board: the combined filter is always empty, so only the per-tag answers can name
 // the sources of its chips.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const views = [
   { id: 'tasks', key: 'vh.view.v1.tasks' },
   { id: 'now', key: 'vh.view.v1.attention' },
@@ -127,7 +124,7 @@ async function expectUserChipsKept(page: Page, view: View, s: Awaited<ReturnType
   await expect.poll(() => labels(page, s.keep)).toEqual(named(s.keep, 'task tag'));
 }
 
-for (const viewport of viewports) {
+for (const viewport of logicViewports) {
   for (const view of views) {
     test.describe(`${view.id} at ${viewport.name}`, () => {
       test.beforeEach(async ({ page }) => page.setViewportSize(viewport.size));

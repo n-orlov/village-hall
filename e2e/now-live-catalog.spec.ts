@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { initiativeChip, openChips, showAllInitiatives, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // The filter controls of Now follow the initiative catalog live (PRD R1): an initiative made, edited or closed while the page
 // is open changes the choices with no reload, and the chips chosen, their sources and the filter in the fragment stay.
@@ -38,12 +39,8 @@ async function showInitiative(page: Page, slug: string): Promise<void> {
   }).toPass(FIVE_SECONDS);
 }
 
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

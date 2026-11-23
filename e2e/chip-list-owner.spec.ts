@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { expectInitiatives, openChips, revealInitiative, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // R7/R10 (SPEC 11, "Tag choices and saved filters on the task views"): on Archive only the rows of the navigation that is current
 // may change what its chosen chips say about their tags' sources. A list a superseded navigation began (an explicit link, a window,
@@ -10,10 +11,6 @@ import { expectInitiatives, openChips, revealInitiative, tagChip } from './chips
 // navigation's per-tag read names only the task source and the current list has no row (or only rows without it).
 // Rows belong to a navigation, not to a window and chips: a list an earlier visit began names no source on a later visit back to
 // the same window and chips (A, then B, then A again), by an explicit link, a window or a chip.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 type Api = Awaited<ReturnType<typeof actorApi>>;
 const run = Date.now().toString(36).slice(-6);
 
@@ -109,7 +106,7 @@ async function settle(page: Page) {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
-for (const viewport of viewports) {
+for (const viewport of logicViewports) {
   test.describe(`archive list owner at ${viewport.name}`, () => {
     test.beforeEach(async ({ page }) => page.setViewportSize(viewport.size));
 

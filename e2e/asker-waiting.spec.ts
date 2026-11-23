@@ -1,14 +1,11 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // R8 and R9: the asker-waiting label of an open poll ask follows the board without a reload. Each test opens a view that
 // shows the ask as "asker not waiting", then starts a real held wait (`GET /asks/<ref>?wait=10`) and requires the label to
 // change within five seconds, with no navigation and no timer on the page. The Attention view, the task page and the
 // initiative page all show the label.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 
 interface Raised {
@@ -49,7 +46,7 @@ async function noReload(page: Page) {
   return async () => expect(await page.evaluate(() => (window as unknown as { __aliveMarker?: boolean }).__aliveMarker)).toBe(true);
 }
 
-for (const viewport of viewports) {
+for (const viewport of logicViewports) {
   test.describe(viewport.name, () => {
     test.use({ viewport: viewport.size });
 

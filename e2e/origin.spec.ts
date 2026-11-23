@@ -1,14 +1,11 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // Origin and owner in the UI (PRD R13, SPEC 11). Signs in through the mock provider (no API key rides along), makes a key
 // on the Settings -> API keys page so the signed-in operator owns it, acts as an agent through that key, and checks the
 // three displays: the key's owner in Settings, the agent's origin on the Actors page, and "via <operator>" on the agent's
 // event in the task timeline (and none on the operator's own event).
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 
 async function post<T = Record<string, never>>(api: APIRequestContext, path: string, data: object, status: number): Promise<T> {
@@ -17,7 +14,7 @@ async function post<T = Record<string, never>>(api: APIRequestContext, path: str
   return (await response.json()) as T;
 }
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

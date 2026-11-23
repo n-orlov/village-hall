@@ -2,15 +2,12 @@ import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } fr
 import { test } from './fixtures';
 import { expectInitiatives, expectTags, openChips, pickInitiative, pickTag, tagChip } from './chips';
 import { backdateTask } from './store';
+import { logicViewports } from './viewports';
 
 // R7 on Archive (SPEC 11, "The chip filter on Archive"): the shared chip filter (tags AND, initiatives OR) narrows the closed
 // list on the server (`GET /tasks?status=closed&tag=..&initiative=..`), the filter lives in the fragment and in the saved view
 // state, and the shared sort control reorders the narrowed rows. Each test seeds two initiatives of its own with closed tasks and
 // reads only those rows by ref, so the shared board's other closed items do not matter.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const KEY = 'vh.view.v1.archive';
 
 async function post<T = { ref: string; id: string }>(api: APIRequestContext, path: string, data: object, status: number): Promise<T> {
@@ -62,7 +59,7 @@ const rows = async (page: Page, refs: string[]) =>
 const saved = async (page: Page) => (JSON.parse((await page.evaluate((k) => localStorage.getItem(k), KEY)) as string) as { query: string }).query;
 const endsWith = (fragment: string) => new RegExp(`${fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

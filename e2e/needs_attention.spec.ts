@@ -2,15 +2,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // The Needs attention section above the other tasks on the Tasks view and on the initiative page (PRD R2, SPEC 11):
 // a stranded task, a task with a blocking ask and a done task in that order with their badges; answering the ask and
 // closing the done task take them out without a reload; an initiative with nothing that needs attention has no section.
 // The board is shared with the other specs, so each test works on an initiative of its own and filters the view to it.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 
 async function post<T = Record<string, never>>(api: APIRequestContext, path: string, data: object, status: number): Promise<T> {
@@ -116,7 +113,7 @@ const views = [
   { name: 'initiative page', url: (slug: string) => `/#/i/${slug}`, root: 'initiative-page' },
 ] as const;
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

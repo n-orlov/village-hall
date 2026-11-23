@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { expect, type APIRequestContext } from '@playwright/test';
 import { test } from './fixtures';
 import { openFold } from './now';
+import { logicViewports } from './viewports';
 
 // The origin on Now's Recently touched rows (PRD R13, SPEC 11). Each row shows the task's last event; the row says
 // "via <origin>" exactly when that event's own origin is set and is not its actor, whatever the actor's origin is now.
@@ -12,10 +13,6 @@ import { openFold } from './now';
 // (origin equal to the actor). A fourth task makes the point about "whatever the actor's origin is now": the owned
 // key's agent writes once more through the ownerless key, which clears the actor's origin, and the first task's row,
 // whose last event was written earlier, still says "via <operator>".
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 
 type NowRecent = { task: { task: string }; last_event: { actor: { handle: string }; origin?: string } };
@@ -52,7 +49,7 @@ function mintOwnerless(name: string, operator: string): string {
 
 const squash = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

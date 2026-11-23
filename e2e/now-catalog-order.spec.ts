@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created, openFold } from './now';
 import { initiativeChip, openChips, showAllInitiatives, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // Now reads the initiative catalog again on every initiative event (PRD R1), so two reads can overlap and land out of order.
 // The filter choices follow the newest catalog: a read that lands after a newer one was shown is dropped, whether it is a live
@@ -115,12 +116,8 @@ const labelOf = async (page: Page, tag: string) => {
   return [name, ...sources.sort()].join(', ');
 };
 
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
     test.beforeEach(async ({ page }) => {

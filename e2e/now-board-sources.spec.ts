@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { openChips, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // The board read of an open Now page (`GET /attention/now`) carries the tag marks of the tasks it shows, and the chips take
 // sources from them (PRD R1). A board reply that began before an event that changed a tag's sources must not put back a
@@ -45,12 +46,8 @@ async function holdBoards(page: Page, ref: string, tag: string, count: number): 
   }));
 }
 
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 

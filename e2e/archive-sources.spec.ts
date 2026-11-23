@@ -2,15 +2,12 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { openChips, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // R7/R10 on Archive (SPEC 11, "Tag choices and saved filters on the task views"): a chosen tag names the sources it has on the tasks
 // (of any status) and on the initiatives, whatever the combined filter returns, so a linked or restored pair of tags with an empty
 // intersection still shows them; a restored tag nothing carries is dropped before the list is read, and a tag is read the way the
 // server reads it (trimmed as Go does, lower case). Each test seeds initiatives of its own and closes their tasks.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const KEY = 'vh.view.v1.archive';
 
 function scope(initiatives: string[], tags: string[]): URLSearchParams {
@@ -39,7 +36,7 @@ async function restoredRead(page: Page, slug: string, query: string) {
   return new URL((await read).url());
 }
 
-for (const viewport of viewports) {
+for (const viewport of logicViewports) {
   test.describe(`archive at ${viewport.name}`, () => {
     test.beforeEach(async ({ page }) => page.setViewportSize(viewport.size));
 

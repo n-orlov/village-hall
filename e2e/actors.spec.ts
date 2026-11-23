@@ -1,13 +1,10 @@
 import { expect, type APIRequestContext, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // The Actors view (PRD R7, SPEC 11): the actors that hold a live lease come first, each lease linking to its task, then
 // the others by last seen, and every actor with a way back has a button that copies it. A change through the API (a
 // lease started) shows within five seconds with no reload.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 
 async function post<T = Record<string, never>>(api: APIRequestContext, path: string, data: object, status: number): Promise<T> {
@@ -40,7 +37,7 @@ async function seed(playwright: PlaywrightTestArgs['playwright'], baseURL: strin
   return { api, other, holder, idle, holderWay, idleWay, task, lease };
 }
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size, permissions: ['clipboard-read', 'clipboard-write'] });
 

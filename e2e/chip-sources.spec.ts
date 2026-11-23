@@ -2,14 +2,11 @@ import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures';
 import { actorApi, created } from './now';
 import { openChips, pickTag, tagChip } from './chips';
+import { logicViewports } from './viewports';
 
 // R7/R10 (SPEC 11, "Tag choices and saved filters on the task views"): Tasks, Now and Timeline offer every tag of the tasks they show
 // (own, initiative and derived actor kind, with their sources), and a restored filter keeps a tag a task carries even when no
 // initiative lists it, the same rule the server filters by. Each test seeds an initiative of its own on the shared board.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const views = [
   { id: 'tasks', key: 'vh.view.v1.tasks', endpoint: '/api/v1/tasks' },
   { id: 'now', key: 'vh.view.v1.attention', endpoint: '/api/v1/attention/now' },
@@ -45,7 +42,7 @@ async function restoredRead(page: Page, view: (typeof views)[number], slug: stri
   return new URL((await read).url());
 }
 
-for (const viewport of viewports) {
+for (const viewport of logicViewports) {
   for (const view of views) {
     test.describe(`${view.id} at ${viewport.name}`, () => {
       test.beforeEach(async ({ page }) => page.setViewportSize(viewport.size));
@@ -258,7 +255,7 @@ for (const viewport of viewports) {
 }
 
 // Tasks has filters of its own besides the chips: a restored search that matches nothing leaves no row to read the sources from either.
-for (const viewport of viewports) {
+for (const viewport of logicViewports) {
   test(`tasks at ${viewport.name}: names the sources of restored tags under a search that matches no task`, async ({ page, playwright, baseURL }) => {
     const slug = `src-text-tasks-${viewport.name}`;
     await seed(playwright, baseURL, slug, [`${slug}-own`]);

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { test } from './fixtures';
+import { logicViewports } from './viewports';
 
 // Origin and owner in the UI over the whole set (PRD R13, SPEC 11). origin.spec.ts follows one seeded example through the
 // three displays; this spec checks every member of each set the displays quantify over, against the API's own lists:
@@ -11,10 +12,6 @@ import { test } from './fixtures';
 // it ("no owner" for a key without one), and every event in a task's timeline says "via <origin>" exactly when the
 // event's origin is set and differs from its actor. The seed gives each set all of its cases: an agent acting through a
 // key the signed-in operator owns, an agent acting through a key made with no owner, and the operator's own write.
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
 const FIVE_SECONDS = { timeout: 5000 };
 
 type ActorView = { handle: string; kind: 'operator' | 'agent'; origin?: string };
@@ -59,7 +56,7 @@ function mintOwnerless(name: string, operator: string): string {
 
 const squash = (text: string | null) => (text ?? '').replace(/\s+/g, ' ').trim();
 
-for (const vp of viewports) {
+for (const vp of logicViewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 
