@@ -806,10 +806,15 @@ Scripts, each run through `ci/run.sh` unless noted:
   `keyedTest` (smoke, swagger) also sends the key and a `Board-Actor` header on every
   request. `e2e/worker-isolation.spec.ts` seeds a task through each of two workers
   and asks the other worker's server for it; the project `worker-isolation` runs
-  it alone, first, so that two workers are alive together; the `chromium` project
-  runs every other spec after it, in no particular order (no spec depends on
-  another's store, because no two workers share one, so the order of the specs
-  carries no constraint). `e2e/run-dir-reporter.ts` removes the run's directory
+  it alone, first, so that two workers are alive together. Playwright never shares a
+  worker between projects, so each project's workers have servers and stores of
+  their own, and that groups the rest: the `lists` project holds `a11y.spec.ts`,
+  `dialogs.spec.ts` (it Tabs to a button below the Initiatives list, 150 presses at
+  most), `shell.spec.ts`, the `timeline*.spec.ts` specs and `wide.spec.ts`, whose
+  cost follows the size of their store (an unfiltered Timeline or Initiatives list,
+  a Tab walk past it), so what the other specs add never lengthens it; `chromium`
+  holds every other spec. It is store isolation, not an order: no project waits for
+  another except on `worker-isolation`, and the specs run in any order. `e2e/run-dir-reporter.ts` removes the run's directory
   of worker directories when the run ends. Playwright runs once and
   the script does not repeat a failed run: a failure fails the suite.
   `junit-playwright.xml` and the HTML, Allure and JSON output (`playwright/`)
