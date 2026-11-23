@@ -15,7 +15,8 @@
 # The tests gremlins runs (its covered run and every mutant's) run on the
 # SQLite leg only: this script sets BOARD_DB_LEG=sqlite for them, so no mutant
 # of internal/server, internal/store or internal/feed starts a Postgres
-# container. The Postgres leg of those packages and of features/TestFeatures
+# container (their Postgres-only tests run as a postgres subtest only on the
+# Postgres leg, and their container helpers fail on BOARD_DB_LEG=sqlite). The Postgres leg of those packages and of features/TestFeatures
 # runs in the Suite unit (ci/suite.sh), which still runs both legs.
 #
 #   ci/run.sh ci/mutation.sh                  # reports in ci-results/mutation

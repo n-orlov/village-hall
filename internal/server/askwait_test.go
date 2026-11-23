@@ -391,24 +391,26 @@ func testAWaitEndsWhenTheClientLeaves(t *testing.T, query func() string) {
 
 func TestAWaitHeldOnOneServerEndsWhenTheAnswerIsWrittenThroughAnotherOnOnePostgres(t *testing.T) {
 	t.Parallel()
-	url := startPostgres(t).New(t)
-	a := openStore(t, url)
-	if err := a.Migrate(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	token := newToken(t, a)
-	clock := newTestClock()
-	writer, _ := askRig(t, a, token, clock, time.Hour)
-	reader, as := askRig(t, openStore(t, url), token, clock, time.Hour)
-	ref := writer.raiseAsk()
-	w := reader.startWait(ref, "120")
-	eventually(t, "the wait to be held", func() bool { return polledAt(t, as, ref) != nil })
-	writer.answer(ref)
-	// The reader's feed tails every 100 ms: the wait ends within a few of them, not 120 s.
-	w.ends(t)
-	if w.status != http.StatusOK || w.state != "answered" {
-		t.Errorf("the wait on the other server ended with %d %q, want 200 answered", w.status, w.state)
-	}
+	onPostgres(t, func(t *testing.T, dbs *postgresDatabases) {
+		url := dbs.New(t)
+		a := openStore(t, url)
+		if err := a.Migrate(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		token := newToken(t, a)
+		clock := newTestClock()
+		writer, _ := askRig(t, a, token, clock, time.Hour)
+		reader, as := askRig(t, openStore(t, url), token, clock, time.Hour)
+		ref := writer.raiseAsk()
+		w := reader.startWait(ref, "120")
+		eventually(t, "the wait to be held", func() bool { return polledAt(t, as, ref) != nil })
+		writer.answer(ref)
+		// The reader's feed tails every 100 ms: the wait ends within a few of them, not 120 s.
+		w.ends(t)
+		if w.status != http.StatusOK || w.state != "answered" {
+			t.Errorf("the wait on the other server ended with %d %q, want 200 answered", w.status, w.state)
+		}
+	})
 }
 
 func TestAWaitIsRefusedOutsideOneToThreeHundredAndAnswers503WithoutAFeed(t *testing.T) {

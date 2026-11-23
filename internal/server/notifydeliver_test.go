@@ -258,79 +258,81 @@ func (w *outboxWorld) seedAsks(n int) {
 
 func TestTwoServersDeliverASeededBatchExactlyOnce(t *testing.T) {
 	t.Parallel()
-	dbs := startPostgres(t)
-	w := newOutboxWorld(t, dbs, allKinds())
-	const rows = 30
-	w.seedAsks(rows)
-	st2 := openStore(t, w.url)
-	h := newHook(t, 200)
-	a, b := w.worker(w.st, h.URL), w.worker(st2, h.URL)
-	var wg sync.WaitGroup
-	for _, wk := range []*notify.Worker{a, b} {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 3; i++ {
-				if err := wk.Tick(context.Background()); err != nil {
-					t.Error(err)
+	onPostgres(t, func(t *testing.T, dbs *postgresDatabases) {
+		w := newOutboxWorld(t, dbs, allKinds())
+		const rows = 30
+		w.seedAsks(rows)
+		st2 := openStore(t, w.url)
+		h := newHook(t, 200)
+		a, b := w.worker(w.st, h.URL), w.worker(st2, h.URL)
+		var wg sync.WaitGroup
+		for _, wk := range []*notify.Worker{a, b} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 3; i++ {
+					if err := wk.Tick(context.Background()); err != nil {
+						t.Error(err)
+					}
 				}
-			}
-		}()
-	}
-	wg.Wait()
-	seen := map[string]int{}
-	for _, body := range h.got() {
-		seen[fmt.Sprint(decodeBody(t, body)["ask"].(map[string]any)["question"])]++
-	}
-	if len(seen) != rows {
-		t.Fatalf("%d distinct rows delivered, want %d", len(seen), rows)
-	}
-	for q, n := range seen {
-		if n != 1 {
-			t.Errorf("%s delivered %d times", q, n)
+			}()
 		}
-	}
-	if s := w.states(); s["sent"] != rows || len(s) != 1 {
-		t.Fatalf("states = %v", s)
-	}
+		wg.Wait()
+		seen := map[string]int{}
+		for _, body := range h.got() {
+			seen[fmt.Sprint(decodeBody(t, body)["ask"].(map[string]any)["question"])]++
+		}
+		if len(seen) != rows {
+			t.Fatalf("%d distinct rows delivered, want %d", len(seen), rows)
+		}
+		for q, n := range seen {
+			if n != 1 {
+				t.Errorf("%s delivered %d times", q, n)
+			}
+		}
+		if s := w.states(); s["sent"] != rows || len(s) != 1 {
+			t.Fatalf("states = %v", s)
+		}
+	})
 }
 
 func TestARowClaimedByAStoppedServerIsDeliveredByTheOtherAfterItsClaimLapses(t *testing.T) {
 	t.Parallel()
-	dbs := startPostgres(t)
-	w := newOutboxWorld(t, dbs, allKinds())
-	w.ask(asks.New{Question: "stuck"})
-	st2 := openStore(t, w.url)
+	onPostgres(t, func(t *testing.T, dbs *postgresDatabases) {
+		w := newOutboxWorld(t, dbs, allKinds())
+		w.ask(asks.New{Question: "stuck"})
+		st2 := openStore(t, w.url)
 
-	// Server one claims the row and is stopped mid-POST.
-	stopped, cancel := context.WithCancel(context.Background())
-	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		cancel()
-		<-r.Context().Done()
-	}))
-	defer hung.Close()
-	one := w.worker(w.st, hung.URL)
-	if err := one.Tick(stopped); err != nil {
-		t.Fatal(err)
-	}
-	if s := w.states(); s["pending"] != 1 {
-		t.Fatalf("states after the stop = %v", s)
-	}
+		// Server one claims the row and is stopped mid-POST.
+		stopped, cancel := context.WithCancel(context.Background())
+		hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			cancel()
+			<-r.Context().Done()
+		}))
+		defer hung.Close()
+		one := w.worker(w.st, hung.URL)
+		if err := one.Tick(stopped); err != nil {
+			t.Fatal(err)
+		}
+		if s := w.states(); s["pending"] != 1 {
+			t.Fatalf("states after the stop = %v", s)
+		}
 
-	h := newHook(t, 200)
-	two := w.worker(st2, h.URL)
-	w.tickWorker(two)
-	w.tick(5*time.Second + 30*time.Second - time.Millisecond)
-	w.tickWorker(two)
-	if len(h.got()) != 0 {
-		t.Fatalf("the other server delivered a row still claimed")
-	}
-	w.tick(time.Millisecond)
-	w.tickWorker(two)
-	if s := w.states(); s["sent"] != 1 || len(h.got()) != 1 {
-		t.Fatalf("after the claim lapsed: states %v, %d POSTs", s, len(h.got()))
-	}
+		h := newHook(t, 200)
+		two := w.worker(st2, h.URL)
+		w.tickWorker(two)
+		w.tick(5*time.Second + 30*time.Second - time.Millisecond)
+		w.tickWorker(two)
+		if len(h.got()) != 0 {
+			t.Fatalf("the other server delivered a row still claimed")
+		}
+		w.tick(time.Millisecond)
+		w.tickWorker(two)
+		if s := w.states(); s["sent"] != 1 || len(h.got()) != 1 {
+			t.Fatalf("after the claim lapsed: states %v, %d POSTs", s, len(h.got()))
+		}
+	})
 }
 
 // A 2xx status line marks the row sent whatever the body does after it: it

@@ -23,10 +23,30 @@ import (
 // postgresImage is the same pinned image the features' Postgres leg runs.
 const postgresImage = "postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab"
 
+// onPostgres runs fn as the test's "postgres" subtest unless BOARD_DB_LEG names
+// another leg. A test of two feeds on one Postgres database has no SQLite case,
+// so on BOARD_DB_LEG=sqlite (mutation's covered and mutant runs) it runs no
+// subtest and starts no container; the Suite's Go pass, with the variable
+// unset, runs it.
+func onPostgres(t *testing.T, fn func(t *testing.T)) {
+	t.Helper()
+	switch leg := strings.TrimSpace(os.Getenv("BOARD_DB_LEG")); leg {
+	case "", "postgres":
+		t.Run("postgres", fn)
+	case "sqlite":
+	default:
+		t.Fatalf("BOARD_DB_LEG=%q: want sqlite or postgres", leg)
+	}
+}
+
 // startPostgres starts a Postgres container through the docker socket the way
-// features/postgres_test.go does and returns the URL of an empty database.
+// features/postgres_test.go does and returns the URL of an empty database. It
+// fails on BOARD_DB_LEG=sqlite, so no SQLite-leg run starts a container.
 func startPostgres(t *testing.T) string {
 	t.Helper()
+	if leg := strings.TrimSpace(os.Getenv("BOARD_DB_LEG")); leg == "sqlite" {
+		t.Fatal("startPostgres on BOARD_DB_LEG=sqlite: run the test through onPostgres")
+	}
 	ctx := context.Background()
 	_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 	if host := strings.TrimSpace(os.Getenv("BOARD_CI_DOCKER_HOST")); host != "" {
@@ -126,109 +146,111 @@ func appendIn(t *testing.T, tx *sql.Tx, st *store.Store, actorID, summary string
 }
 
 func TestTwoFeedsOnOnePostgresDatabaseDeliverTheWholeSequenceInOrder(t *testing.T) {
-	ctx := context.Background()
-	url := startPostgres(t)
-	a, b := openPostgres(t, url), openPostgres(t, url)
-	if err := a.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	// The actor row first, in its own transaction, so the writers below do not
-	// wait on each other for it.
-	tx, err := a.Writer().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	actorID, err := audit.UpsertActor(ctx, tx, a.Dialect(), audit.Actor{Handle: "tester"}, t0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	subA, subB := startFeed(t, a), startFeed(t, b)
-
-	appendEvent2 := func(summary string) {
+	onPostgres(t, func(t *testing.T) {
+		ctx := context.Background()
+		url := startPostgres(t)
+		a, b := openPostgres(t, url), openPostgres(t, url)
+		if err := a.Migrate(ctx); err != nil {
+			t.Fatal(err)
+		}
+		// The actor row first, in its own transaction, so the writers below do not
+		// wait on each other for it.
 		tx, err := a.Writer().BeginTx(ctx, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendIn(t, tx, a, actorID, summary)
+		actorID, err := audit.UpsertActor(ctx, tx, a.Dialect(), audit.Actor{Handle: "tester"}, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := tx.Commit(); err != nil {
 			t.Fatal(err)
 		}
-	}
-	appendEvent2("first")
-	// "slow" takes n=2 and stays open; "fast" takes n=3 and commits before it.
-	slow, err := a.Writer().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	appendIn(t, slow, a, actorID, "slow")
-	fast, err := b.Writer().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	appendIn(t, fast, b, actorID, "fast")
-	if err := fast.Commit(); err != nil {
-		t.Fatal(err)
-	}
+		subA, subB := startFeed(t, a), startFeed(t, b)
 
-	// Both feeds see "first" but must hold "fast" back for as long as n=2 is
-	// uncommitted: here 2.5 s, more than two poll intervals.
-	for name, s := range map[string]*Subscription{"a": subA, "b": subB} {
-		if got := collect(t, name, s, 1); got[0].Summary != "first" {
-			t.Fatalf("%s: first event %v", name, summaries(got))
-		}
-	}
-	hold := time.After(2500 * time.Millisecond)
-	for waiting := true; waiting; {
-		select {
-		case e := <-subA.Events():
-			t.Fatalf("a: delivered n=%d %q ahead of the uncommitted n=2", e.N, e.Summary)
-		case e := <-subB.Events():
-			t.Fatalf("b: delivered n=%d %q ahead of the uncommitted n=2", e.N, e.Summary)
-		case <-hold:
-			waiting = false
-		}
-	}
-	if w, err := (StoreSource{Store: a}).Writers(ctx); err != nil || len(w) != 1 {
-		t.Fatalf("Writers with n=2 open = %v, %v; want the one open writer", w, err)
-	}
-	if err := slow.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if w, err := (StoreSource{Store: b}).Writers(ctx); err != nil || len(w) != 0 {
-		t.Fatalf("Writers after the commit = %v, %v; want none", w, err)
-	}
-	appendEvent2("last")
-
-	// A writer that draws n=5 and rolls back leaves a gap for good: the feeds
-	// hold n=6 while it is open and deliver it once it has rolled back.
-	doomed, err := a.Writer().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	appendIn(t, doomed, a, actorID, "doomed")
-	appendEvent2("after")
-	time.Sleep(1500 * time.Millisecond)
-	if err := doomed.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	appendEvent2("final")
-
-	want := []string{"slow", "fast", "last", "after", "final"}
-	wantN := []int64{2, 3, 4, 6, 7}
-	for name, s := range map[string]*Subscription{"a": subA, "b": subB} {
-		got := collect(t, name, s, len(want))
-		for i, e := range got {
-			if e.Summary != want[i] || e.N != wantN[i] {
-				t.Errorf("%s: event %d is %d:%s, want %d:%s (all: %v)", name, i, e.N, e.Summary, wantN[i], want[i], summaries(got))
+		appendEvent2 := func(summary string) {
+			tx, err := a.Writer().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			appendIn(t, tx, a, actorID, summary)
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
 			}
 		}
-		select {
-		case e := <-s.Events():
-			t.Errorf("%s: duplicate or extra event n=%d %q", name, e.N, e.Summary)
-		case <-time.After(300 * time.Millisecond):
+		appendEvent2("first")
+		// "slow" takes n=2 and stays open; "fast" takes n=3 and commits before it.
+		slow, err := a.Writer().BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
+		appendIn(t, slow, a, actorID, "slow")
+		fast, err := b.Writer().BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendIn(t, fast, b, actorID, "fast")
+		if err := fast.Commit(); err != nil {
+			t.Fatal(err)
+		}
+
+		// Both feeds see "first" but must hold "fast" back for as long as n=2 is
+		// uncommitted: here 2.5 s, more than two poll intervals.
+		for name, s := range map[string]*Subscription{"a": subA, "b": subB} {
+			if got := collect(t, name, s, 1); got[0].Summary != "first" {
+				t.Fatalf("%s: first event %v", name, summaries(got))
+			}
+		}
+		hold := time.After(2500 * time.Millisecond)
+		for waiting := true; waiting; {
+			select {
+			case e := <-subA.Events():
+				t.Fatalf("a: delivered n=%d %q ahead of the uncommitted n=2", e.N, e.Summary)
+			case e := <-subB.Events():
+				t.Fatalf("b: delivered n=%d %q ahead of the uncommitted n=2", e.N, e.Summary)
+			case <-hold:
+				waiting = false
+			}
+		}
+		if w, err := (StoreSource{Store: a}).Writers(ctx); err != nil || len(w) != 1 {
+			t.Fatalf("Writers with n=2 open = %v, %v; want the one open writer", w, err)
+		}
+		if err := slow.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		if w, err := (StoreSource{Store: b}).Writers(ctx); err != nil || len(w) != 0 {
+			t.Fatalf("Writers after the commit = %v, %v; want none", w, err)
+		}
+		appendEvent2("last")
+
+		// A writer that draws n=5 and rolls back leaves a gap for good: the feeds
+		// hold n=6 while it is open and deliver it once it has rolled back.
+		doomed, err := a.Writer().BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendIn(t, doomed, a, actorID, "doomed")
+		appendEvent2("after")
+		time.Sleep(1500 * time.Millisecond)
+		if err := doomed.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		appendEvent2("final")
+
+		want := []string{"slow", "fast", "last", "after", "final"}
+		wantN := []int64{2, 3, 4, 6, 7}
+		for name, s := range map[string]*Subscription{"a": subA, "b": subB} {
+			got := collect(t, name, s, len(want))
+			for i, e := range got {
+				if e.Summary != want[i] || e.N != wantN[i] {
+					t.Errorf("%s: event %d is %d:%s, want %d:%s (all: %v)", name, i, e.N, e.Summary, wantN[i], want[i], summaries(got))
+				}
+			}
+			select {
+			case e := <-s.Events():
+				t.Errorf("%s: duplicate or extra event n=%d %q", name, e.N, e.Summary)
+			case <-time.After(300 * time.Millisecond):
+			}
+		}
+	})
 }

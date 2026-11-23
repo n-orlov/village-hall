@@ -37,6 +37,28 @@ func legs(t *testing.T) []string {
 	}
 }
 
+// hasLeg reports whether leg is one of legs(t).
+func hasLeg(t *testing.T, leg string) bool {
+	t.Helper()
+	for _, l := range legs(t) {
+		if l == leg {
+			return true
+		}
+	}
+	return false
+}
+
+// onPostgres runs fn as the test's "postgres" subtest when the Postgres leg is
+// one of legs(t). A test of two servers on one Postgres database has no SQLite
+// case, so on BOARD_DB_LEG=sqlite it runs no subtest and starts no container;
+// the Suite's Go pass, with the variable unset, runs it.
+func onPostgres(t *testing.T, fn func(t *testing.T, dbs *postgresDatabases)) {
+	t.Helper()
+	if hasLeg(t, "postgres") {
+		t.Run("postgres", func(t *testing.T) { fn(t, startPostgres(t)) })
+	}
+}
+
 // databases hands out empty databases of one leg.
 type databases interface {
 	// New returns the URL of an empty database.
@@ -93,9 +115,14 @@ func TestMain(m *testing.M) {
 }
 
 // startPostgres returns the Postgres container the tests of this package share,
-// starting it on first use.
+// starting it on first use. It fails a test that asks for it when legs(t) has no
+// Postgres leg, so a run on BOARD_DB_LEG=sqlite (mutation's covered and mutant
+// runs) never starts a container.
 func startPostgres(t *testing.T) *postgresDatabases {
 	t.Helper()
+	if !hasLeg(t, "postgres") {
+		t.Fatalf("startPostgres on BOARD_DB_LEG=%q: run the test through onPostgres or forEachLeg", os.Getenv("BOARD_DB_LEG"))
+	}
 	sharedPostgresOnce.Do(func() { sharedPostgres, sharedPostgresDone, sharedPostgresErr = runPostgres() })
 	if sharedPostgresErr != nil {
 		t.Fatal(sharedPostgresErr)

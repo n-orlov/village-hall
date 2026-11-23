@@ -113,7 +113,10 @@ forwards from `RALPHD_RUN_ID`, so any container a mutant's test run labels is
 reaped by the cleanup) and `BOARD_DB_LEG=sqlite`. Mutation runs the SQLite leg
 only: gremlins' covered run and every mutant's test run for `internal/server`,
 `internal/store` and `internal/feed` start no Postgres container (one per mutant
-was a large share of a mutant's time). The Postgres leg of those packages, and
+was a large share of a mutant's time): a test of those packages that exists only
+for Postgres (two servers or two feeds on one Postgres database) runs as a
+`postgres` subtest only when `BOARD_DB_LEG` is unset or `postgres`, and their
+Postgres helpers fail a test that asks for a container on `BOARD_DB_LEG=sqlite`. The Postgres leg of those packages, and
 both legs of `features/TestFeatures`, run in the Suite unit (`ci/suite.sh`),
 where the Go matrix still runs both legs. An infrastructure failure (agent lost, Docker unavailable, a wait
 with no free node) gets another attempt, up to three; a failing command is rerun

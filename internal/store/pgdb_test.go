@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -35,9 +36,14 @@ func pgDSN(host, port, db string) string {
 }
 
 // withPostgres starts the container, runs fn with it reachable through
-// newPostgresDatabase, and removes it.
+// newPostgresDatabase, and removes it. It fails a test that asks for it when
+// legsOf(t) has no Postgres leg, so a run on BOARD_DB_LEG=sqlite (mutation's
+// covered and mutant runs) never starts a container.
 func withPostgres(t *testing.T, fn func()) {
 	t.Helper()
+	if !slices.Contains(legsOf(t), "postgres") {
+		t.Fatalf("withPostgres on BOARD_DB_LEG=%q: run the test through eachLeg", os.Getenv("BOARD_DB_LEG"))
+	}
 	ctx := context.Background()
 	_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 	if host := strings.TrimSpace(os.Getenv("BOARD_CI_DOCKER_HOST")); host != "" {

@@ -493,21 +493,23 @@ func TestNoGoroutineOutlivesADisconnectedClientOrTheServer(t *testing.T) {
 
 func TestAnEventWrittenThroughOneServerReachesAStreamOnAnotherOnOnePostgres(t *testing.T) {
 	t.Parallel()
-	url := startPostgres(t).New(t)
-	a := openStore(t, url)
-	if err := a.Migrate(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	token := newToken(t, a)
-	cfg := streamSettings{poll: 100 * time.Millisecond, heartbeat: time.Minute}
-	writer := startRig(t, a, token, cfg)
-	reader := startRig(t, openStore(t, url), token, cfg)
-	s := reader.openStream("/api/v1/stream?topics=events")
-	writer.createInitiative("aa")
-	msg := s.nextMessage()
-	if !strings.HasPrefix(msg, "event: board") || !strings.Contains(msg, `"initiative":"aa"`) {
-		t.Errorf("message on the other server = %q", msg)
-	}
+	onPostgres(t, func(t *testing.T, dbs *postgresDatabases) {
+		url := dbs.New(t)
+		a := openStore(t, url)
+		if err := a.Migrate(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		token := newToken(t, a)
+		cfg := streamSettings{poll: 100 * time.Millisecond, heartbeat: time.Minute}
+		writer := startRig(t, a, token, cfg)
+		reader := startRig(t, openStore(t, url), token, cfg)
+		s := reader.openStream("/api/v1/stream?topics=events")
+		writer.createInitiative("aa")
+		msg := s.nextMessage()
+		if !strings.HasPrefix(msg, "event: board") || !strings.Contains(msg, `"initiative":"aa"`) {
+			t.Errorf("message on the other server = %q", msg)
+		}
+	})
 }
 
 func TestAStreamAnswers503WithoutAFeedAndEndsAtOnceOnAClosedHub(t *testing.T) {
