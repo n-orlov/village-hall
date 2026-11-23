@@ -203,6 +203,32 @@ the load of the whole Core phase from the point E2E starts.
 at a short interval (rows, fields, the exact percentages, a clean stop on TERM,
 the command's exit status) and checks the Jenkinsfile runs the E2E unit under it.
 
+### Playwright worker count
+
+The count is set in one place, `E2E_WORKERS` in the `Jenkinsfile` (2; at most 3
+on int21h-ws, R6). The `Jenkinsfile` exports it as `BOARD_E2E_WORKERS`,
+`ci/suite.sh` (header) refuses anything but a whole number from 1 to 3 and hands
+it to Playwright as `E2E_WORKERS`, and `e2e/playwright.config.ts` reads it for
+`workers`: the config has no number of its own and a run with none (a local one)
+uses one worker. No shard, no `--workers` flag. `ci/suitecheck`
+(`TestE2EWorkerCountHasOneSourceAndAtMostThree`,
+`TestE2EWorkerCountProblemFlagsDoctoredFiles` and
+`TestSuiteHandsTheWorkerCountToPlaywrightAndRefusesMoreThanThree`) pins the
+single source and the limit, and fails on a count of 4 and on a config that
+hard-codes a number.
+
+Why 2, from the load samples of two earlier one-worker push builds of `main`
+(#288 and #291, the files `ci/loadsample.sh` archived, above): while Suite had
+ended and the E2E unit ran alone (#291, 15:42 to 16:01 UTC) the 1-minute load was
+1.3 to 2.7 and CPU busy 8 to 24 % of 28 threads, so a worker costs about 2, and a
+second one fits. Over the unit's last stretch, at the same one worker, the load
+ran 7 to 11 and busy about 70 % (#288 12:30 to 12:47, #291 16:03 to 16:11), so
+that stretch has about 1 to spare under the ceiling of 12 and a third worker would
+not keep to it. The first minutes, when Suite, Image and E2E all start, peaked at
+17.2 (#288) and 23.5 (#291) at one worker: that start-up burst does not depend on
+the count and is judged by the load check (task 020) and the sweep, which can
+bring the count back to 1 if two cross 12.
+
 ### What Quality and the report read from a failed or cut unit
 
 Quality runs once Suite, E2E and Image have ended, whatever their outcome, and

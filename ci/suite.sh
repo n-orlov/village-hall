@@ -41,6 +41,18 @@
 # when the complete junit-playwright.xml exists: a run cut by its bound keeps it, and
 # Quality's units section names the failing tests from it (task 006).
 #
+# BOARD_E2E_WORKERS (task 010, R6): how many Playwright workers the step runs,
+# the one place the count reaches the config from. It is defined once, as
+# E2E_WORKERS in the Jenkinsfile (2, at most 3 on int21h-ws), which exports it;
+# this script refuses anything but a whole number from 1 to 3 (exit 2) and
+# hands it to Playwright as E2E_WORKERS, which e2e/playwright.config.ts reads
+# for `workers` (the config holds no worker number of its own). Unset, nothing
+# is handed over and the config's local default of 1 applies. Why 2: the E2E
+# unit alone on its node at one worker held a load of 1.3 to 2.7 (#291), so
+# about 2 per worker, but its last stretch ran 7 to 11 at one worker (#288,
+# #291), so a third worker would not stay under the load ceiling of 12.
+# ci/suitecheck pins the single source and the limit of 3.
+#
 # Coverage: the unit pass runs with -coverpkg=./... (every package in the
 # module, not just the ones a given test imports), and the per-pass
 # covdata this script already collects is merged into one
@@ -88,6 +100,15 @@ if [ -z "$outdir" ]; then
     outdir=$(mktemp -d "${TMPDIR:-/tmp}/board-ci-suite.XXXXXX")
 fi
 mkdir -p "$outdir"
+# BOARD_E2E_WORKERS (see the header): read here, before the BOARD_* scrub.
+e2e_workers=${BOARD_E2E_WORKERS:-}
+case "$e2e_workers" in
+    ""|1|2|3) ;;
+    *)
+        echo "ci/suite.sh: BOARD_E2E_WORKERS must be a whole number from 1 to 3 (got '$e2e_workers')" >&2
+        exit 2
+        ;;
+esac
 # BOARD_CI_PLAYWRIGHT (see the header): read here, before the BOARD_* scrub.
 playwright_mode=${BOARD_CI_PLAYWRIGHT:-with}
 case "$playwright_mode" in
@@ -183,7 +204,7 @@ playwright_step() {
     rm -rf "$outdir/playwright"
     rm -f "$playwright_partial"
     rc=0
-    (cd e2e && E2E_PARTIAL_JUNIT="$playwright_partial" E2E_OUT="$outdir/playwright" npx playwright test) > "$playwright_log" 2>&1 || rc=$?
+    (cd e2e && E2E_WORKERS="$e2e_workers" E2E_PARTIAL_JUNIT="$playwright_partial" E2E_OUT="$outdir/playwright" npx playwright test) > "$playwright_log" 2>&1 || rc=$?
     if [ -f "$outdir/playwright/junit.xml" ]; then
         cp "$outdir/playwright/junit.xml" "$playwright_junit"
         # The run ended, so the complete file stands in for the partial one.

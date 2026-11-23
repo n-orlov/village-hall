@@ -96,6 +96,12 @@
 // the report archives. The ceiling (load at most 12 on every row) and the
 // Playwright worker count are judged on that file.
 //
+// Playwright workers (R6, task 010): E2E_WORKERS below, 2, at most 3 (ci/suitecheck
+// pins it). It is exported as BOARD_E2E_WORKERS to ci/suite.sh, which hands it
+// to e2e/playwright.config.ts (ci/suite.sh header). Chosen from builds #288 and
+// #291 at one worker: E2E alone held a load of 1.3 to 2.7 (about 2 per worker),
+// its last stretch 7 to 11, so a third worker would cross the ceiling of 12.
+//
 // Package test-time budget (R9 e): after ci/quality.sh, the Quality unit runs
 // ci/pkgtime over the Suite unit's ci-results/junit-go.xml and
 // ci/pkgtime/budgets.json: a budgeted package (internal/server) whose test time
@@ -106,9 +112,10 @@
 //      Quality (4 executors: Quality waits for Suite, E2E and Image without
 //      holding one). Suite is ci/suite.sh with BOARD_CI_PLAYWRIGHT=skip (45
 //      minutes, 120 EXTENDED) and E2E is the same script with
-//      BOARD_CI_PLAYWRIGHT=only: the Playwright suite, one worker, run once
-//      (the script repeats no failed run, of Playwright or anything else;
-//      120 minutes), in parallel with Suite, which no longer waits for it.
+//      BOARD_CI_PLAYWRIGHT=only: the Playwright suite on E2E_WORKERS workers
+//      (2, R6: see Playwright workers below), run once (the script repeats
+//      no failed run, of Playwright or anything else; 120 minutes), in
+//      parallel with Suite, which no longer waits for it.
 //   2. Stability and Mutation, side by side, once Core passed:
 //      - Stability (EXTENDED=true, or nightly on main): one unit (one
 //        executor) running the three stability runs side by side, each in its
@@ -195,6 +202,10 @@ import groovy.transform.Field
 // The longest an attempt waits for a node (see the header); ci/queue-cap.sh's
 // default cap is the same number (ci/repocheck pins both).
 @Field final int QUEUE_CAP_MINUTES = 30
+// The E2E unit's Playwright worker count, the one place it is set (R6, task
+// 010; at most 3, ci/suitecheck pins that). It reaches e2e/playwright.config.ts
+// as BOARD_E2E_WORKERS, through ci/suite.sh (see its header). Why 2: header.
+@Field final int E2E_WORKERS = 2
 // Full mutation's units (see the header): every lane of ci/quality.json's
 // mutation_go.lanes in exactly one unit (ci/repocheck checks the union), and
 // lane base carries Stryker, which ci/mutation.sh runs after the unit's
@@ -816,6 +827,7 @@ pipeline {
           env.CI_MUTATION = mode ? 'true' : 'false'
           env.CI_MUTATION_MODE = mode ?: 'diff'
           env.BOARD_CI_GO_EXTRA_FLAGS = nightly ? '-race' : ''
+          env.BOARD_E2E_WORKERS = "${E2E_WORKERS}"
           def lanes = ['core'] + (nightly ? ['stability'] : []) + (env.CI_MUTATION == 'true' ? ["mutation(${env.CI_MUTATION_MODE})"] : [])
           currentBuild.description = 'int21h-ws: ' + lanes.join(' + ') + (nightly ? ' (-race)' : '')
           def units = []
@@ -825,8 +837,8 @@ pipeline {
           // and the merged files (BOARD_CI_PLAYWRIGHT=skip, ci/suite.sh header).
           units << [name: 'Suite', minutes: nightly ? 120 : 45, signal: 'Suite',
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh') }]
-          // Playwright alone (BOARD_CI_PLAYWRIGHT=only): every spec, one worker,
-          // run once with no repeat of a failed run. 120 minutes on every build.
+          // Playwright alone (BOARD_CI_PLAYWRIGHT=only): every spec, on
+          // E2E_WORKERS workers, run once with no repeat of a failed run. 120 minutes on every build.
           units << [name: 'E2E', minutes: 120, signal: 'E2E', sample: true,
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
           // Both platforms cross-built and never pushed; the amd64 image is run

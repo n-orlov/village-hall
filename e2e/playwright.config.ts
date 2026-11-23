@@ -12,6 +12,14 @@ process.env.E2E_RUN_DIR ??= mkdtempSync(join(tmpdir(), 'board-e2e-run-'));
 // test artifacts live under it.
 const out = process.env.E2E_OUT ?? 'out';
 
+// The worker count is not set here: the Jenkinsfile defines it once (E2E_WORKERS, at most 3), ci/suite.sh passes it as
+// E2E_WORKERS (see its header), and this reads it. A run with none (a local one) uses one worker.
+const requestedWorkers = process.env.E2E_WORKERS || undefined;
+const e2eWorkers = requestedWorkers === undefined ? 1 : Number(requestedWorkers);
+if (!Number.isInteger(e2eWorkers) || e2eWorkers < 1 || e2eWorkers > 3) {
+  throw new Error(`E2E_WORKERS must be a whole number from 1 to 3, got '${requestedWorkers}'`);
+}
+
 // The specs whose cost follows the size of the store they run on: see `projects` below.
 const listSpecs = ['a11y.spec.ts', 'dialogs.spec.ts', 'shell.spec.ts', 'timeline*.spec.ts', 'wide.spec.ts'];
 
@@ -23,7 +31,7 @@ export default defineConfig({
   // No retries anywhere: a flaky test must fail here, and ci/suite.sh does not
   // repeat a failed run either.
   retries: 0,
-  workers: 1,
+  workers: e2eWorkers,
   reporter: [
     ['html', { outputFolder: `${out}/playwright-report`, open: 'never' }],
     ['list'],

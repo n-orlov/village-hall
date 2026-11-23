@@ -32,6 +32,7 @@ exit 0
 
 const stubNpx = `#!/bin/sh
 echo "npx $(basename "$PWD") $*" >> "$STUB_LOG"
+echo "E2E_WORKERS=[${E2E_WORKERS:-}]" >> "$STUB_LOG"
 mkdir -p "$E2E_OUT"
 echo '<testsuites/>' > "$E2E_OUT/junit.xml"
 # STUB_PLAYWRIGHT_FAIL_FIRST=1: only the first run fails, a second would pass.
