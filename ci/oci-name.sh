@@ -21,7 +21,9 @@ in=$1
 out=$2
 ref=$3
 tag=${ref##*:}
-[ "$tag" != "$ref" ] && [ -n "$tag" ] || die "$ref is not name:tag"
+if [ "$tag" = "$ref" ] || [ -z "$tag" ]; then
+	die "$ref is not name:tag"
+fi
 [ -s "$in" ] || die "$in is missing or empty"
 
 work=$(mktemp -d)
