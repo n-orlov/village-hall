@@ -32,7 +32,10 @@
 # and E2E with `only` (`npm ci` and the web build in e2e's checkout, then
 # the Playwright step, writing only the Playwright files; no Vitest, no Go
 # pass). Any other value is refused. The step itself is the same in `with` and
-# `only`: every spec, once.
+# `only`: every spec, once. The step also leaves <outdir>/junit-playwright-partial.xml
+# (e2e/partial-junit-reporter.ts, tests finished so far) while it runs and removes it
+# when the complete junit-playwright.xml exists: a run cut by its bound keeps it, and
+# Quality's units section names the failing tests from it (task 006).
 #
 # Coverage: the unit pass runs with -coverpkg=./... (every package in the
 # module, not just the ones a given test imports), and the per-pass
@@ -156,6 +159,11 @@ fi
 # It exists because the sequential suite grew to the Suite stage's 45-minute
 # budget, which stays as it is.
 playwright_junit="$outdir/junit-playwright.xml"
+# The tests finished so far, rewritten by e2e/partial-junit-reporter.ts as they
+# end. A run cut by its bound (ci/unitrun.sh kills the script too) never reaches
+# the copy below, and this file is then all of its JUnit results: Quality and the
+# build report read it (ci/qualitycheck's units gate, docs/ci.md "Unit runs").
+playwright_partial="$outdir/junit-playwright-partial.xml"
 playwright_messages="$outdir/playwright-messages.log"
 playwright_pid=""
 # playwright_step is the whole step; it returns 1 when the suite must fail.
@@ -167,10 +175,13 @@ playwright_step() {
         playwright_failed=1
     fi
     rm -rf "$outdir/playwright"
+    rm -f "$playwright_partial"
     rc=0
-    (cd e2e && E2E_OUT="$outdir/playwright" npx playwright test) > "$playwright_log" 2>&1 || rc=$?
+    (cd e2e && E2E_PARTIAL_JUNIT="$playwright_partial" E2E_OUT="$outdir/playwright" npx playwright test) > "$playwright_log" 2>&1 || rc=$?
     if [ -f "$outdir/playwright/junit.xml" ]; then
         cp "$outdir/playwright/junit.xml" "$playwright_junit"
+        # The run ended, so the complete file stands in for the partial one.
+        rm -f "$playwright_partial"
     fi
     if [ "$rc" -ne 0 ]; then
         echo "ci/suite.sh: Playwright failed (see $playwright_log)" >&2

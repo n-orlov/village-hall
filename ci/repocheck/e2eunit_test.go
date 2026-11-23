@@ -195,7 +195,7 @@ func TestJenkinsfileQualityReadsBothSuiteAndE2E(t *testing.T) {
 		"no E2E stash read":           replaceOnce(t, jf, "'res-suite', 'res-e2e',", "'res-suite',"),
 		"no Suite stash read":         replaceOnce(t, jf, "'res-suite', 'res-e2e',", "'res-e2e',"),
 		"a missing stash not named":   replaceOnce(t, jf, "error('Quality: no results to read from '", "error('Quality: failed'"),
-		"stashes not recorded":        replaceOnce(t, jf, "stashedUnits[u.name] = true", ""),
+		"stashes not recorded":        strings.ReplaceAll(jf, "stashedUnits[u.name] = true", ""),
 	})
 }
 
@@ -226,4 +226,50 @@ func TestJenkinsfileArchivesACutOffUnitsPartialResults(t *testing.T) {
 		"no archive branch":  replaceOnce(t, jf, "if (!a.stashed && a.outcome == null) {", "if (false) {"),
 		"logs not archived":  replaceOnce(t, jf, "archiveArtifacts artifacts: 'ci-results/*.log, ci-results/junit-*.xml", "archiveArtifacts artifacts: 'ci-results/none"),
 	})
+}
+
+// cutUnitStashProblems (task 006): an attempt cut off before its stash also stashes
+// what its command wrote, with a note naming how it was cut, so Quality and the report
+// read the partial JUnit files (ci/qualitycheck's units gate) instead of a missing
+// stash; and the E2E unit writes a partial JUnit file as tests end, since Playwright's
+// own file only exists once its run ends.
+func cutUnitStashProblems(jf, config, suite string) []string {
+	var problems []string
+	run := functionBody(jf, "def runUnit(Map u) {")
+	i := strings.Index(run, "if (!a.stashed && a.outcome == null) {")
+	if i < 0 {
+		return append(problems, "runUnit has no branch for an attempt cut off before its stash")
+	}
+	branch := run[i:]
+	for _, want := range []string{"unit-cut-${slug(u.name)}.txt", "stash name: 'res-' + slug(u.name)", "stashedUnits[u.name] = true"} {
+		if !strings.Contains(branch, want) {
+			problems = append(problems, "a cut-off attempt does not keep its results: no "+want)
+		}
+	}
+	if !strings.Contains(config, "'./partial-junit-reporter.ts'") {
+		problems = append(problems, "e2e/playwright.config.ts has no partial JUnit reporter")
+	}
+	if !strings.Contains(suite, `E2E_PARTIAL_JUNIT="$playwright_partial"`) || !strings.Contains(suite, `playwright_partial="$outdir/junit-playwright-partial.xml"`) {
+		problems = append(problems, "ci/suite.sh does not point the partial JUnit reporter at junit-playwright-partial.xml")
+	}
+	return problems
+}
+
+func TestJenkinsfileStashesACutOffUnitsPartialResults(t *testing.T) {
+	jf := readRepoFile(t, "Jenkinsfile")
+	config := readRepoFile(t, "e2e/playwright.config.ts")
+	suite := readRepoFile(t, "ci/suite.sh")
+	if problems := cutUnitStashProblems(jf, config, suite); len(problems) > 0 {
+		t.Fatalf("%s", strings.Join(problems, "\n"))
+	}
+	for name, mutated := range map[string][3]string{
+		"no cut note":        {replaceOnce(t, jf, "ci-results/unit-cut-${slug(u.name)}.txt\n", "ci-results/none\n"), config, suite},
+		"no partial stash":   {replaceOnce(t, jf, "stash name: 'res-' + slug(u.name), includes: 'ci-results/**',\n                        excludes", "stash name: 'none', includes: 'x',\n                        excludes"), config, suite},
+		"no reporter":        {jf, replaceOnce(t, config, "'./partial-junit-reporter.ts'", "'./none.ts'"), suite},
+		"reporter not wired": {jf, config, replaceOnce(t, suite, `E2E_PARTIAL_JUNIT="$playwright_partial"`, "E2E_NONE=1")},
+	} {
+		if len(cutUnitStashProblems(mutated[0], mutated[1], mutated[2])) == 0 {
+			t.Errorf("%s: the probe did not notice", name)
+		}
+	}
 }

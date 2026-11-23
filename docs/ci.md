@@ -167,6 +167,37 @@ summary. `ci/repocheck/unitrun_test.go` runs the script against a stub command
 that writes a failing junit case and finished reports and is killed by a short
 bound, and fails for a plain pass-through.
 
+### What Quality and the report read from a failed or cut unit
+
+Quality runs once Suite, E2E and Image have ended, whatever their outcome, and
+reads the units' stashes together. A unit that failed or was cut by its bound
+has a stash (`unitSh` and `runUnit` stash `ci-results` after the command,
+failed or not). An attempt that hit the Jenkins limit or lost its agent before
+its stash also keeps its results: it writes `ci-results/unit-cut-<unit>.txt`,
+stashes `ci-results` and archives the logs and JUnit files. Only a unit that
+never ran at all (no node) leaves no stash, and Quality names that unit and its
+attempts instead of failing on a missing stash.
+
+`ci/quality.sh` passes the results directory to `ci/qualitycheck` as
+`-unit-results`, which adds a **units** section, first in the report, whenever
+a unit left a failure to report, and the section fails Quality (the other gates
+then judge results that are not a whole run). It prints each
+`unit-failure-<unit>.txt` as the unit wrote it (`unit E2E: cut at N min ...`
+and the failing tests), and for a unit with no summary (a `unit-cut-<unit>.txt`
+note, or a failing case in its JUnit files) it names the unit and reads the
+failing cases from `junit-playwright*.xml` (E2E) or `junit-vitest*.xml`,
+`junit-go*.xml` and `junit-features*.xml` (Suite). A JUnit file cut off
+mid-write yields the cases before the cut. The CI summary page shows the section
+like any gate.
+
+Playwright writes its own JUnit file only when its run ends, so a cut E2E would
+leave none. `e2e/partial-junit-reporter.ts` rewrites
+`ci-results/junit-playwright-partial.xml` after every failed test and at most
+every 20 s otherwise (through a rename), and `ci/suite.sh` removes it once the
+complete `junit-playwright.xml` exists. `ci/qualitycheck/units_test.go` cuts a
+stub E2E unit with `ci/unitrun.sh`, runs `ci/quality.sh` over what it left and
+asserts the unit, the cut and the failing test are named.
+
 The pipeline runs Core, then Stability and Mutation side by side, then Perf; the
 units of a phase run in parallel, and a phase runs only if every earlier one
 passed (UNSTABLE counts as passed; Perf needs only the Stability unit to pass).

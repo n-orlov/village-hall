@@ -49,6 +49,8 @@ export default defineConfig({
     ['allure-playwright', { resultsDir: `${out}/allure-results` }],
     ['json', { outputFile: `${out}/results.json` }],
     ['junit', { outputFile: `${out}/junit.xml` }],
+    // The tests finished so far, rewritten as they end: what a run cut by its bound leaves (partial-junit-reporter.ts).
+    ['./partial-junit-reporter.ts', { outputFile: `${out}/junit-partial.xml` }],
   ],
   globalSetup: './global-setup.ts',
   globalTeardown: './global-teardown.ts',

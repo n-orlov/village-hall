@@ -92,6 +92,9 @@ rm -f "$report_file"
 exit_code=0
 set -- -config "$config" -profile "$profile"
 [ -z "$mutation_flag" ] || set -- "$@" -mutation-deferred
+# -unit-results: a unit that failed or was cut leaves unit-failure-<unit>.txt and
+# partial JUnit files in "$outdir"; the report's units section names them.
+set -- "$@" -unit-results "$outdir"
 go run ./ci/qualitycheck "$@" \
     -trivy-target . -trivy-cache "$trivy_cache" -trivy-ignore .trivyignore \
     -govulncheck-target . -govulncheck-cache "$govuln_cache" \

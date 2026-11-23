@@ -34,7 +34,8 @@
 // number never matches) and stashes its ci-results. Quality waits for Suite (coverage),
 // E2E (Playwright's results) and Image (the image tar). The report runs once
 // at the end over every unit's stash. An attempt cut off before its stash (its
-// own bound, a lost agent) archives the logs and JUnit files written so far.
+// own limit, a lost agent) writes ci-results/unit-cut-<unit>.txt, stashes and
+// archives the logs and JUnit files written so far, so Quality reads them.
 //
 // Unit runs: the Suite and E2E units and the three full mutation units run
 // their command through unitSh, which runs it under ci/unitrun.sh with a bound
@@ -311,18 +312,27 @@ def runUnit(Map u) {
             } catch (Throwable c) {
               echo "unit ${u.name}: container cleanup on ${a.node} skipped: ${c}"
             }
-            // An attempt cut off before its stash (its own bound fired, or the
-            // agent went away) archives what its command had written so far: the
-            // post report wipes ci-results in this workspace, and a cut E2E's
-            // playwright.log and the JUnit files written so far are the only
-            // record of which tests failed before the bound (PR-1 #8 lost them).
+            // An attempt cut off before its stash (its own limit fired, or the
+            // agent went away) keeps what its command had written so far: it
+            // leaves unit-cut-<unit>.txt (how it was cut), stashes ci-results so
+            // Quality and the report read the partial JUnit files and logs and
+            // name the unit (ci/qualitycheck's units gate), and archives them too
+            // (PR-1 #8 lost a cut E2E's playwright.log and JUnit files). The post
+            // report wipes ci-results in this workspace.
             if (!a.stashed && a.outcome == null) {
               try {
                 timeout(time: 3, unit: 'MINUTES') {
-                  archiveArtifacts artifacts: 'ci-results/*.log, ci-results/junit-*.xml, ci-results/flaky-*.txt', allowEmptyArchive: true
+                  sh(returnStatus: true, script: """
+                    mkdir -p ci-results
+                    echo "unit ${u.name}: attempt ${a.n} cut at ${u.minutes} min (the attempt's own limit) or lost with its agent; the results it had written so far are kept" > ci-results/unit-cut-${slug(u.name)}.txt
+                  """)
+                  stash name: 'res-' + slug(u.name), includes: 'ci-results/**',
+                        excludes: 'ci-results/board-image.tar,ci-results/board-image-oci.tar', allowEmpty: true
+                  stashedUnits[u.name] = true
+                  archiveArtifacts artifacts: 'ci-results/*.log, ci-results/junit-*.xml, ci-results/flaky-*.txt, ci-results/unit-cut-*.txt', allowEmptyArchive: true
                 }
               } catch (Throwable c) {
-                echo "unit ${u.name}: partial results on ${a.node} not archived: ${c}"
+                echo "unit ${u.name}: partial results on ${a.node} not kept: ${c}"
               }
             }
           }
@@ -633,8 +643,10 @@ pipeline {
               waitUntil(initialRecurrencePeriod: 15000) { signals['Suite'] == true && signals['E2E'] == true && signals['Image'] == true }
               catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
                 env.QUALITY_RESULT = 'failing'
-                // A unit that left no stash (it timed out, or never got a node)
-                // is named here, instead of Quality failing on its missing stash.
+                // A unit that left no stash at all (it never got a node, or its
+                // agent was lost before the partial stash) is named here, instead
+                // of Quality failing on its missing stash. A unit that failed or
+                // was cut has a stash, and Quality's units section names it.
                 def lost = ['Suite', 'E2E', 'Image'].findAll { !stashedUnits[it] }
                 if (lost) {
                   results['Quality'] = 'fail'

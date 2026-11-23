@@ -109,6 +109,7 @@ func main() {
 	flag.StringVar(&golangciBase.Script, "golangci-script", "", "the shared golangci-lint invocation (default ci/golangci.sh under -golangci-target)")
 	flag.StringVar(&golangciBase.Target, "golangci-target", ".", "repository root the golangci gate runs from")
 	flag.BoolVar(&mutationDeferred, "mutation-deferred", false, "report the mutation gates as judged by the Mutation stage (ci/mutation.sh) instead of reading its reports")
+	flag.StringVar(&unitResultsDir, "unit-results", "", "directory the units left their results in; a failed or cut unit is named in a units section (empty: off)")
 	flag.StringVar(&sbomBase.OutDir, "sbom-outdir", "ci-results", "directory the SBOM gates write their CycloneDX files into")
 	flag.Parse()
 	sbomBase.Binary, sbomBase.CacheDir = trivyBase.Binary, trivyBase.CacheDir
@@ -149,6 +150,12 @@ func run(configPath, profilePath string) (report string, exitCode int, err error
 	results, anyEnabled, err := runEnabledGates(enabledGates(cfg, configPath, profilePath))
 	if err != nil {
 		return "", 2, err
+	}
+
+	if unitResultsDir != "" {
+		if units, found := runUnitsGate(unitResultsDir); found {
+			results = append([]gateResult{units}, results...)
+		}
 	}
 
 	text, overallOK := renderGateReport(results)
