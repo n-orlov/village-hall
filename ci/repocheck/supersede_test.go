@@ -7,6 +7,7 @@
 package repocheck
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -97,11 +98,38 @@ func supersededEndProblems(jf string) []string {
 		!strings.Contains(post, "selector: historyFrom ? specific(historyFrom) : lastCompleted(),") {
 		problems = append(problems, "the Allure history can come from a superseded build, which has none")
 	}
+	problems = append(problems, fieldGetterProblems(jf)...)
 	if !strings.Contains(jf, "\n@NonCPS\nlong nowMs() {") {
 		problems = append(problems, "nowMs() is not @NonCPS, so timingReport() (a superseded build's timing table) gets no value back from it")
 	}
 	if strings.Contains(jf, "e.result") || strings.Contains(jf, ".getResult()") {
 		problems = append(problems, "the Jenkinsfile reads an interruption's result, which the sandbox refuses")
+	}
+	return problems
+}
+
+var (
+	fieldRE    = regexp.MustCompile(`(?m)^@Field (?:final )?\S+ (\w+)`)
+	functionRE = regexp.MustCompile(`(?m)^(?:@NonCPS\n)?\w+ ((?:is|get)\w+)\(\) \{`)
+)
+
+// fieldGetterProblems: no @Field has a function that Groovy takes for its
+// getter (isX() or getX() for field x), which a read of the field calls
+// instead of reading it: isSuperseded() beside a field named superseded
+// recursed until a StackOverflowError on a superseded build.
+func fieldGetterProblems(jf string) []string {
+	functions := map[string]bool{}
+	for _, m := range functionRE.FindAllStringSubmatch(jf, -1) {
+		functions[m[1]] = true
+	}
+	var problems []string
+	for _, m := range fieldRE.FindAllStringSubmatch(jf, -1) {
+		name := strings.ToUpper(m[1][:1]) + m[1][1:]
+		for _, getter := range []string{"is" + name, "get" + name} {
+			if functions[getter] {
+				problems = append(problems, "the field "+m[1]+" is read through the function "+getter+"(), its Groovy getter")
+			}
+		}
 	}
 	return problems
 }
@@ -135,6 +163,7 @@ func TestJenkinsfileSupersedesOlderPushBuilds(t *testing.T) {
 		"ABORTED set as FAILURE":         replaceOnce(t, jf, "  currentBuild.result = 'ABORTED'\n", "  currentBuild.result = 'FAILURE'\n"),
 		"history from a superseded":      replaceOnce(t, jf, "(b.result == 'ABORTED' || b.result == 'NOT_BUILT')", "false"),
 		"history from the last build":    replaceOnce(t, jf, "selector: historyFrom ? specific(historyFrom) : lastCompleted(),", "selector: lastCompleted(),"),
+		"a field isSuperseded() reads":   replaceOnce(t, jf, "@Field boolean supersedeSeen = false", "@Field boolean superseded = false"),
 		"nowMs a CPS method":             replaceOnce(t, jf, "@NonCPS\nlong nowMs() {", "long nowMs() {"),
 		"reads the refused result":       replaceOnce(t, jf, "    return 'infra:interrupted'", "    if (e.result?.toString() == 'ABORTED') {\n      return null\n    }\n    return 'infra:interrupted'"),
 	})

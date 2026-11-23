@@ -175,7 +175,10 @@ import groovy.transform.Field
 @Field String imageVersion = ''
 @Field String mutationBase = ''  // diff mode: the commit the mutation diff starts from
 @Field String mutationPlanText = ''  // incremental mode: ci/mutation-plan.sh's plan file
-@Field boolean superseded = false  // a newer push build of this branch stopped this one (R8)
+// A newer build of this branch stopped this one (R8). Not named superseded:
+// Groovy would read that field through isSuperseded(), its getter, which
+// reads the field again (a StackOverflowError on a superseded build).
+@Field boolean supersedeSeen = false
 @Field final String AMD = 'board-test && amd64 && docker'
 // Full mutation's units (see the header): every lane of ci/quality.json's
 // mutation_go.lanes in exactly one unit (ci/repocheck checks the union), and
@@ -248,7 +251,7 @@ String interruptionCauses(Throwable e) {
 // CancelledCause ("Superseded by #N"); a build still running seconds later has
 // its steps terminated, then is killed. So a newer build existing is the test.
 boolean isSuperseded() {
-  if (superseded) {
+  if (supersedeSeen) {
     return true
   }
   try {
@@ -272,8 +275,8 @@ boolean supersededBy(Throwable e) {
 // FAILURE (R8). ABORTED is the worst result, so it holds whatever a catchError
 // or the interruption itself sets after it. The description says so once.
 def endSuperseded() {
-  if (!superseded) {
-    superseded = true
+  if (!supersedeSeen) {
+    supersedeSeen = true
     currentBuild.description = (currentBuild.description ?: '') + ' | superseded by a newer build of this branch'
     echo 'superseded by a newer build of this branch: this build ends ABORTED'
   }
