@@ -3733,19 +3733,22 @@ anonymous `GET /api/v1/tasks` to answer 401.
 **Same origin.** The UI requests nothing from another origin: no web font, CDN, remote icon or
 script. `e2e/sameorigin.spec.ts` signs in through the mock provider, then records every request the
 page issues while it loads `#/` (Now), `#/initiatives`, `#/tasks`, `#/settings/keys` and `#/signed-out` (a full page load each) at
-390x844 and 1440x900, and requires every http(s)/ws(s) URL to have the board server's
+1440x900 (the origin of a request does not depend on the layout, so the phone run was dropped, R9 h), and requires every http(s)/ws(s) URL to have the board server's
 origin. R12 extends it to the Phase 1 views as a finite, named list (`PHASE1_STATES`): `#/tasks`,
 `#/i/<slug>` and `#/t/<ref>` (each a full page load over a seeded watch task with a link, a blocker, a
 dependent, a milestone, a live lease and a conflict), and again with a dialog opened on the page (new
-task, edit initiative, edit task, add dependency, end lease): 8 states at both viewports (16 more
+task, edit initiative, edit task, add dependency, end lease): 8 states (8 more
 visits). R13 adds `PHASE2_STATES`: `#/now` and `#/notes` and the six Phase 2 dialogs (answer ask, withdraw
-ask, post note, close from attention, acknowledge, record check from attention), 8 states at both viewports
-(16 more visits), each of which must also record the `/api/v1/stream` request, so the live stream is held to
+ask, post note, close from attention, acknowledge, record check from attention), 8 states
+(8 more visits), each of which must also record the `/api/v1/stream` request, so the live stream is held to
 the same same-origin bar as every fetch. R12 adds `PHASE3_STATES`: `#/timeline`, `#/actors` and `#/archive`, the Needs
 attention sections of `#/tasks` and `#/i/<slug>`, the Stranded panel, the three attention chips and badges and the three new
-dialogs (acknowledge on the task page, archive Reopen, force-done confirm), 12 states at both viewports (24 more visits),
+dialogs (acknowledge on the task page, archive Reopen, force-done confirm), 12 states (12 more visits),
 each also recording the stream request; the Timeline visit shows vis-timeline drawn from the bundled script and
-stylesheet, so vis-timeline loads nothing external. A planted remote image turns the check red.
+stylesheet, so vis-timeline loads nothing external. A planted remote image turns the check red. The spec seeds in a
+`beforeAll` and makes each visit's own full page load; after a view is ready (a ready locator) it waits until the recorded request list
+reads the same on two consecutive polls (`e2e/settle.ts`), and no spec under `e2e/` waits for the browser's
+`networkidle`, a fixed quiet period every test would pay (R9 h).
 
 **Touch and phone ergonomics.** At the phone width (390x844) every visible interactive element
 (`a, button, input, select, textarea, [role=button]`) in the shell, the forms, the lists and the

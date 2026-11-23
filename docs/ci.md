@@ -844,7 +844,11 @@ Scripts, each run through `ci/run.sh` unless noted:
   `a11y.spec.ts` seeds its board once per worker (a `beforeAll`), loads one page per
   test, runs axe's full rule set in the light pass and colour contrast only
   (`color-contrast` and `link-in-text-block`) in the dark pass (R9 g);
-  `TestA11ySpecRunsFullSetLightAndColourRulesDark` in `ci/suitecheck` pins it. `e2e/run-dir-reporter.ts` removes the run's directory
+  `TestA11ySpecRunsFullSetLightAndColourRulesDark` in `ci/suitecheck` pins it.
+  `sameorigin.spec.ts` seeds in a `beforeAll`, runs its per-view loop at the desktop
+  viewport only and waits for explicit readiness (a ready locator, then the recorded
+  request list reading the same on two consecutive polls, `e2e/settle.ts`); no `e2e/*.ts` file
+  waits for `networkidle` (`TestNoE2EFileWaitsForNetworkIdle` in `ci/suitecheck`, R9 h). `e2e/run-dir-reporter.ts` removes the run's directory
   of worker directories when the run ends. Playwright runs once and
   the script does not repeat a failed run: a failure fails the suite.
   `junit-playwright.xml` and the HTML, Allure and JSON output (`playwright/`)

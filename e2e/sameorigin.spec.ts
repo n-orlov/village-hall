@@ -4,26 +4,28 @@ import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } fr
 import { test as base } from './fixtures';
 import { expectInitiatives } from './chips';
 import { showAllBands } from './now';
+import { readsTheSame } from './settle';
 
 // R1: the UI makes no cross-origin request (no web font, CDN, remote icon or script). Signs in through the
 // mock provider (another port, so another origin: recording starts only afterwards, and no API key rides
-// along), then records every request the page issues while it loads each of the views (Attention, Initiatives, Tasks, Settings -> API keys) at the phone and
-// the desktop viewport. R12 adds PHASE1_STATES, the finite list of the Phase 1
+// along), then records every request the page issues while it loads each of the views (Attention, Initiatives, Tasks, Settings -> API keys) at the desktop viewport
+// (the origin of a request does not depend on the layout; the phone run was dropped in R9). R12 adds PHASE1_STATES, the finite list of the Phase 1
 // views `#/tasks`, `#/i/<slug>` and `#/t/<ref>`, each loaded in full over a seeded watch task with a blocker, a
 // dependent, a milestone, a lease and a conflict, and each again with a dialog opened on the page (edit initiative,
-// new task, edit task, add dependency, end lease): 8 states x 2 viewports = 16 more visits. Every recorded http(s)/ws(s) URL must have the board
+// new task, edit task, add dependency, end lease): 8 states = 8 more visits. Every recorded http(s)/ws(s) URL must have the board
 // server's origin. R13 adds PHASE2_STATES, the 2 views `#/now` and `#/notes` and the six dialogs answer ask, withdraw ask, post note, close
-// from attention, acknowledge and record check from attention: 8 states x 2 viewports = 16 more visits, each of which must also
+// from attention, acknowledge and record check from attention: 8 states = 8 more visits, each of which must also
 // record the `/api/v1/stream` request, so the EventSource is held to the same bar as every fetch. R12 adds PHASE3_STATES, the finite list of the 3 views
 // `#/timeline`, `#/actors` and `#/archive`, the Needs attention sections of `#/tasks` and `#/i/<slug>`, the Stranded panel, the 3 attention chips and badges and the 3 new dialogs
-// (acknowledge on the task page, archive Reopen, force-done confirm): 12 states x 2 viewports = 24 more visits, each recording the stream request too, with vis-timeline's
+// (acknowledge on the task page, archive Reopen, force-done confirm): 12 states = 12 more visits, each recording the stream request too, with vis-timeline's
 // own script, stylesheet and DOM loading nothing outside the board server's origin. data: and blob: URLs never touch the network and are not origins; they are left out.
 const test = base;
 
-const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 } },
-  { name: 'desktop', size: { width: 1440, height: 900 } },
-] as const;
+// The origin a view's requests go to does not depend on the layout, so the per-view loop runs at the desktop viewport
+// only; the direction check below keeps the phone size it always used.
+const phone = { name: 'phone', size: { width: 390, height: 844 } } as const;
+const desktop = { name: 'desktop', size: { width: 1440, height: 900 } } as const;
+const viewports = [desktop] as const;
 
 const views = [
   {
@@ -487,20 +489,33 @@ function record(page: Page): string[] {
   return urls;
 }
 
+// The initiative the views load, seeded once per worker (a 409 is the same worker's store seen again).
+test.beforeAll(async ({ playwright, workerServer }) => {
+  const seed = await apiContext(playwright, workerServer.baseURL);
+  const res = await seed.post('/api/v1/initiatives', { data: { slug: 'e2e-sameorigin', title: 'Same origin', tags: ['origin'] } });
+  expect([201, 409]).toContain(res.status());
+  await seed.dispose();
+});
+
+/**
+ * Signs the page's browser context in through the mock provider (another port, so another origin) with the
+ * context's own HTTP client: it follows /auth/login through the provider and the callback and keeps the session cookie
+ * in the context. No page is loaded and the recording has not started, so every request the tests record is the
+ * visit's own and none belongs to the sign-in.
+ */
+async function signIn(page: Page) {
+  const res = await page.request.get('/auth/login', { headers: { Accept: 'text/html' } });
+  expect(res.status(), `sign in through /auth/login: ${res.url()}`).toBe(200);
+  expect((await page.context().cookies()).some((c) => c.name === 'board_session'), 'the session cookie').toBe(true);
+}
+
 for (const vp of viewports) {
   test.describe(`${vp.name} ${vp.size.width}x${vp.size.height}`, () => {
     test.use({ viewport: vp.size });
 
-    test.beforeEach(async ({ page, playwright, baseURL }) => {
-      const seed = await playwright.request.newContext({
-        baseURL,
-        extraHTTPHeaders: { Authorization: `Bearer ${process.env.E2E_API_KEY}`, 'Board-Actor': 'playwright' },
-      });
-      const res = await seed.post('/api/v1/initiatives', { data: { slug: 'e2e-sameorigin', title: 'Same origin', tags: ['origin'] } });
-      expect([201, 409]).toContain(res.status());
-      await seed.dispose();
-      await page.goto('/#/initiatives');
-      await expect(page.getByTestId('initiative-row').first()).toBeVisible();
+    // The sign-in only; every test makes its own full page load (no navigation here that the test would discard).
+    test.beforeEach(async ({ page }) => {
+      await signIn(page);
     });
 
     for (const view of views) {
@@ -512,7 +527,7 @@ for (const vp of viewports) {
         await page.goto('about:blank');
         await page.goto(`/${view.hash}`);
         await view.ready(page);
-        await page.waitForLoadState('networkidle');
+        await readsTheSame(() => urls.length, 'the recorded request list');
 
         const network = urls.filter((u) => networkSchemes.has(new URL(u).protocol));
         expect(network.length, 'the visit issued no network request at all').toBeGreaterThan(0);
@@ -534,7 +549,7 @@ for (const vp of viewports) {
         await page.goto(state.entry(seed));
         await state.ready(page, seed);
         await state.dialog?.(page, seed);
-        await page.waitForLoadState('networkidle');
+        await readsTheSame(() => urls.length, 'the recorded request list');
 
         const network = urls.filter((u) => networkSchemes.has(new URL(u).protocol));
         expect(network.length, 'the visit issued no network request at all').toBeGreaterThan(0);
@@ -554,7 +569,7 @@ for (const vp of viewports) {
           // A full page load of the view, then the dialog opened on the loaded page.
           await page.goto('about:blank');
           await state.open(page, seed, api);
-          await page.waitForLoadState('networkidle');
+          await readsTheSame(() => urls.length, 'the recorded request list');
         } finally {
           await api.dispose();
         }
@@ -576,7 +591,7 @@ for (const vp of viewports) {
         // A full page load of the view (the document is requested afresh), then the dialog opened on the loaded page.
         await page.goto('about:blank');
         await state.open(page, seed);
-        await page.waitForLoadState('networkidle');
+        await readsTheSame(() => urls.length, 'the recorded request list');
 
         const network = urls.filter((u) => networkSchemes.has(new URL(u).protocol));
         expect(network.some((u) => new URL(u).pathname === '/'), 'the document itself was recorded').toBe(true);
@@ -626,7 +641,7 @@ test('the Phase 1 list names the 3 views and the dialogs opened on them', () => 
 
 // Direction check: the same recording and the same assertion must go red when a remote URL is on the page.
 test.describe('direction check', () => {
-  test.use({ viewport: viewports[0].size });
+  test.use({ viewport: phone.size });
 
   test('a planted remote image is recorded and rejected', async ({ page, baseURL }) => {
     const origin = new URL(baseURL as string).origin;

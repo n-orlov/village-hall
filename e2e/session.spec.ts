@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { test as base } from './fixtures';
+import { readsTheSame } from './settle';
 
 // The session states: sign in through the mock provider, Sign out, the Signed out view (which never
 // starts a login redirect by itself), the old cookie refused, Sign in again, and the session error
@@ -59,7 +60,7 @@ for (const vp of viewports) {
       await expect(page.getByRole('heading', { level: 2, name: 'Signed out' })).toBeAttached();
       await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/auth/login');
       expect(new URL(page.url()).hash).toBe('#/signed-out');
-      await page.waitForLoadState('networkidle');
+      await readsTheSame(() => visited.length, 'the recorded navigation list', 4);
       expect(visited).not.toContain('/auth/login');
       await expect(page.getByTestId('signed-out')).toBeVisible();
 
