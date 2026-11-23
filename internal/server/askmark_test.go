@@ -181,8 +181,17 @@ func newPostgresMarkHold(t *testing.T, st *store.Store, rawURL string) *markHold
 	}
 }
 
+// markUntil is how far out until is from the wait's start, and markRelease how
+// long after until the held write of the mark is released: the real-time windows
+// of these cases are 0.6 of what they were (1 s and 300 ms), every offset of a
+// case from until scaled with them, so each keeps its hold : mark delay : until.
+const (
+	markUntil   = 600 * time.Millisecond
+	markRelease = 180 * time.Millisecond
+)
+
 // markCase is one end whose commit mark is sampled at endAt from the wait's
-// start (until is one second out) but written only after until.
+// start (until is markUntil out) but written only after until.
 type markCase struct {
 	name     string
 	withdraw bool
@@ -201,12 +210,12 @@ func TestAWaitCountsAnEndWhoseTimelyMarkIsPersistedAfterUntil(t *testing.T) {
 	t.Parallel()
 	forEachLeg(t, func(t *testing.T, leg string, dbs databases) {
 		for _, c := range []markCase{
-			{"answer, mark 400ms early", false, 600 * time.Millisecond, true, 0},
-			{"withdrawal, mark 400ms early", true, 600 * time.Millisecond, true, 0},
-			{"answer, mark 150ms early", false, 850 * time.Millisecond, true, 0},
-			{"withdrawal, mark 150ms early", true, 850 * time.Millisecond, true, 0},
-			{"answer committed 100ms late", false, 1100 * time.Millisecond, false, 0},
-			{"withdrawal committed 100ms late", true, 1100 * time.Millisecond, false, 0},
+			{"answer, mark 240ms early", false, 360 * time.Millisecond, true, 0},
+			{"withdrawal, mark 240ms early", true, 360 * time.Millisecond, true, 0},
+			{"answer, mark 90ms early", false, 510 * time.Millisecond, true, 0},
+			{"withdrawal, mark 90ms early", true, 510 * time.Millisecond, true, 0},
+			{"answer committed 60ms late", false, 660 * time.Millisecond, false, 0},
+			{"withdrawal committed 60ms late", true, 660 * time.Millisecond, false, 0},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				t.Parallel()
@@ -228,12 +237,12 @@ func TestAWaitReachingTheServerAfterUntilCountsAnEndWhoseTimelyMarkIsPersistedLa
 	t.Parallel()
 	forEachLeg(t, func(t *testing.T, leg string, dbs databases) {
 		for _, c := range []markCase{
-			{"answer, mark 400ms early", false, 600 * time.Millisecond, true, 100 * time.Millisecond},
-			{"withdrawal, mark 400ms early", true, 600 * time.Millisecond, true, 100 * time.Millisecond},
-			{"answer, mark 150ms early", false, 850 * time.Millisecond, true, 100 * time.Millisecond},
-			{"withdrawal, mark 150ms early", true, 850 * time.Millisecond, true, 100 * time.Millisecond},
-			{"withdrawal committed 100ms late", true, 1100 * time.Millisecond, false, 150 * time.Millisecond},
-			{"answer committed 100ms late", false, 1100 * time.Millisecond, false, 150 * time.Millisecond},
+			{"answer, mark 240ms early", false, 360 * time.Millisecond, true, 60 * time.Millisecond},
+			{"withdrawal, mark 240ms early", true, 360 * time.Millisecond, true, 60 * time.Millisecond},
+			{"answer, mark 90ms early", false, 510 * time.Millisecond, true, 60 * time.Millisecond},
+			{"withdrawal, mark 90ms early", true, 510 * time.Millisecond, true, 60 * time.Millisecond},
+			{"withdrawal committed 60ms late", true, 660 * time.Millisecond, false, 90 * time.Millisecond},
+			{"answer committed 60ms late", false, 660 * time.Millisecond, false, 90 * time.Millisecond},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				t.Parallel()
@@ -251,7 +260,7 @@ func TestAWaitReachingTheServerAfterUntilCountsAnEndWhoseTimelyMarkIsPersistedLa
 // after until, in an order set by events rather than by the clock. The end
 // runs first; once its COMMIT has returned and its mark has been read off the
 // real clock (and its write is held), until is set to the mark plus the
-// case's lead (1s - endAt), so the mark is before until by exactly that much
+// case's lead (markUntil - endAt), so the mark is before until by exactly that much
 // however late the host ran the end. The wait is sent at until plus readAt,
 // so it reaches the server after until, and the hold is released only once
 // the wait's own poll write queues behind it: the wait has read the ask as
@@ -282,7 +291,7 @@ func testMarkBeforeUntil(t *testing.T, leg string, dbs databases, c markCase) {
 	if !hold.reached() {
 		t.Fatal("the end's mark write never started")
 	}
-	until := (<-marks).Add(time.Second - c.endAt)
+	until := (<-marks).Add(markUntil - c.endAt)
 	time.Sleep(time.Until(until.Add(c.readAt)))
 	got := make(chan markResult, 1)
 	go func() {
@@ -377,7 +386,7 @@ func runTimelyMark(t *testing.T, leg string, dbs databases, c markCase) (markRes
 	}})
 	ref := r.raiseAsk()
 	hold.arm()
-	until := time.Now().Add(time.Second)
+	until := time.Now().Add(markUntil)
 	got := make(chan markResult, 1)
 	go func() {
 		if c.readAt != 0 {
@@ -388,13 +397,13 @@ func runTimelyMark(t *testing.T, leg string, dbs databases, c markCase) (markRes
 	}()
 	ended := make(chan error, 1)
 	go func() {
-		time.Sleep(time.Until(until.Add(c.endAt - time.Second)))
+		time.Sleep(time.Until(until.Add(c.endAt - markUntil)))
 		ended <- endAsk(&asks.Store{Store: st}, c.withdraw, ref)
 	}()
 	if !hold.reached() {
 		t.Fatal("the end's mark write never started")
 	}
-	time.Sleep(time.Until(until.Add(300 * time.Millisecond)))
+	time.Sleep(time.Until(until.Add(markRelease)))
 	hold.release()
 	if err := <-ended; err != nil {
 		t.Fatal(err)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/n-orlov/village-hall/internal/asks"
 	"github.com/n-orlov/village-hall/internal/audit"
+	"github.com/n-orlov/village-hall/internal/domain"
 	"github.com/n-orlov/village-hall/internal/feed"
 	"github.com/n-orlov/village-hall/internal/store"
 	"github.com/oapi-codegen/runtime"
@@ -84,9 +85,27 @@ func (c *testClock) At(at time.Time) (<-chan time.Time, func()) {
 // renewing poll_seen_at every touch.
 func askRig(t *testing.T, st *store.Store, token string, clock *testClock, touch time.Duration) (*rig, *asks.Store) {
 	t.Helper()
+	return askRigWaitUnit(t, st, token, clock, touch, 0)
+}
+
+// quickWaitUnit is how long one second of ?wait= lasts in the rigs that shorten
+// it (askRigQuick): a wait of 1 that nothing ends lasts a quarter of a second.
+const quickWaitUnit = 250 * time.Millisecond
+
+// askRigQuick is askRig for a test whose waits are not ended by anything but
+// their own length: each second of ?wait= lasts quickWaitUnit.
+func askRigQuick(t *testing.T, st *store.Store, token string, clock *testClock, touch time.Duration) (*rig, *asks.Store) {
+	t.Helper()
+	return askRigWaitUnit(t, st, token, clock, touch, quickWaitUnit)
+}
+
+// askRigWaitUnit is askRig with each second of ?wait= lasting unit (a real
+// second when 0).
+func askRigWaitUnit(t *testing.T, st *store.Store, token string, clock *testClock, touch, unit time.Duration) (*rig, *asks.Store) {
+	t.Helper()
 	as := &asks.Store{Store: st, Now: clock.Now}
 	cfg := streamSettings{poll: 100 * time.Millisecond, heartbeat: time.Minute, extra: func(*store.Store) []Option {
-		return []Option{WithAsks(as), WithAskTouch(touch)}
+		return []Option{WithAsks(as), WithAskTouch(touch), WithAskWaitUnit(unit)}
 	}}
 	return startRig(t, st, token, cfg), as
 }
@@ -318,7 +337,7 @@ func TestAWaitAppendsItsEventToItsOwnAskOnly(t *testing.T) {
 	t.Parallel()
 	forEachLeg(t, func(t *testing.T, _ string, dbs databases) {
 		st := migrated(t, dbs)
-		r, _ := askRig(t, st, newToken(t, st), newTestClock(), time.Hour)
+		r, _ := askRigQuick(t, st, newToken(t, st), newTestClock(), time.Hour)
 		answered := r.raiseAsk()
 		r.answer(answered)
 		r.startWait(answered, "1").ends(t)
@@ -459,15 +478,17 @@ func testAWaitWithUntilEndsAtUntil(t *testing.T, st *store.Store) {
 	if err := st.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	r, as := askRig(t, st, newToken(t, st), newTestClock(), time.Hour)
+	// each second of ?wait= lasts half a second, so a wait of 1 is held for 500 ms
+	const second = 500 * time.Millisecond
+	r, as := askRigWaitUnit(t, st, newToken(t, st), newTestClock(), time.Hour, second)
 	ref := r.raiseAsk()
 	for _, c := range []struct {
 		query    string
 		min, max time.Duration
 	}{
-		{untilQuery("1", time.Now().Add(300*time.Millisecond)), 300 * time.Millisecond, 900 * time.Millisecond},
-		{untilQuery("1", time.Now().Add(time.Hour)), time.Second, 1900 * time.Millisecond},
-		{untilQuery("5", time.Now().Add(-time.Minute)), 0, 500 * time.Millisecond},
+		{untilQuery("1", time.Now().Add(150*time.Millisecond)), 150 * time.Millisecond, 450 * time.Millisecond},
+		{untilQuery("1", time.Now().Add(time.Hour)), second, 950 * time.Millisecond},
+		{untilQuery("5", time.Now().Add(-time.Minute)), 0, 250 * time.Millisecond},
 	} {
 		started := time.Now()
 		w := r.startWait(ref, c.query)
@@ -479,6 +500,50 @@ func testAWaitWithUntilEndsAtUntil(t *testing.T, st *store.Store) {
 	}
 	if polledAt(t, as, ref) == nil {
 		t.Error("the waits did not mark the poll")
+	}
+}
+
+// WithAskWaitUnit sets how long a second of ?wait= lasts, and a real second
+// when it is unset or not above zero: a wait of n is held for n units, and the
+// range of 1 to 300 is in seconds whatever the unit. The option survives
+// WithAsks, which builds the ask operations, whichever comes first.
+func TestAskWaitUnitIsASecondUnlessATestShortensIt(t *testing.T) {
+	t.Parallel()
+	three := 3
+	for _, c := range []struct {
+		name string
+		unit time.Duration
+		want time.Duration
+	}{
+		{"unset", 0, time.Second},
+		{"not above zero", -time.Millisecond, time.Second},
+		{"shortened", 40 * time.Millisecond, 40 * time.Millisecond},
+	} {
+		o := askOps{unit: c.unit, waits: &streamHub{}}
+		if got := o.waitUnit(); got != c.want {
+			t.Errorf("%s: unit = %s, want %s", c.name, got, c.want)
+		}
+		held, ok := o.read(context.Background(), asks.Ask{State: domain.AskOpen}, time.Now(), &three, nil).(askWaitResponse)
+		if !ok || held.max != 3*c.want {
+			t.Errorf("%s: a wait of 3 on an open ask = %#v, want a hold of %s", c.name, held, 3*c.want)
+		}
+	}
+	for name, order := range map[string][]Option{
+		"hook after asks":  {WithAsks(&asks.Store{}), WithAskWaitUnit(40 * time.Millisecond)},
+		"hook before asks": {WithAskWaitUnit(40 * time.Millisecond), WithAsks(&asks.Store{})},
+	} {
+		var ops operations
+		for _, opt := range order {
+			opt(&ops)
+		}
+		if got := ops.waitUnit(); got != 40*time.Millisecond {
+			t.Errorf("%s: unit = %s, want 40ms", name, got)
+		}
+	}
+	var ops operations
+	WithAsks(&asks.Store{})(&ops)
+	if got := ops.waitUnit(); got != time.Second {
+		t.Errorf("a server with no hook: unit = %s, want a second", got)
 	}
 }
 

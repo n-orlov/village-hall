@@ -155,7 +155,7 @@ func WithLeases(st *leases.Store) Option {
 // WithAsks serves /api/v1/asks from st; without it the operations answer 503.
 func WithAsks(st *asks.Store) Option {
 	return func(o *operations) {
-		o.askOps = askOps{asks: st, touch: o.touch, clock: o.clock}
+		o.askOps = askOps{asks: st, touch: o.touch, clock: o.clock, unit: o.unit}
 		o.taskOps.asks = st
 	}
 }
@@ -164,6 +164,14 @@ func WithAsks(st *asks.Store) Option {
 // (DefaultAskTouch, 30 s, when unset or not above zero). Tests shorten it.
 func WithAskTouch(d time.Duration) Option {
 	return func(o *operations) { o.touch = d }
+}
+
+// WithAskWaitUnit sets how long one second of an ask long-poll's ?wait= lasts
+// (a real second when unset or not above zero). It is a test hook: the wait is
+// still asked for, and bounded to 1 to 300, in whole seconds, so a test rig that
+// sets it makes a wait of 1 last d instead of a second, and no deployment sets it.
+func WithAskWaitUnit(d time.Duration) Option {
+	return func(o *operations) { o.unit = d }
 }
 
 // WithAskClock makes the ask waits read the time from c (the real clock when

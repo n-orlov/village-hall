@@ -394,7 +394,8 @@ func TestAnIdleStreamSendsAPingAtTheConfiguredHeartbeat(t *testing.T) {
 // through a request to this server: a request is itself cut by the 300 ms
 // write timeout when it takes longer than that to serve (a slow commit on a
 // loaded host), and the client then reads EOF. The stream, not that request,
-// is under test.
+// is under test. The write timeout is short (250 ms) and the pings go on for
+// more than twice that, so the stream is shown to outlive it.
 func TestAStreamOutlivesTheServersWriteTimeout(t *testing.T) {
 	t.Parallel()
 	forEachLeg(t, func(t *testing.T, _ string, dbs databases) {
@@ -402,10 +403,10 @@ func TestAStreamOutlivesTheServersWriteTimeout(t *testing.T) {
 		if err := st.Migrate(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		r := startRig(t, st, newToken(t, st), streamSettings{poll: time.Hour, heartbeat: 100 * time.Millisecond, writeTimeout: 300 * time.Millisecond})
+		r := startRig(t, st, newToken(t, st), streamSettings{poll: time.Hour, heartbeat: 50 * time.Millisecond, writeTimeout: 250 * time.Millisecond})
 		s := r.openStream("/api/v1/stream?topics=events")
 		start := time.Now()
-		for time.Since(start) < 1500*time.Millisecond {
+		for time.Since(start) < 600*time.Millisecond {
 			if got := s.next(time.Second); got != ": ping" {
 				t.Fatalf("block = %q, want \": ping\"", got)
 			}

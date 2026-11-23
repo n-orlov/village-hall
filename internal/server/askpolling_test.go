@@ -55,7 +55,7 @@ func replicas(t *testing.T, dbs databases) (writer, reader *rig, clock *testCloc
 	}
 	token := newToken(t, a)
 	clock = newTestClock()
-	writer, _ = askRig(t, a, token, clock, time.Hour)
+	writer, _ = askRigQuick(t, a, token, clock, time.Hour)
 	reader, as = askRig(t, openStore(t, url), token, clock, time.Hour)
 	return writer, reader, clock, as
 }
@@ -91,13 +91,16 @@ func TestAWaitMakingTheAskerWaitingReachesTheStreamOfAnotherReplica(t *testing.T
 // Only a change of the displayed state is an event: the renewals of a held
 // wait and a second wait started while the first still counts write none; a
 // wait started after the 60 seconds ran out of the first writes one again.
+// A second of ?wait= lasts a quarter second here, so each wait is held for
+// five renewals, and the window in which nothing may arrive is six renew
+// periods (three polls of the feed).
 func TestOnlyAChangeOfTheAskerWaitingStateReachesTheFeed(t *testing.T) {
 	t.Parallel()
 	forEachLeg(t, func(t *testing.T, _ string, dbs databases) {
 		st := migrated(t, dbs)
 		token := newToken(t, st)
 		clock := newTestClock()
-		r, _ := askRig(t, st, token, clock, 50*time.Millisecond) // the held wait renews every 50 ms
+		r, _ := askRigQuick(t, st, token, clock, 50*time.Millisecond) // the held wait renews every 50 ms
 		ref := r.raiseAsk()
 		stream := polling{r.openStream("/api/v1/stream?topics=events")}
 		r.startWait(ref, "1").ends(t)
@@ -106,7 +109,7 @@ func TestOnlyAChangeOfTheAskerWaitingStateReachesTheFeed(t *testing.T) {
 		}
 		clock.Advance(30 * time.Second)
 		r.startWait(ref, "1").ends(t)
-		if msg := stream.next(t, 500*time.Millisecond); msg != "" {
+		if msg := stream.next(t, 300*time.Millisecond); msg != "" {
 			t.Errorf("a wait on an asker already waiting (and its renewals) appended %q", msg)
 		}
 		clock.Advance(61 * time.Second)
@@ -124,7 +127,7 @@ func TestAWaitOnAStopAskOrAnEndedAskAppendsNoPollingEvent(t *testing.T) {
 	forEachLeg(t, func(t *testing.T, _ string, dbs databases) {
 		st := migrated(t, dbs)
 		token := newToken(t, st)
-		r, _ := askRig(t, st, token, newTestClock(), time.Hour)
+		r, _ := askRigQuick(t, st, token, newTestClock(), time.Hour)
 		stream := polling{r.openStream("/api/v1/stream?topics=events")}
 		resp := r.do(http.MethodPost, "/api/v1/asks", `{"question":"Stop?"}`, token)
 		_ = resp.Body.Close()
@@ -132,7 +135,7 @@ func TestAWaitOnAStopAskOrAnEndedAskAppendsNoPollingEvent(t *testing.T) {
 		ended := r.raiseAsk()
 		r.answer(ended)
 		r.startWait(ended, "1").ends(t)
-		if msg := stream.next(t, 500*time.Millisecond); msg != "" {
+		if msg := stream.next(t, 300*time.Millisecond); msg != "" {
 			t.Errorf("a wait on a stop ask or an answered ask appended %q", msg)
 		}
 	})

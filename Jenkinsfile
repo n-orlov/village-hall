@@ -60,6 +60,11 @@
 // the report archives. The ceiling (load at most 12 on every row) and the
 // Playwright worker count are judged on that file.
 //
+// Package test-time budget (R9 e): after ci/quality.sh, the Quality unit runs
+// ci/pkgtime over the Suite unit's ci-results/junit-go.xml and
+// ci/pkgtime/budgets.json: a budgeted package (internal/server) whose test time
+// is over its budget, or that has no testsuite in the junit, fails the unit.
+//
 // Phases; each phase's units run in parallel:
 //   1. Core (every build): Lint, Suite, E2E, Image, Allure smoke, then
 //      Quality (4 executors: Quality waits for Suite, E2E and Image without
@@ -685,7 +690,12 @@ pipeline {
                            if (rc != 0) {
                              return rc
                            }
-                           sh(returnStatus: true, script: 'ci/run.sh ci/quality.sh "$BOARD_CI_OUT" ci/quality.json --mutation-deferred')
+                           int gates = sh(returnStatus: true, script: 'ci/run.sh ci/quality.sh "$BOARD_CI_OUT" ci/quality.json --mutation-deferred')
+                           // R9 e: the Suite unit's Go junit holds each budgeted package
+                           // (ci/pkgtime/budgets.json) to its test time; the gates above and
+                           // this check both run, and either failing fails the unit.
+                           int budgets = sh(returnStatus: true, script: 'ci/run.sh go run ./ci/pkgtime -junit "$BOARD_CI_OUT/junit-go.xml" -budgets ci/pkgtime/budgets.json')
+                           gates != 0 ? gates : budgets
                          }])
                 env.QUALITY_RESULT = results['Quality'] == 'fail' ? 'failing' : 'passing'
               }

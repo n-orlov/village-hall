@@ -227,7 +227,7 @@ minutes with full mutation, Core about 33 of them:
 
 | phase | units | runs |
 |---|---|---|
-| Core | Lint (`ci/run.sh ci/lint.sh`), Suite (`BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh`: everything but Playwright), E2E (`BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh`: Playwright alone), Image (`ci/image-build.sh` then `ci/image-check.sh`, then the release dry run `ci/release-check.sh`), Allure smoke (the Godog formatter fixture, then `ci/allure-smoke.sh`), and Quality (`ci/run.sh ci/quality.sh ci-results ci/quality.json --mutation-deferred`), which waits for Suite (its coverage), E2E (Playwright's results) and Image (the tar) without holding an executor | every build |
+| Core | Lint (`ci/run.sh ci/lint.sh`), Suite (`BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh`: everything but Playwright), E2E (`BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh`: Playwright alone), Image (`ci/image-build.sh` then `ci/image-check.sh`, then the release dry run `ci/release-check.sh`), Allure smoke (the Godog formatter fixture, then `ci/allure-smoke.sh`), and Quality (`ci/run.sh ci/quality.sh ci-results ci/quality.json --mutation-deferred`, then `ci/run.sh go run ./ci/pkgtime`), which waits for Suite (its coverage), E2E (Playwright's results) and Image (the tar) without holding an executor | every build |
 | Stability | one unit (one executor) running `ci/stability.sh 1` three times side by side, each run in its own clone of the checkout and its own stage (`Stability 1` to `3`), beside Mutation | `EXTENDED=true` or the nightly timer |
 | Mutation | one unit (diff), three units and a gate (full), or a plan, the units it gives work and a gate (incremental), beside Stability (below) | `MUTATION=true` or `MUTATION_FULL=true` or the nightly of `main` |
 | Perf | the Perf unit (`ci/run.sh ci/perf.sh ci-results`, 30 minutes), alone, when the Stability unit passed | `EXTENDED=true` or the nightly timer |
@@ -540,6 +540,17 @@ its threshold. A gate whose input does not exist yet fails; it never passes.
 `ci/quality.sh` exits non-zero when any row fails. Each row that fails for a
 missing input names the input in the report.
 
+After `ci/quality.sh`, the Quality unit runs `ci/run.sh go run ./ci/pkgtime -junit
+ci-results/junit-go.xml -budgets ci/pkgtime/budgets.json`, and either failing fails
+the unit. `ci/pkgtime` holds each package in `ci/pkgtime/budgets.json` to the test
+time (`<testsuite time>`) the Suite unit's Go junit records for it: `internal/server`
+at 28 s, at most 80% of the 35.855 s of main build 275. A package missing from the
+junit fails too. A budget is only ever lowered. `ci/pkgtime/main_test.go` feeds it
+junit fixtures with `internal/server` at the budget (pass) and one second over (fail).
+To stay inside it, `internal/server`'s ask-wait tests run with sub-second windows
+(`WithAskWaitUnit`, the test hook that shortens a second of `?wait=` in a test rig)
+and its answer-cannot-be-stored cases run as parallel subtests.
+
 ## Pipeline tools and scripts
 
 The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
@@ -659,6 +670,8 @@ The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
   function against the ceiling in `ci/quality.json`. There is no baseline file.
 - `ci/legcompare`: compares per-leg JUnit and lists the scenarios that are
   green on one database leg and red on another (exit 1).
+- `ci/pkgtime`: fails when a package's test time in `ci-results/junit-go.xml` is over
+  its budget in `ci/pkgtime/budgets.json` (Quality runs it after `ci/quality.sh`).
 - `ci/qualitycheck`: the single quality-gate runner behind `ci/quality.sh`. It
   runs whichever gates `ci/quality.json` switches on (every row of the table
   above) and fails if a threshold is loosened against the

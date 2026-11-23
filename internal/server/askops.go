@@ -25,7 +25,17 @@ type askOps struct {
 	waits *streamHub    // the change feed that wakes a wait; nil: waits answer 503
 	touch time.Duration // how often a held wait renews poll_seen_at; 0 is DefaultAskTouch
 	clock AskClock      // the time a wait reads; nil is the real clock
+	unit  time.Duration // how long one second of ?wait= lasts; 0 is a real second (a test rig shortens it)
 	block checkin.Store // the stores a raise with lease_action stop ends the lease through; set once every option is applied
+}
+
+// waitUnit is how long one second of ?wait= lasts: a second, unless a test rig
+// set it shorter with WithAskWaitUnit.
+func (o askOps) waitUnit() time.Duration {
+	if o.unit > 0 {
+		return o.unit
+	}
+	return time.Second
 }
 
 // ready answers 503 when the operations have no store behind them.
@@ -182,7 +192,7 @@ func (o askOps) read(ctx context.Context, k asks.Ask, readBack time.Time, wait *
 	case o.waits == nil:
 		return failure(http.StatusServiceUnavailable, "waiting for an ask is not available")
 	}
-	return askWaitResponse{ctx: ctx, ops: o, ask: k, max: time.Duration(*wait) * time.Second, until: until}
+	return askWaitResponse{ctx: ctx, ops: o, ask: k, max: time.Duration(*wait) * o.waitUnit(), until: until}
 }
 
 // ListAsks lists a page of asks.

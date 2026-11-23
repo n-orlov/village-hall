@@ -41,15 +41,17 @@ func TestAnEndWhoseCommitReturnedBeforeUntilIsAnsweredEnded(t *testing.T) {
 					t.Errorf("withdraw=%v: first read after until got %d %v, want 200 %s", withdraw, status, doc["state"], want)
 				}
 
-				// the mark is read after until; a wait held from before until reads the end in time
+				// the mark is read after until; a wait held from before until reads the end in time.
+				// until is 750 ms out, the end starts 50 ms in and its mark is read 150 ms
+				// after until: the same hold : mark delay : until as 1500 : 100 : 300 ms, halved
 				ref = r.raiseAsk()
-				until = time.Now().Add(1500 * time.Millisecond)
+				until = time.Now().Add(750 * time.Millisecond)
 				delayed := &asks.Store{Store: st, MarkClock: func() time.Time {
-					time.Sleep(time.Until(until.Add(300 * time.Millisecond)))
+					time.Sleep(time.Until(until.Add(150 * time.Millisecond)))
 					return time.Now()
 				}}
 				w := r.startWait(ref, untilQuery("5", until))
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				ended := make(chan error, 1)
 				go func() { ended <- endAsk(delayed, withdraw, ref) }()
 				w.ends(t)

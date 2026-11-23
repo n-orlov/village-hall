@@ -716,8 +716,6 @@ func notCarriedOut(t *testing.T, what string, rec *httptest.ResponseRecorder) {
 func TestEveryWritingPostWhoseAnswerCannotBeStoredWritesNothingAndItsRetryRunsOnceThenReplays(t *testing.T) {
 	t.Parallel()
 	forEachLeg(t, func(t *testing.T, _ string, dbs databases) {
-		w := newIdemWorld(t, dbs)
-		w.must("/api/v1/initiatives", `{"slug":"aa","title":"A"}`, "claude@host")
 		ops := make([]string, 0, len(idemCases))
 		for op := range idemCases {
 			ops = append(ops, op)
@@ -725,36 +723,40 @@ func TestEveryWritingPostWhoseAnswerCannotBeStoredWritesNothingAndItsRetryRunsOn
 		sort.Strings(ops)
 		for i, op := range ops {
 			for j, fault := range []answerFault{raisedFault, silentFault} {
-				// a case builds state that exists once, so each fault gets its own world
-				w := newIdemWorld(t, dbs)
-				w.must("/api/v1/initiatives", `{"slug":"aa","title":"A"}`, "claude@host")
-				c := idemCases[op]
-				path, body, actor := c.build(w)
-				key := fmt.Sprintf("unstored-%d-%d", i, j)
-				events, keys := w.count("events"), w.count("idempotency_keys")
-				lift := failAnswers(t, w, fault)
-				for try := 0; try < 2; try++ {
-					notCarriedOut(t, fmt.Sprintf("%s (%s) send %d", op, fault, try), w.post(path, body, actor, key))
-				}
-				if got := w.count("events") - events; got != 0 {
-					t.Errorf("%s (%s): sends whose answer was not stored wrote %d events rows, want none", op, fault, got)
-				}
-				if got := w.count("idempotency_keys"); got != keys {
-					t.Errorf("%s (%s): %d keys after the sends, want %d: the key is released", op, fault, got, keys)
-				}
-				lift()
-				run := w.post(path, body, actor, key)
-				replay := w.post(path, body, actor, key)
-				if run.Code/100 != 2 || run.Header().Get(ReplayedHeader) != "" {
-					t.Errorf("%s (%s): the send after the fault = %d %s, want the request run", op, fault, run.Code, run.Body)
-					continue
-				}
-				if replay.Code != run.Code || replay.Body.String() != run.Body.String() || replay.Header().Get(ReplayedHeader) != "true" {
-					t.Errorf("%s (%s): retry = %d %s (%q), want the replay of %d %s", op, fault, replay.Code, replay.Body, replay.Header().Get(ReplayedHeader), run.Code, run.Body)
-				}
-				if got := w.count("events") - events; got != c.events {
-					t.Errorf("%s (%s): %d events rows in all, want the %d of one run", op, fault, got, c.events)
-				}
+				// a case builds state that exists once, so each fault gets its own world;
+				// the worlds are separate databases, so the cases run side by side
+				t.Run(op+"/"+string(fault), func(t *testing.T) {
+					t.Parallel()
+					w := newIdemWorld(t, dbs)
+					w.must("/api/v1/initiatives", `{"slug":"aa","title":"A"}`, "claude@host")
+					c := idemCases[op]
+					path, body, actor := c.build(w)
+					key := fmt.Sprintf("unstored-%d-%d", i, j)
+					events, keys := w.count("events"), w.count("idempotency_keys")
+					lift := failAnswers(t, w, fault)
+					for try := 0; try < 2; try++ {
+						notCarriedOut(t, fmt.Sprintf("%s (%s) send %d", op, fault, try), w.post(path, body, actor, key))
+					}
+					if got := w.count("events") - events; got != 0 {
+						t.Errorf("%s (%s): sends whose answer was not stored wrote %d events rows, want none", op, fault, got)
+					}
+					if got := w.count("idempotency_keys"); got != keys {
+						t.Errorf("%s (%s): %d keys after the sends, want %d: the key is released", op, fault, got, keys)
+					}
+					lift()
+					run := w.post(path, body, actor, key)
+					replay := w.post(path, body, actor, key)
+					if run.Code/100 != 2 || run.Header().Get(ReplayedHeader) != "" {
+						t.Errorf("%s (%s): the send after the fault = %d %s, want the request run", op, fault, run.Code, run.Body)
+						return
+					}
+					if replay.Code != run.Code || replay.Body.String() != run.Body.String() || replay.Header().Get(ReplayedHeader) != "true" {
+						t.Errorf("%s (%s): retry = %d %s (%q), want the replay of %d %s", op, fault, replay.Code, replay.Body, replay.Header().Get(ReplayedHeader), run.Code, run.Body)
+					}
+					if got := w.count("events") - events; got != c.events {
+						t.Errorf("%s (%s): %d events rows in all, want the %d of one run", op, fault, got, c.events)
+					}
+				})
 			}
 		}
 	})

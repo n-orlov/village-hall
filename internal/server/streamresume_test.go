@@ -88,6 +88,38 @@ func createBeside(t *testing.T, st *store.Store, prefix string, n int) {
 	}
 }
 
+// appendBeside writes n events straight to the database in one transaction,
+// the kind a create writes, so that nothing wakes the server's feed. It stands
+// in for n writes through createBeside where the test is about how many events
+// there are, not how each came to be.
+func appendBeside(t *testing.T, st *store.Store, prefix string, n int) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := st.Writer().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	actorID, err := audit.UpsertActor(ctx, tx, st.Dialect(), audit.Actor{Handle: "beside@host"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch := make([]audit.Written, n)
+	for i := range batch {
+		slug := fmt.Sprintf("%s%04d", prefix, i)
+		batch[i] = audit.Written{ActorID: actorID, Event: audit.Event{
+			Principal: "key:caller", Type: initiatives.EventCreated, Summary: "initiative " + slug + " created",
+			Data: map[string]any{"slug": slug, "title": "Title of " + slug, "tags": []string{}},
+		}}
+	}
+	if _, err := audit.AppendBatch(ctx, tx, st.Dialect(), time.Now(), batch); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // resetReason checks that block is one `event: reset` without an id and returns its reason.
 func resetReason(t *testing.T, block string) string {
 	t.Helper()
@@ -206,8 +238,8 @@ func TestResumeReplaysAGapOf1000AndResetsAtAGapOf1001(t *testing.T) {
 		id := idOfMessage(t, first.nextMessage())
 		first.close()
 
-		createBeside(t, st, "a", 999)
-		r.createInitiative("last") // the 1000th after "seen": its write wakes the feed
+		appendBeside(t, st, "a", 999) // the filler: one transaction; "seen", "last" and the rest go over HTTP
+		r.createInitiative("last")    // the 1000th after "seen": its write wakes the feed
 		r.awaitFeed(1001)
 		replay := r.openStreamWith("/api/v1/stream?topics=events", map[string]string{"Last-Event-ID": id})
 		for i := range 1000 {
