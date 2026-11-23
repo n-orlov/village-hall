@@ -48,9 +48,9 @@
 //      Quality (4 executors: Quality waits for Suite, E2E and Image without
 //      holding one). Suite is ci/suite.sh with BOARD_CI_PLAYWRIGHT=skip (45
 //      minutes, 120 EXTENDED) and E2E is the same script with
-//      BOARD_CI_PLAYWRIGHT=only: the Playwright suite, one worker, with the
-//      script's one repeat of a failed run (120 minutes), in parallel with
-//      Suite, which no longer waits for it.
+//      BOARD_CI_PLAYWRIGHT=only: the Playwright suite, one worker, run once
+//      (the script repeats no failed run, of Playwright or anything else;
+//      120 minutes), in parallel with Suite, which no longer waits for it.
 //   2. Stability and Mutation, side by side, once Core passed:
 //      - Stability (EXTENDED=true, or nightly on main): one unit (one
 //        executor) running the three stability runs side by side, each in its
@@ -306,9 +306,9 @@ def runUnit(Map u) {
             }
             // An attempt cut off before its stash (its own bound fired, or the
             // agent went away) archives what its command had written so far: the
-            // post report wipes ci-results in this workspace, and E2E's first run
-            // log and JUnit are the only record of which tests failed before the
-            // repeat ran into the bound (PR-1 #8 lost them).
+            // post report wipes ci-results in this workspace, and a cut E2E's
+            // playwright.log and the JUnit files written so far are the only
+            // record of which tests failed before the bound (PR-1 #8 lost them).
             if (!a.stashed && a.outcome == null) {
               try {
                 timeout(time: 3, unit: 'MINUTES') {
@@ -598,8 +598,7 @@ pipeline {
           units << [name: 'Suite', minutes: nightly ? 120 : 45, signal: 'Suite',
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh') }]
           // Playwright alone (BOARD_CI_PLAYWRIGHT=only): every spec, one worker,
-          // the script's one repeat of a failed run. 120 minutes on every build:
-          // the repeat repeats the whole run, so the bound holds two of them.
+          // run once with no repeat of a failed run. 120 minutes on every build.
           units << [name: 'E2E', minutes: 120, signal: 'E2E',
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
           // Both platforms cross-built and never pushed; the amd64 image is run

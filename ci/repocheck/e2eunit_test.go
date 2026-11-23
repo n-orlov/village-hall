@@ -87,7 +87,7 @@ func e2eUnitProblems(jf string) []string {
 		problems = append(problems, "E2E does not signal Quality")
 	}
 	// The ruling's still-banned list: nothing in the pipeline shards or
-	// parallelises Playwright, or retries it beyond ci/suite.sh's one repeat.
+	// parallelises Playwright, or retries it (ci/suite.sh runs it once).
 	for _, banned := range []string{"--shard", "fullyParallel", "--workers", "--retries", "--repeat-each", "--timeout"} {
 		if strings.Contains(jf, banned) {
 			problems = append(problems, "the Jenkinsfile passes "+banned+" to Playwright")
