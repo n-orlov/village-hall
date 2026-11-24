@@ -60,9 +60,15 @@ the host daemon, not a child of it:
 - the testcontainers reaper is off (`TESTCONTAINERS_RYUK_DISABLED`): the harness
   terminates each container it started when the run, or the scenario that owns
   it, ends;
-- one container serves the whole run, with a fresh empty database per scenario.
-  A scenario tagged `@dedicated-database` gets a container of its own, so that
-  `the database is stopped` cannot disturb another scenario. A scenario tagged
+- one container serves the whole run, with a fresh database per scenario: a
+  copy of a template database migrated once per container
+  (`CREATE DATABASE ... TEMPLATE`, over one admin connection), so no scenario
+  migrates a database of its own for its set-up. A scenario that exercises the
+  migrations gets an empty database instead: one tagged `@empty-database`, or
+  one whose step seeds an older schema (`MigrateTo`) or records a schema
+  version. A scenario tagged `@dedicated-database` gets a container of its own
+  with an empty database, so that `the database is stopped` cannot disturb
+  another scenario. A scenario tagged
   `@postgres` runs on the Postgres leg only (the SQLite leg runs `~@postgres`).
 
 `ci/suite.sh` runs the `features/` pass once per leg of `BOARD_CI_DB_LEGS`

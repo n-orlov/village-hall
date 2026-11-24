@@ -25,7 +25,7 @@ func TestTwoServersStartedTogetherOnOnePostgresReopenATaskOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { pg.terminate(context.Background()) })
-	url, err := pg.newDatabase(ctx)
+	url, err := pg.newEmptyDatabase(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestTwoServersStartedTogetherOnOnePostgresCreateOneInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { pg.terminate(context.Background()) })
-	url, err := pg.newDatabase(ctx)
+	url, err := pg.newEmptyDatabase(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

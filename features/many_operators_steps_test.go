@@ -66,7 +66,7 @@ func (h *harness) readSeedTable(ctx context.Context, s *store.Store, t seedRows)
 // seedPhase4 builds the schema at version 11 in the scenario's database,
 // writes phase4Seed and remembers what it reads back.
 func (h *harness) seedPhase4(ctx context.Context, st *manyOperatorState) error {
-	if err := h.freshDatabase(); err != nil {
+	if err := h.emptyDatabase(); err != nil {
 		return err
 	}
 	s, err := store.Open(h.dbURL)

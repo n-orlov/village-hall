@@ -129,6 +129,13 @@ type harness struct {
 	shared    *postgresServer
 	dedicated bool
 	own       *postgresServer
+
+	// empty is set for a scenario tagged @empty-database: its Postgres
+	// database holds no table, where any other scenario's is a copy of the
+	// migrated template. templated records that the scenario's database is
+	// such a copy.
+	empty     bool
+	templated bool
 }
 
 // ciInternalPrefixes are the BOARD_ names that belong to CI, not to the
@@ -258,7 +265,7 @@ func (h *harness) freshDatabase() error {
 		return nil
 	}
 	if h.leg == "postgres" {
-		return h.freshPostgres()
+		return h.freshPostgres(false)
 	}
 	dir, err := os.MkdirTemp("", "board-godog-")
 	if err != nil {
@@ -269,9 +276,27 @@ func (h *harness) freshDatabase() error {
 	return nil
 }
 
-// freshPostgres names an empty database on the run's Postgres, or on a private
-// container for a scenario tagged @dedicated-database.
-func (h *harness) freshPostgres() error {
+// emptyDatabase is freshDatabase for a step that exercises the migrations
+// themselves: the database it names has no table. A scenario whose database was
+// already copied from the migrated template must be tagged @empty-database.
+func (h *harness) emptyDatabase() error {
+	if h.templated {
+		return errors.New("the scenario's database is already migrated: tag the scenario @empty-database")
+	}
+	if h.dbURL != "" {
+		return nil
+	}
+	if h.leg == "postgres" {
+		return h.freshPostgres(true)
+	}
+	return h.freshDatabase()
+}
+
+// freshPostgres names a database on the run's Postgres, or on a private
+// container for a scenario tagged @dedicated-database: empty when asked, or
+// when the scenario is tagged @empty-database or @dedicated-database, else a
+// copy of the migrated template.
+func (h *harness) freshPostgres(empty bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	server := h.shared
@@ -282,11 +307,16 @@ func (h *harness) freshPostgres() error {
 		}
 		h.own, server = own, own
 	}
-	url, err := server.newDatabase(ctx)
+	empty = empty || h.empty || h.dedicated
+	create := server.newDatabase
+	if empty {
+		create = server.newEmptyDatabase
+	}
+	url, err := create(ctx)
 	if err != nil {
 		return err
 	}
-	h.dbURL = url
+	h.dbURL, h.templated = url, !empty
 	return nil
 }
 
@@ -301,7 +331,7 @@ func (h *harness) openDB() (*sql.DB, error) {
 // recordSchemaVersion makes the scenario's database claim goose version v as
 // applied, the way a newer binary's migration would have.
 func (h *harness) recordSchemaVersion(ctx context.Context, v int) error {
-	if err := h.freshDatabase(); err != nil {
+	if err := h.emptyDatabase(); err != nil {
 		return err
 	}
 	db, err := h.openDB()
@@ -448,16 +478,20 @@ func (h *harness) stopServer() {
 	}
 	h.web, h.idp, h.idpSecret = browser{}, nil, ""
 	h.dir, h.dbURL, h.own, h.dedicated, h.key, h.api = "", "", nil, false, "", apiState{}
+	h.templated = false
 }
 
 var versionPattern = regexp.MustCompile(`^(v[0-9][^\s]*|devel(\+[0-9a-f]+)?)(-dirty)?$`)
 
 func registerSteps(sc *godog.ScenarioContext, h *harness) {
 	sc.Before(func(ctx context.Context, scenario *godog.Scenario) (context.Context, error) {
-		h.dedicated = false
+		h.dedicated, h.empty = false, false
 		for _, tag := range scenario.Tags {
-			if tag.Name == "@dedicated-database" {
+			switch tag.Name {
+			case "@dedicated-database":
 				h.dedicated = true
+			case "@empty-database":
+				h.empty = true
 			}
 		}
 		return ctx, nil

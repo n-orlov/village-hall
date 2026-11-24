@@ -53,7 +53,7 @@ func TestExpiryAndOverdueAgreeAtTheClockEdges(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { server.terminate(context.Background()) })
-		url, err := server.newDatabase(ctx)
+		url, err := server.newEmptyDatabase(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}

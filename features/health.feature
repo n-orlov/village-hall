@@ -32,12 +32,14 @@ Feature: Liveness and readiness
     And I request GET "/readyz" with the remembered key and no Board-Actor header
     Then the response status is 400
 
+  @empty-database
   Scenario: /readyz answers 503 with a key on an unmigrated store with BOARD_MIGRATE=off
     Given I hold a key made on another database
     And the board server is running on a free port with BOARD_MIGRATE=off
     When I request GET "/readyz" with the remembered key
     Then the response status is 503
 
+  @empty-database
   Scenario: /healthz still answers 200 on an unmigrated store
     Given the board server is running on a free port with BOARD_MIGRATE=off
     When I request GET "/healthz" without credentials

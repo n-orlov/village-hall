@@ -21,7 +21,7 @@ const none = "-"
 // seedNoOperator builds the schema at version 11 and writes an agent, a key and
 // an event made through it, with no operator row at all.
 func (h *harness) seedNoOperator(ctx context.Context) error {
-	if err := h.freshDatabase(); err != nil {
+	if err := h.emptyDatabase(); err != nil {
 		return err
 	}
 	s, err := store.Open(h.dbURL)

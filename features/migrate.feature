@@ -1,3 +1,4 @@
+@empty-database
 Feature: Migrating an empty store
   `vh admin migrate` builds the whole Phase 0 schema in an empty database,
   on SQLite and on Postgres alike, and a server started on the result is ready.

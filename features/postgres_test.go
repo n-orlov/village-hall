@@ -7,11 +7,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // the driver the Postgres leg's admin connection uses
 	"github.com/moby/moby/api/types/network"
+	"github.com/n-orlov/village-hall/internal/store"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -48,11 +50,55 @@ func configureTestcontainers() {
 	}
 }
 
+// pgTemplate is the database a server's migrations are applied to once, and
+// newDatabase copies: CREATE DATABASE ... TEMPLATE takes a few milliseconds
+// where migrating an empty database takes about 0.2 s.
+const pgTemplate = "board_template"
+
 // postgresServer is one Postgres container started through the docker socket.
 type postgresServer struct {
 	container testcontainers.Container
 	host      string
 	port      string
+
+	adminOnce sync.Once
+	admin     *sql.DB // one pool on the admin database, shared by every create and drop
+	adminErr  error
+
+	templateOnce sync.Once
+	templateErr  error
+}
+
+// adminDB is the one admin pool of the server, opened on first use.
+func (p *postgresServer) adminDB() (*sql.DB, error) {
+	p.adminOnce.Do(func() { p.admin, p.adminErr = sql.Open("pgx", adminDSN(p.host, p.port)) })
+	return p.admin, p.adminErr
+}
+
+// prepareTemplate creates pgTemplate and migrates it once, then closes its store:
+// a database with a session on it cannot be copied.
+func (p *postgresServer) prepareTemplate(ctx context.Context) error {
+	p.templateOnce.Do(func() {
+		p.templateErr = func() error {
+			admin, err := p.adminDB()
+			if err != nil {
+				return err
+			}
+			if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+pgTemplate); err != nil {
+				return fmt.Errorf("creating database %s: %w", pgTemplate, err)
+			}
+			st, err := store.Open(dsn(p.host, p.port, pgTemplate))
+			if err != nil {
+				return fmt.Errorf("opening database %s: %w", pgTemplate, err)
+			}
+			if err := st.Migrate(ctx); err != nil {
+				_ = st.Close()
+				return fmt.Errorf("migrating database %s: %w", pgTemplate, err)
+			}
+			return st.Close()
+		}()
+	})
+	return p.templateErr
 }
 
 // startPostgres starts a Postgres container and waits until it accepts SQL.
@@ -114,15 +160,28 @@ func dsn(host, port, database string) string {
 
 var databaseCounter atomic.Int64
 
-// newDatabase creates an empty database on the server and returns its URL.
+// newDatabase creates a database on the server and returns its URL: a copy of
+// the migrated template, so a scenario that only needs the schema skips the
+// migrations. A scenario that exercises migration itself calls newEmptyDatabase.
 func (p *postgresServer) newDatabase(ctx context.Context) (string, error) {
+	if err := p.prepareTemplate(ctx); err != nil {
+		return "", err
+	}
+	return p.createDatabase(ctx, " TEMPLATE "+pgTemplate)
+}
+
+// newEmptyDatabase creates a database with no table in it and returns its URL.
+func (p *postgresServer) newEmptyDatabase(ctx context.Context) (string, error) {
+	return p.createDatabase(ctx, "")
+}
+
+func (p *postgresServer) createDatabase(ctx context.Context, clause string) (string, error) {
 	name := fmt.Sprintf("board_%d_%d", os.Getpid(), databaseCounter.Add(1))
-	db, err := sql.Open("pgx", adminDSN(p.host, p.port))
+	admin, err := p.adminDB()
 	if err != nil {
 		return "", err
 	}
-	defer db.Close()
-	if _, err := db.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
+	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name+clause); err != nil {
 		return "", fmt.Errorf("creating database %s: %w", name, err)
 	}
 	return dsn(p.host, p.port, name), nil
@@ -135,12 +194,11 @@ func (p *postgresServer) dropDatabase(ctx context.Context, databaseURL string) e
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open("pgx", adminDSN(p.host, p.port))
+	admin, err := p.adminDB()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-	_, err = db.ExecContext(ctx, "DROP DATABASE IF EXISTS "+strings.TrimPrefix(u.Path, "/")+" WITH (FORCE)")
+	_, err = admin.ExecContext(ctx, "DROP DATABASE IF EXISTS "+strings.TrimPrefix(u.Path, "/")+" WITH (FORCE)")
 	return err
 }
 
@@ -152,5 +210,8 @@ func (p *postgresServer) stop(ctx context.Context) error {
 
 // terminate removes the container.
 func (p *postgresServer) terminate(ctx context.Context) {
+	if p.admin != nil {
+		_ = p.admin.Close()
+	}
 	_ = p.container.Terminate(ctx, testcontainers.StopTimeout(0)) // the data is in memory and thrown away
 }

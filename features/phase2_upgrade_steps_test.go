@@ -129,7 +129,7 @@ func (t seedTable) allColumns() []string {
 // seedPhase1 builds the schema of the Phase 1 release in the scenario's
 // database, writes the seed and remembers what it reads back.
 func (h *harness) seedAt(ctx context.Context, up *upgradeState, head int64, seed []seedTable) error {
-	if err := h.freshDatabase(); err != nil {
+	if err := h.emptyDatabase(); err != nil {
 		return err
 	}
 	s, err := store.Open(h.dbURL)

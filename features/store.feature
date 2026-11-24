@@ -1,3 +1,4 @@
+@empty-database
 Feature: The store and vh admin migrate
   The binary embeds the goose migrations for the Phase 0 tables. `vh admin
   migrate` applies them, and a database whose schema is newer than the binary is
