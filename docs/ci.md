@@ -9,8 +9,8 @@ the toolchain image and how every command runs in it.
 
 `ci/Dockerfile` builds `board-ci:local`:
 
-- Go on the 1.26.x line, Node 24, and the Playwright 1.64.1 browsers
-  (chromium, firefox, webkit) under `/ms-playwright`;
+- Go on the 1.26.x line, Node 24, and the Playwright 1.64.1 Chromium
+  (only: no firefox, no webkit) under `/ms-playwright`;
 - gotestsum, golangci-lint, govulncheck, gremlins, shellcheck and trivy.
 
 Every `FROM` and every `COPY --from` image is pinned by `@sha256:` digest, and
@@ -913,8 +913,9 @@ Scripts, each run through `ci/run.sh` unless noted:
   (`TestKeptSpecsRunAtThePhone`).
   Playwright runs once and
   the script does not repeat a failed run: a failure fails the suite.
-  `junit-playwright.xml` and the HTML, Allure and JSON output (`playwright/`)
-  land in the results directory, and `ci/summary.sh` counts the JUnit files.
+  `junit-playwright.xml` and the Allure, trace and partial JUnit output (`playwright/`)
+  land in the results directory (the config has no `html` and no `json` reporter: nothing reads `playwright-report/` or `results.json`), and `ci/summary.sh` counts the JUnit files.
+  `ci/suitecheck/reporters_test.go` fails on a config that re-adds an `html` or `json` reporter (or drops one CI reads) and on a `ci/Dockerfile` that installs firefox or webkit.
   `ci/suitecheck/playwright_test.go` pins this: it fails if `retries` is not 0, if
   the config brings back a `webServer`, `globalSetup`, `globalTeardown` or
   `sh serve.sh`, or if the worker-scoped server fixture is dropped.

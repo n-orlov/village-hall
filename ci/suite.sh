@@ -199,7 +199,7 @@ fi
 # under $E2E_OUT. Playwright itself never
 # retries (retries: 0) and neither does this script: the run happens once, and a
 # failure fails the suite. The JUnit file lands at <outdir>/junit-playwright.xml
-# and the HTML, Allure, JSON and trace output in <outdir>/playwright/. A
+# and the Allure, trace and partial JUnit output in <outdir>/playwright/ (no HTML or JSON report). A
 # checkout with no e2e/ (the suitecheck fixtures) skips this step.
 #
 # Overlap (task 018): Playwright (each worker has a server, free port and

@@ -88,7 +88,7 @@ func TestPlaywrightServerProblemFlagsAGlobalServer(t *testing.T) {
 }
 
 // TestPlaywrightConfigNeverRetries is the R11/task 010 probe: the Playwright
-// config in e2e/ sets retries: 0 and carries the five reporters; the real
+// config in e2e/ sets retries: 0 and carries the reporters CI reads (reporters_test.go pins the list); the real
 // binary (not a mock) is started per worker on a free port by the worker
 // fixture, and the config starts no server of its own (task 002, R4).
 func TestPlaywrightConfigNeverRetries(t *testing.T) {
@@ -104,7 +104,7 @@ func TestPlaywrightConfigNeverRetries(t *testing.T) {
 	if problem := playwrightRetriesProblem(cfg); problem != "" {
 		t.Errorf("e2e/playwright.config.ts: %s", problem)
 	}
-	for _, want := range []string{`['html'`, `['list']`, `['allure-playwright'`, `['json'`, `['junit'`} {
+	for _, want := range []string{`['list']`, `['allure-playwright'`, `['junit'`} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("e2e/playwright.config.ts: missing %q", want)
 		}

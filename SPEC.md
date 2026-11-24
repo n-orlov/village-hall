@@ -4075,12 +4075,12 @@ frontend's coverage/CRAP/mutation gates.
 | Unit | `go test` | domain logic (lease state machine, conflicts, attention, dialect SQL builders, ULIDs/refs, identity fallback), with coverage. |
 | API + CLI e2e (behaviour) | Godog feature files (Gherkin), as deck's `features/` | the real binary started on a free port against each database; steps drive the HTTP API and the CLI binary. Scenarios are the product's acceptance tests. |
 | Database matrix | testcontainers-go | every e2e scenario runs against **SQLite and Postgres**; a scenario that passes on one and fails on the other fails the build. `BOARD_DB_LEG=sqlite\|postgres` selects the leg of a `features/` run (SQLite by default); the Postgres leg starts a digest-pinned Postgres 16 container through the docker socket, one database per scenario. A scenario tagged `@postgres` runs on that leg only, and one tagged `@dedicated-database` gets a private container it may stop (the `/readyz` 503 case). `ci/suite.sh` runs both legs, writes one JUnit per leg and fails on a scenario that disagrees between them. |
-| UI e2e | Playwright (TypeScript), s3-browser's reporter set (html, list, allure-playwright, json, junit) and its rule of **no retries in Playwright** (and none in `ci/suite.sh` either: a flaky spec fails the suite) | the embedded UI against a seeded server: attention actions, timeline rendering and filters, notes board, archive window, SSE live updates, Swagger UI reachable. Screenshots on failure. |
+| UI e2e | Playwright (TypeScript), the reporters CI reads (list, allure-playwright, junit, and the partial JUnit and run-directory reporters; no html and no json, nothing reads `playwright-report/` or `results.json`) and its rule of **no retries in Playwright** (and none in `ci/suite.sh` either: a flaky spec fails the suite) | the embedded UI against a seeded server: attention actions, timeline rendering and filters, notes board, archive window, SSE live updates, Swagger UI reachable. Screenshots on failure. |
 | Frontend unit | Vitest + `@vitest/coverage-v8` | stores, API client wrappers, timeline data shaping. |
 | Performance | `ci/perf.sh` (`ci/perf`, build tag `perf`) | §14, the Perf unit of the extended lane (after the Stability phase). |
 
 The Playwright layer lives in `e2e/` (own `package.json`, exact pins). `e2e/playwright.config.ts`
-sets `retries: 0` and the five reporters and starts no server (no `webServer`, `globalSetup` or
+sets `retries: 0` and those reporters and starts no server (no `webServer`, `globalSetup` or
 `globalTeardown`): each Playwright worker starts the real binary on a free port of its own through
 `e2e/serve.sh` (run by `e2e/worker-server.ts`), which builds the checkout's `vh` binary, migrates a
 fresh temporary SQLite store and serves on that port with the embedded UI; the worker then mints its

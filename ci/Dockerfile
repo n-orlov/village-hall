@@ -32,14 +32,15 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack
 
-# Playwright 1.64.1 browsers (and their system libraries) in a fixed path every
+# Playwright 1.64.1 Chromium (and its system libraries; no Firefox, no WebKit: every project and every web/ test uses
+# chromium) in a fixed path every
 # user can read. The playwright package used here only installs the browsers:
 # web/ and e2e/ pin the same version in their own package.json.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN mkdir -p /tmp/pw && cd /tmp/pw \
     && npm init -y >/dev/null \
     && npm install --no-audit --no-fund playwright@1.64.1 \
-    && npx playwright install --with-deps chromium firefox webkit \
+    && npx playwright install --with-deps chromium \
     && chmod -R a+rX /ms-playwright \
     && rm -rf /tmp/pw /root/.npm /var/lib/apt/lists/*
 

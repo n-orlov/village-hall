@@ -32,11 +32,12 @@ export default defineConfig({
   // repeat a failed run either.
   retries: 0,
   workers: e2eWorkers,
+  // Only the reporters something in CI reads: list for the log, allure-playwright for the Allure report, junit for
+  // junit-playwright.xml (Quality and the build report), the partial one for a cut run, and the run-directory cleanup.
+  // No html and no json: nothing reads playwright-report/ or results.json, and each costs time at the end of a run.
   reporter: [
-    ['html', { outputFolder: `${out}/playwright-report`, open: 'never' }],
     ['list'],
     ['allure-playwright', { resultsDir: `${out}/allure-results` }],
-    ['json', { outputFile: `${out}/results.json` }],
     ['junit', { outputFile: `${out}/junit.xml` }],
     // The tests finished so far, rewritten as they end: what a run cut by its bound leaves (partial-junit-reporter.ts).
     ['./partial-junit-reporter.ts', { outputFile: `${out}/junit-partial.xml` }],
