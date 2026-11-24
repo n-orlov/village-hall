@@ -115,7 +115,9 @@
 // ci/run.sh passes as docker run --cpus and ci/image-build.sh as its BuildKit
 // container's cpu-quota, so the Core phase cannot run the agent's 12 hardware
 // threads past a load of 12 (an uncapped cold Go build ran 25-30 threads). The
-// four largest caps sum to 12 (ci/repocheck/cpucap_test.go); empty is no cap.
+// four largest caps sum to 11 (ci/repocheck/cpucap_test.go); empty is no cap. Image
+// holds 1 CPU: at 2 its two cross-compiles ran 8 compile threads in the third minute
+// and one load row passed 12.
 //
 // Playwright workers (R6, task 010): E2E_WORKERS below, 2, at most 3 (ci/suitecheck
 // pins it). It is exported as BOARD_E2E_WORKERS to ci/suite.sh, which hands it
@@ -902,7 +904,7 @@ pipeline {
           // its own (ci/repocheck imagebuildonce_test.go). It also unstashes the Web UI
           // unit's build, so the dry run's release binaries embed it and build no UI
           // (ci/release-build.sh); only the Dockerfile builds the UI again.
-          units << [name: 'Image', minutes: 30, cpus: 2, signal: 'Image', after: 'Web UI', needs: ['web-dist'],
+          units << [name: 'Image', minutes: 30, cpus: 1, signal: 'Image', after: 'Web UI', needs: ['web-dist'],
                     body: {
                       int rc = sh(returnStatus: true, script: 'ci/image-build.sh "$BOARD_CI_OUT/board-image.tar" && ci/image-check.sh "$BOARD_CI_OUT"')
                       if (rc != 0) {

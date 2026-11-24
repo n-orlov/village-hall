@@ -260,7 +260,7 @@ named the owners: the Image unit's two cross-compiles of the Dockerfile
 (10 runnable threads, load 12.4); earlier push builds ran 25-30 in their first
 minutes, every Core unit compiling a cold Go cache at the same time. Every Core
 unit therefore runs under a CPU cap, the `cpus:` field of its entry in the
-`Jenkinsfile` (Lint 2, Web UI 2, Suite 4, E2E 3, Image 2, Allure smoke 1, Quality
+`Jenkinsfile` (Lint 2, Web UI 2, Suite 4, E2E 3, Image 1, Allure smoke 1, Quality
 4): the attempt exports it as `BOARD_CI_CPUS`, `ci/run.sh` turns it into
 `docker run --cpus` (the kernel throttles the container's threads at that many
 CPUs, and a throttled thread is not runnable, so it adds nothing to the load
@@ -269,8 +269,12 @@ average), and `ci/image-build.sh` gives its BuildKit container the same quota
 build` calls as the Dockerfile's `GOMAXPROCS` build arg, because a BuildKit step
 cgroup hides the quota from Go and the two cross-compiles otherwise ran 28 runnable
 compile threads in #310's first minutes (load 22; the Godog phase stayed at 8-10).
-The four largest caps sum to 12,
-the agent's four executors' worst case. Postgres testcontainers start outside the
+The four largest caps sum to 11,
+the agent's four executors' worst case. Image holds 1 CPU, not 2: at 2 its two
+cross-compiles still ran about 8 compile threads in the build's third minute, beside
+Suite's and E2E's first compiles, and one load row crossed 12; at 1 each compile has
+one thread (`GOMAXPROCS=1`) and the Image unit, off the critical path, takes a few
+minutes longer. Postgres testcontainers start outside the
 cap. Empty or unset means no cap (a local run, the mutation and stability units).
 `ci/repocheck/cpucap_test.go` pins the caps, their sum, the export, `ci/run.sh`'s
 `--cpus` and the BuildKit quota. A cap lengthens the unit it holds: the units'

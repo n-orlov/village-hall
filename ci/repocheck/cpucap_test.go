@@ -72,7 +72,7 @@ func TestEveryCoreUnitRunsUnderACPUCapThatFitsTheAgent(t *testing.T) {
 	expectProblems(t, jf, cpuCapProblems, map[string]string{
 		"a Suite without a cap":        replaceOnce(t, jf, "minutes: nightly ? 120 : 45, cpus: 4,", "minutes: nightly ? 120 : 45,"),
 		"an E2E without a cap":         replaceOnce(t, jf, "name: 'E2E', minutes: 40, cpus: 3,", "name: 'E2E', minutes: 40,"),
-		"an Image without a cap":       replaceOnce(t, jf, "name: 'Image', minutes: 30, cpus: 2,", "name: 'Image', minutes: 30,"),
+		"an Image without a cap":       replaceOnce(t, jf, "name: 'Image', minutes: 30, cpus: 1,", "name: 'Image', minutes: 30,"),
 		"a Quality without a cap":      replaceOnce(t, jf, "name: 'Quality', minutes: 30, cpus: 4,", "name: 'Quality', minutes: 30,"),
 		"caps that sum past the agent": replaceOnce(t, jf, "name: 'E2E', minutes: 40, cpus: 3,", "name: 'E2E', minutes: 40, cpus: 9,"),
 		"a cap never exported":         replaceOnce(t, jf, `"BOARD_CI_CPUS=${u.cpus ?: ''}"`, `"BOARD_CI_NOTHING=1"`),
