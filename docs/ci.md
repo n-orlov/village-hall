@@ -653,7 +653,9 @@ junit fails too. A budget is only ever lowered. `ci/pkgtime/main_test.go` feeds 
 junit fixtures with `internal/server` at the budget (pass) and one second over (fail).
 To stay inside it, `internal/server`'s ask-wait tests run with sub-second windows
 (`WithAskWaitUnit`, the test hook that shortens a second of `?wait=` in a test rig)
-and its answer-cannot-be-stored cases run as parallel subtests.
+and its answer-cannot-be-stored cases run as parallel subtests. Its Postgres leg
+migrates one template database per container and creates each test's database from
+it (`CREATE DATABASE ... TEMPLATE`), so no test pays 23 migrations of its own.
 
 ## Pipeline tools and scripts
 

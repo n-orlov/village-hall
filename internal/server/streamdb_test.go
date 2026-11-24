@@ -17,6 +17,8 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/n-orlov/village-hall/internal/store"
 )
 
 // postgresImage is the same pinned image the features' Postgres leg runs.
@@ -59,9 +61,11 @@ func onPostgres(t *testing.T, fn func(t *testing.T, dbs *postgresDatabases)) {
 	}
 }
 
-// databases hands out empty databases of one leg.
+// databases hands out databases of one leg.
 type databases interface {
-	// New returns the URL of an empty database.
+	// New returns the URL of a database a test may Migrate: empty on SQLite,
+	// and on Postgres a copy of a database the binary's migrations are already
+	// applied to, which Migrate leaves as it is.
 	New(t *testing.T) string
 }
 
@@ -77,7 +81,13 @@ func (sqliteDatabases) New(t *testing.T) string {
 type postgresDatabases struct {
 	host, port string
 	count      atomic.Int64
+	admin      *sql.DB // one pool on the admin database, shared by every New and drop
 }
+
+// pgTemplate is the database the container's migrations are applied to once, and
+// every test's database is created from: CREATE DATABASE ... TEMPLATE copies its
+// files in a few milliseconds where migrating an empty database takes ~0.2 s.
+const pgTemplate = "board_template"
 
 const (
 	pgUser     = "board"
@@ -179,18 +189,41 @@ func runPostgres() (*postgresDatabases, func(), error) {
 		terminate()
 		return nil, nil, err
 	}
-	return &postgresDatabases{host: host, port: port.Port()}, terminate, nil
+	p := &postgresDatabases{host: host, port: port.Port()}
+	if err := p.prepare(ctx); err != nil {
+		terminate()
+		return nil, nil, err
+	}
+	return p, func() { _ = p.admin.Close(); terminate() }, nil
+}
+
+// prepare opens the shared admin pool and builds the template database: created,
+// migrated and closed again, since a database with a session on it cannot be
+// copied.
+func (p *postgresDatabases) prepare(ctx context.Context) error {
+	admin, err := sql.Open("pgx", pgDSN(p.host, p.port, pgAdminDB))
+	if err != nil {
+		return err
+	}
+	p.admin = admin
+	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+pgTemplate); err != nil {
+		return fmt.Errorf("creating database %s: %w", pgTemplate, err)
+	}
+	st, err := store.Open(pgDSN(p.host, p.port, pgTemplate))
+	if err != nil {
+		return fmt.Errorf("opening database %s: %w", pgTemplate, err)
+	}
+	if err := st.Migrate(ctx); err != nil {
+		_ = st.Close()
+		return fmt.Errorf("migrating database %s: %w", pgTemplate, err)
+	}
+	return st.Close()
 }
 
 func (p *postgresDatabases) New(t *testing.T) string {
 	t.Helper()
 	name := fmt.Sprintf("board_%d_%d", os.Getpid(), p.count.Add(1))
-	db, err := sql.Open("pgx", pgDSN(p.host, p.port, pgAdminDB))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(context.Background(), "CREATE DATABASE "+name); err != nil {
+	if _, err := p.admin.ExecContext(context.Background(), "CREATE DATABASE "+name+" TEMPLATE "+pgTemplate); err != nil {
 		t.Fatalf("creating database %s: %v", name, err)
 	}
 	// registered before the test opens its store, so it runs after the store
@@ -202,13 +235,7 @@ func (p *postgresDatabases) New(t *testing.T) string {
 // drop removes the database name, so the in-memory data directory holds only
 // the databases of the tests running now.
 func (p *postgresDatabases) drop(t *testing.T, name string) {
-	db, err := sql.Open("pgx", pgDSN(p.host, p.port, pgAdminDB))
-	if err != nil {
-		t.Errorf("dropping database %s: %v", name, err)
-		return
-	}
-	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(context.Background(), "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
+	if _, err := p.admin.ExecContext(context.Background(), "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
 		t.Errorf("dropping database %s: %v", name, err)
 	}
 }
