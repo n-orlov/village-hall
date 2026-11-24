@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,15 +41,26 @@ func onPostgres(t *testing.T, fn func(t *testing.T)) {
 	}
 }
 
-// startPostgres starts a Postgres container through the docker socket the way
-// features/postgres_test.go does and returns the URL of an empty database. It
-// fails on BOARD_DB_LEG=sqlite, so no SQLite-leg run starts a container.
-func startPostgres(t *testing.T) string {
-	t.Helper()
-	if leg := strings.TrimSpace(os.Getenv("BOARD_DB_LEG")); leg == "sqlite" {
-		t.Fatal("startPostgres on BOARD_DB_LEG=sqlite: run the test through onPostgres")
-	}
-	ctx := context.Background()
+var (
+	pgOnce      sync.Once
+	pgContainer testcontainers.Container
+	pgHost      string
+	pgPort      string
+	pgErr       error
+	pgDatabases atomic.Int64
+)
+
+func pgDSN(host, port, db string) string {
+	u := url.URL{Scheme: "postgres", User: url.UserPassword("board", "board-test"), Host: host + ":" + port, Path: "/" + db, RawQuery: "sslmode=disable&connect_timeout=5"}
+	return u.String()
+}
+
+// startContainer starts the package's one Postgres container through the docker
+// socket the way features/postgres_test.go does, with its data directory in
+// memory. It runs once per test process; closePostgres removes the container.
+func startContainer() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
 	_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 	if host := strings.TrimSpace(os.Getenv("BOARD_CI_DOCKER_HOST")); host != "" {
 		_ = os.Setenv("TESTCONTAINERS_HOST_OVERRIDE", host)
@@ -56,33 +69,69 @@ func startPostgres(t *testing.T) string {
 	if id := strings.TrimSpace(os.Getenv("BOARD_CI_RUN_ID")); id != "" {
 		labels["ralphd.run"] = id
 	}
-	dsn := func(host, port, db string) string {
-		u := url.URL{Scheme: "postgres", User: url.UserPassword("board", "board-test"), Host: host + ":" + port, Path: "/" + db, RawQuery: "sslmode=disable&connect_timeout=5"}
-		return u.String()
-	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{Started: true, ContainerRequest: testcontainers.ContainerRequest{
 		Image:        postgresImage,
 		ExposedPorts: []string{"5432/tcp"},
-		Env:          map[string]string{"POSTGRES_USER": "board", "POSTGRES_PASSWORD": "board-test", "POSTGRES_DB": "board"},
+		Env:          map[string]string{"POSTGRES_USER": "board", "POSTGRES_PASSWORD": "board-test", "POSTGRES_DB": "postgres"},
+		Tmpfs:        map[string]string{"/var/lib/postgresql/data": "rw"},
 		Labels:       labels,
-		WaitingFor: wait.ForSQL("5432/tcp", "pgx", func(host string, port network.Port) string { return dsn(host, port.Port(), "board") }).
+		WaitingFor: wait.ForSQL("5432/tcp", "pgx", func(host string, port network.Port) string { return pgDSN(host, port.Port(), "postgres") }).
 			WithStartupTimeout(90 * time.Second),
 	}})
 	if c != nil {
-		t.Cleanup(func() { _ = c.Terminate(context.Background()) })
+		pgContainer = c
 	}
 	if err != nil {
-		t.Fatalf("starting Postgres through the docker socket: %v", err)
+		return fmt.Errorf("starting Postgres through the docker socket: %w", err)
 	}
-	host, err := c.Host(ctx)
+	if pgHost, err = c.Host(ctx); err != nil {
+		return err
+	}
+	mapped, err := c.MappedPort(ctx, "5432/tcp")
+	if err != nil {
+		return err
+	}
+	pgPort = mapped.Port()
+	return nil
+}
+
+// closePostgres removes the container, if one was started; TestMain calls it
+// once the package's tests have ended.
+func closePostgres() {
+	if pgContainer != nil {
+		_ = pgContainer.Terminate(context.Background(), testcontainers.StopTimeout(0))
+	}
+}
+
+// startPostgres returns the URL of a new empty database on the package's one
+// Postgres container, starting the container on first use, and drops the
+// database when the test ends. It fails on BOARD_DB_LEG=sqlite, so no
+// SQLite-leg run starts a container.
+func startPostgres(t *testing.T) string {
+	t.Helper()
+	if leg := strings.TrimSpace(os.Getenv("BOARD_DB_LEG")); leg == "sqlite" {
+		t.Fatal("startPostgres on BOARD_DB_LEG=sqlite: run the test through onPostgres")
+	}
+	pgOnce.Do(func() { pgErr = startContainer() })
+	if pgErr != nil {
+		t.Fatal(pgErr)
+	}
+	admin, err := sql.Open("pgx", pgDSN(pgHost, pgPort, "postgres"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	port, err := c.MappedPort(ctx, "5432/tcp")
-	if err != nil {
-		t.Fatal(err)
+	defer func() { _ = admin.Close() }()
+	name := fmt.Sprintf("feed_%d_%d", os.Getpid(), pgDatabases.Add(1))
+	if _, err := admin.ExecContext(context.Background(), "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("creating database %s: %v", name, err)
 	}
-	return dsn(host, port.Port(), "board")
+	t.Cleanup(func() {
+		if db, err := sql.Open("pgx", pgDSN(pgHost, pgPort, "postgres")); err == nil {
+			_, _ = db.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+			_ = db.Close()
+		}
+	})
+	return pgDSN(pgHost, pgPort, name)
 }
 
 func openPostgres(t *testing.T, url string) *store.Store {

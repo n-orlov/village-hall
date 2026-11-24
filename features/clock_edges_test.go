@@ -48,16 +48,7 @@ func TestExpiryAndOverdueAgreeAtTheClockEdges(t *testing.T) {
 		checkClockEdges(ctx, t, st)
 	})
 	t.Run("postgres", func(t *testing.T) {
-		server, err := startPostgres(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { server.terminate(context.Background()) })
-		url, err := server.newEmptyDatabase(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		st, err := store.Open(url)
+		st, err := store.Open(emptyDatabaseOn(ctx, t))
 		if err != nil {
 			t.Fatal(err)
 		}

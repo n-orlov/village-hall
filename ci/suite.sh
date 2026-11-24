@@ -1,6 +1,6 @@
 #!/bin/sh
 # ci/suite.sh — the CI suite runner (R145): drives the whole test matrix
-# (`go test -p=1 -count=1 ./...`: pass 1 is every test function in every
+# (`go test -count=1 ./...`: pass 1 is every test function in every
 # package except features/TestFeatures, pass 2 is TestFeatures) through
 # gotestsum, fetched at a
 # pinned version rather than vendored or added to go.mod (`go run
@@ -8,6 +8,16 @@
 # place the version is bumped and ci/Dockerfile never needs to know
 # gotestsum exists. It writes standard JUnit for the ordinary Go package
 # matrix and Godog's own JUnit for features/.
+#
+# Package parallelism (task 026, R9 f): pass 1 runs `go test -p=2`, so two
+# packages' tests run at once and the pass takes about the longest packages'
+# time rather than the sum of all of them. The value is set once, as
+# unit_package_parallelism below, and is 2 or 3, never more
+# (ci/suitecheck/unitparallel_test.go fails on a 4). Each package that needs a
+# Postgres starts one container of its own, shared by that package's tests, so
+# pass 1 holds at most two at a time. Pass 2 stays at `-p=1`: it is the one
+# package, and ci/stability.sh keeps `-p=1` too, because its sub-second SQLite
+# deadlines must not be loaded beside another package.
 #
 # No retries (task 003, R3): Vitest, Playwright, the Go package matrix and
 # features/TestFeatures (once per database leg) each run exactly once, with no
@@ -349,6 +359,8 @@ esac
 # worst case, without touching a single scenario's own deadline.
 features_test_timeout=${BOARD_CI_FEATURES_TEST_TIMEOUT:-25m}
 unit_test_timeout=${BOARD_CI_UNIT_TEST_TIMEOUT:-15m}
+# unit_package_parallelism is the `-p` of pass 1 (the header says why); 2 or 3.
+unit_package_parallelism=2
 
 # Scrub leaked BOARD_* environment (task 002, R187): every BOARD_CI_* setting
 # this script itself reads has already been captured into a shell variable
@@ -401,7 +413,7 @@ if [ -n "$pkgs" ]; then
         --format testname \
         --junitfile "$go_junit" \
         --packages "$pkgs" \
-        -- -p=1 -count=1 -skip '^TestFeatures$' "-timeout=$unit_test_timeout" "-covermode=$covermode" -cover -coverpkg=./... $go_extra_flags -args "-test.gocoverdir=$unit_covdir" \
+        -- "-p=$unit_package_parallelism" -count=1 -skip '^TestFeatures$' "-timeout=$unit_test_timeout" "-covermode=$covermode" -cover -coverpkg=./... $go_extra_flags -args "-test.gocoverdir=$unit_covdir" \
         || go_status=$?
 
     if [ "$go_status" -ne 0 ]; then

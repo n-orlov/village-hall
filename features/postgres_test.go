@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // the driver the Postgres leg's admin connection uses
@@ -99,6 +100,50 @@ func (p *postgresServer) prepareTemplate(ctx context.Context) error {
 		}()
 	})
 	return p.templateErr
+}
+
+var (
+	sharedOnce   sync.Once
+	sharedServer *postgresServer
+	sharedErr    error
+)
+
+// sharedPostgres is the one Postgres container of this test process, started on
+// first use: TestFeatures' Postgres leg and every Go test of the package that
+// needs a Postgres take a database from it (emptyDatabaseOn) instead of each
+// starting a container, and TestMain removes it when the package's tests end.
+// Only a scenario tagged @dedicated-database starts a container of its own,
+// because it stops the database.
+func sharedPostgres() (*postgresServer, error) {
+	sharedOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		sharedServer, sharedErr = startPostgres(ctx)
+	})
+	return sharedServer, sharedErr
+}
+
+// closeSharedPostgres removes the shared container, if one was started.
+func closeSharedPostgres() {
+	if sharedServer != nil {
+		sharedServer.terminate(context.Background())
+	}
+}
+
+// emptyDatabaseOn returns the URL of a database with no table in it on the
+// shared container, and drops it when the test ends.
+func emptyDatabaseOn(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	server, err := sharedPostgres()
+	if err != nil {
+		t.Fatal(err)
+	}
+	url, err := server.newEmptyDatabase(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.dropDatabase(context.Background(), url) })
+	return url
 }
 
 // startPostgres starts a Postgres container and waits until it accepts SQL.

@@ -21,15 +21,7 @@ import (
 func TestTwoStoresOnOnePostgresExpireALeaseOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	server, err := startPostgres(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { server.terminate(context.Background()) })
-	url, err := server.newEmptyDatabase(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	url := emptyDatabaseOn(ctx, t)
 	open := func() *store.Store {
 		st, err := store.Open(url)
 		if err != nil {

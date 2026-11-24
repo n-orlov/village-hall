@@ -1,7 +1,6 @@
 package features
 
 import (
-	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -86,11 +85,10 @@ func TestFeatures(t *testing.T) {
 	bin := buildBoard(t)
 	var shared *postgresServer
 	if leg == "postgres" {
-		server, err := startPostgres(context.Background())
+		server, err := sharedPostgres()
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { server.terminate(context.Background()) })
 		shared = server
 	}
 	failed := false

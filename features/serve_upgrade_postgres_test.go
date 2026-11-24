@@ -20,15 +20,7 @@ import (
 func TestTwoServersStartedTogetherOnOnePostgresReopenATaskOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	pg, err := startPostgres(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { pg.terminate(context.Background()) })
-	url, err := pg.newEmptyDatabase(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	url := emptyDatabaseOn(ctx, t)
 	if err := seedDoneTaskWithLease(ctx, url, "claude@laptop", false); err != nil {
 		t.Fatal(err)
 	}
@@ -92,15 +84,7 @@ func waitListening(t *testing.T, addr string, logs *bytes.Buffer) {
 func TestTwoServersStartedTogetherOnOnePostgresCreateOneInbox(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	pg, err := startPostgres(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { pg.terminate(context.Background()) })
-	url, err := pg.newEmptyDatabase(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	url := emptyDatabaseOn(ctx, t)
 	st, err := store.Open(url)
 	if err != nil {
 		t.Fatal(err)

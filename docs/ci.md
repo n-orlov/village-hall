@@ -74,7 +74,14 @@ the host daemon, not a child of it:
   migrates a database of its own for its set-up. A scenario that exercises the
   migrations gets an empty database instead: one tagged `@empty-database`, or
   one whose step seeds an older schema (`MigrateTo`) or records a schema
-  version. A scenario tagged `@dedicated-database` gets a container of its own
+  version. The Go tests of `features/` that need a Postgres of their own
+  (`clock_edges_test.go`, `lease_expiry_postgres_test.go`,
+  `serve_upgrade_postgres_test.go`) take an empty database from that same
+  container (`sharedPostgres` and `emptyDatabaseOn` in `features/postgres_test.go`,
+  started on first use and removed by the package's `TestMain`), and
+  `internal/feed`'s two-feeds test takes one from the package's own container
+  (`startPostgres` in `internal/feed/postgres_test.go`, `TestMain` the same), so
+  no test starts a container for itself. A scenario tagged `@dedicated-database` gets a container of its own
   with an empty database, so that `the database is stopped` cannot disturb
   another scenario. A scenario tagged
   `@postgres` runs on the Postgres leg only (the SQLite leg runs `~@postgres`).
@@ -873,8 +880,14 @@ Scripts, each run through `ci/run.sh` unless noted:
   default: everything; `skip`: all but Playwright, the Jenkins Suite unit; `only`:
   the web build and Playwright, the Jenkins E2E unit; anything else is refused);
   `ci/suitecheck/playwrightmode_test.go` runs the real script in each mode.
-  `go test -p=1 -count=1 ./...` through gotestsum in two passes
-  (every package but `features/TestFeatures`, then `TestFeatures`), with
+  `go test -count=1 ./...` through gotestsum in two passes
+  (every package but `features/TestFeatures`, then `TestFeatures`). The first pass
+  runs `-p=2`, two packages at once (`unit_package_parallelism`, set once in the
+  script and documented in its header: 2 or 3, never more; each package that needs
+  a Postgres has one container for all its tests, so the pass holds at most two);
+  the `TestFeatures` pass, and `ci/stability.sh`, stay at `-p=1`.
+  `ci/suitecheck/unitparallel_test.go` pins the one source, the limit of 3 (it
+  fails on a doctored 4) and the features pass at 1. There are
   no retries: Vitest, Playwright, the Go package matrix and `features/TestFeatures`
   (once per database leg) each run once, with no repeat, no `gotestsum
   --rerun-fails` and no per-scenario Godog rerun, and a failure in any of the four
