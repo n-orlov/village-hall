@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,10 +50,11 @@ func newKeyServer(t *testing.T) *keyServer {
 // newKeyServerOfBuild is newKeyServer reporting build b.
 func newKeyServerOfBuild(t *testing.T, b Build) *keyServer {
 	t.Helper()
-	return newKeyServerOn(t, "sqlite://"+filepath.Join(t.TempDir(), "b.db"), b)
+	return newKeyServerOn(t, migratedSQLiteURL(t), b)
 }
 
-// newKeyServerOn is newKeyServer over the empty database at url.
+// newKeyServerOn is newKeyServer over the database at url, empty or already
+// migrated (databases.New and migratedSQLiteURL hand out migrated copies).
 func newKeyServerOn(t *testing.T, url string, b Build) *keyServer {
 	t.Helper()
 	st := openStore(t, url)

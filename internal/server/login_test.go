@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +50,7 @@ const publicURL = "https://board.example.test"
 
 func newLogin(t *testing.T, id *fakeIdentity) *Login {
 	t.Helper()
-	st, err := store.Open("sqlite://" + filepath.Join(t.TempDir(), "b.db"))
+	st, err := store.Open(migratedSQLiteURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

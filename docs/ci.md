@@ -734,7 +734,10 @@ slot of `go test -parallel` and no CPU, so the package's `TestMain` gives it two
 slots per CPU unless the caller named `-parallel` (`ci/stability.sh` at
 `-parallel=1` stays serial). Its Postgres leg
 migrates one template database per container and creates each test's database from
-it (`CREATE DATABASE ... TEMPLATE`), so no test pays 23 migrations of its own.
+it (`CREATE DATABASE ... TEMPLATE`), and its SQLite leg migrates one template file
+per test binary and writes each test a copy of it (`migratedSQLiteURL`), so no test
+pays 23 migrations of its own: on SQLite those cost ~16 ms, and ~200 ms under
+`-race`, where the pure-Go driver is instrumented.
 
 ## Pipeline tools and scripts
 

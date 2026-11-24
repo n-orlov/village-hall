@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +29,7 @@ type sessionServer struct {
 
 func newSessionServer(t *testing.T) *sessionServer {
 	t.Helper()
-	st, err := store.Open("sqlite://" + filepath.Join(t.TempDir(), "b.db"))
+	st, err := store.Open(migratedSQLiteURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}

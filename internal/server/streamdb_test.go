@@ -66,9 +66,9 @@ func onPostgres(t *testing.T, fn func(t *testing.T, dbs *postgresDatabases)) {
 
 // databases hands out databases of one leg.
 type databases interface {
-	// New returns the URL of a database a test may Migrate: empty on SQLite,
-	// and on Postgres a copy of a database the binary's migrations are already
-	// applied to, which Migrate leaves as it is.
+	// New returns the URL of a database a test may Migrate: on either leg a
+	// copy of a database the binary's migrations are already applied to, which
+	// Migrate leaves as it is.
 	New(t *testing.T) string
 }
 
@@ -76,7 +76,69 @@ type sqliteDatabases struct{}
 
 func (sqliteDatabases) New(t *testing.T) string {
 	t.Helper()
-	return "sqlite://" + filepath.Join(t.TempDir(), "b.db")
+	return migratedSQLiteURL(t)
+}
+
+// sqliteTemplate is the file image of one SQLite database the binary's
+// migrations are applied to, once per test binary; migratedSQLiteURL writes a
+// copy of it for each test. It is the SQLite leg's counterpart of pgTemplate:
+// migrating an empty SQLite database takes ~16 ms, and ~200 ms under -race
+// (the driver is pure Go, so the detector instruments every page it touches),
+// where writing the image takes well under a millisecond.
+var sqliteTemplate struct {
+	once  sync.Once
+	files map[string][]byte // "b.db", plus "b.db-wal" when the close left one
+	err   error
+}
+
+// migratedSQLiteURL returns the URL of a fresh SQLite database in t's temp dir,
+// a copy of sqliteTemplate: Migrate on it applies nothing, the way it applies
+// nothing on a Postgres database created from pgTemplate.
+func migratedSQLiteURL(t *testing.T) string {
+	t.Helper()
+	sqliteTemplate.once.Do(func() { sqliteTemplate.files, sqliteTemplate.err = buildSQLiteTemplate() })
+	if sqliteTemplate.err != nil {
+		t.Fatalf("SQLite template: %v", sqliteTemplate.err)
+	}
+	dir := t.TempDir()
+	for name, image := range sqliteTemplate.files {
+		if err := os.WriteFile(filepath.Join(dir, name), image, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return "sqlite://" + filepath.Join(dir, "b.db")
+}
+
+// buildSQLiteTemplate migrates an empty SQLite database, closes it and reads
+// back its files.
+func buildSQLiteTemplate() (map[string][]byte, error) {
+	dir, err := os.MkdirTemp("", "board-server-sqlite-template-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	path := filepath.Join(dir, "b.db")
+	st, err := store.Open("sqlite://" + path)
+	if err != nil {
+		return nil, err
+	}
+	if err := st.Migrate(context.Background()); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	if err := st.Close(); err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{}
+	for _, name := range []string{"b.db", "b.db-wal"} {
+		image, err := os.ReadFile(filepath.Join(dir, name))
+		if err == nil {
+			files[name] = image
+		} else if name == "b.db" || !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	return files, nil
 }
 
 // postgresDatabases is one Postgres container started through the docker socket

@@ -121,7 +121,7 @@ func TestAttentionSectionsAreEmptyListsNotNull(t *testing.T) {
 
 func attentionOpsOnEmptyBoard(t *testing.T) attentionOps {
 	t.Helper()
-	st, err := store.Open("sqlite://" + filepath.Join(t.TempDir(), "b.db"))
+	st, err := store.Open(migratedSQLiteURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
