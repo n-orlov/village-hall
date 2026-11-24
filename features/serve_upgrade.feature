@@ -1,3 +1,4 @@
+@serve-upgrade
 Feature: Starting the server on a Phase 2 database
   A task is never done while it holds a live lease (R14), but a Phase 2 database
   can hold one. `vh serve` reopens each such done task when it starts: the

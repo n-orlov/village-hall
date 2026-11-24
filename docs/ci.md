@@ -70,6 +70,16 @@ the host daemon, not a child of it:
   with an empty database, so that `the database is stopped` cannot disturb
   another scenario. A scenario tagged
   `@postgres` runs on the Postgres leg only (the SQLite leg runs `~@postgres`).
+- scenarios run concurrently: `TestFeatures` builds a harness for each scenario
+  (its own temporary directory, free port, server and database) and runs the
+  default Godog suite `godogConcurrency` (4) scenarios at a time, the number set
+  once in `features/godog_test.go`. The scenarios tagged `@dedicated-database`
+  and `@serve-upgrade` (every scenario of `serve_upgrade.feature`) are left out
+  of that suite and run after it in a second suite of one scenario at a time.
+  Godog's JUnit formatter writes one file per suite, so the second suite's
+  scenarios are in `junit-features-serial.xml`, which `ci/suite.sh` merges with
+  `junit-features.xml`. `ci/suitecheck` fails when the default suite's
+  concurrency is not above 1, or when either exclusion is dropped from it.
 
 `ci/suite.sh` runs the `features/` pass once per leg of `BOARD_CI_DB_LEGS`
 (default `sqlite postgres`; SQLite is always first and keeps the file names it

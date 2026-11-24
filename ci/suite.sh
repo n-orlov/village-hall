@@ -85,6 +85,15 @@
 # them on stderr; a failure with no such summary is a whole-process abort (go
 # test's -timeout alarm, a crash) and gets an explicit failed TestFeatures
 # marker in the report input. Nothing is run a second time.
+#
+# Concurrent scenarios (task 023, R9 c): TestFeatures builds a harness for each
+# scenario and runs the default Godog suite godogConcurrency scenarios at once
+# (features/godog_test.go sets the number, ci/suitecheck pins it above 1). The
+# scenarios tagged @dedicated-database (a Postgres container of their own) and
+# @serve-upgrade (serve_upgrade.feature) run afterwards in a second suite of one
+# scenario at a time. Godog's JUnit formatter writes its whole file per suite,
+# so the second suite's file is junit-features-serial.xml beside
+# junit-features.xml, and both are merged into junit-merged/junit-features.xml.
 set -eu
 
 GOTESTSUM_VERSION=${GOTESTSUM_VERSION:-v1.13.0}
@@ -406,6 +415,7 @@ fi
 
 # --- 2. features/TestFeatures: one run per database leg, no rerun ---
 features_junit="$outdir/junit-features.xml"
+features_junit_serial="$outdir/junit-features-serial.xml"
 # allure_dir (task 005, R195/R196): the one Allure results directory of this
 # run. The SQLite leg's features/ invocation below gets
 # BOARD_GODOG_ALLURE=<this dir>, so features/'s own formatter writes native
@@ -659,7 +669,7 @@ merge_junit "$merged_dir/junit-go.xml" "$go_junit" || true
 features_merged="$merged_dir/junit-features.xml"
 features_merge_ok=0
 if [ -s "$features_junit" ]; then
-    if merge_junit "$features_merged" "$features_junit"; then
+    if merge_junit "$features_merged" "$features_junit" "$features_junit_serial"; then
         features_merge_ok=1
     fi
 fi
