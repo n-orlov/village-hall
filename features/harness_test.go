@@ -133,8 +133,10 @@ type harness struct {
 
 	server *exec.Cmd
 	addr   string
-	dir    string
-	dbURL  string
+	// releaseAddr gives addr back to reserveListenAddr once server is stopped.
+	releaseAddr func()
+	dir         string
+	dbURL       string
 
 	// shared is the Postgres every scenario of the run gets a database on
 	// (nil on the SQLite leg). own is a container private to the running
@@ -244,12 +246,15 @@ func (h *harness) startServerWithVar(ctx context.Context, name, value string) (c
 }
 
 func (h *harness) startServerWith(ctx context.Context, extra ...string) (context.Context, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if h.releaseAddr != nil { // a restart: the server that held the old address has ended
+		h.releaseAddr()
+		h.releaseAddr = nil
+	}
+	addr, release, err := reserveListenAddr()
 	if err != nil {
 		return ctx, err
 	}
-	h.addr = "127.0.0.1:" + strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	_ = ln.Close()
+	h.addr, h.releaseAddr = addr, release
 	if err := h.freshDatabase(); err != nil {
 		return ctx, err
 	}
@@ -258,20 +263,96 @@ func (h *harness) startServerWith(ctx context.Context, extra ...string) (context
 	}
 	h.server = exec.Command(h.binary, "serve")
 	h.server.Env = h.env(append([]string{"BOARD_LISTEN=" + h.addr, "BOARD_DB_URL=" + h.dbURL}, extra...)...)
-	var logs bytes.Buffer
-	h.server.Stdout, h.server.Stderr = &logs, &logs
+	logs := &serverLog{}
+	h.server.Stdout, h.server.Stderr = logs, logs
 	if err := h.server.Start(); err != nil {
 		return ctx, err
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		if conn, err := net.Dial("tcp", h.addr); err == nil {
-			_ = conn.Close()
+		if logs.listeningOn(h.addr) {
 			return ctx, nil
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 	return ctx, fmt.Errorf("server never listened on %s: %s", h.addr, logs.String())
+}
+
+// listenPorts are the loopback ports reserveListenAddr has handed out and not
+// yet taken back.
+var listenPorts = struct {
+	sync.Mutex
+	held map[int]bool
+}{held: map[int]bool{}}
+
+// reserveListenAddr returns a free loopback address for a `vh serve` to listen
+// on, one no other server this test binary started still holds; release hands
+// it back once that server is stopped. Scenarios run concurrently, and a port
+// the kernel offers through net.Listen(":0") is free only until the listener
+// closes: two scenarios were handed one port, one server failed to bind it,
+// and that scenario's requests reached the other scenario's server, whose keys
+// answered 401 (main build #323, task_transitions.feature:151).
+func reserveListenAddr() (addr string, release func(), err error) {
+	listenPorts.Lock()
+	defer listenPorts.Unlock()
+	var refused []net.Listener // held open while picking, so the kernel offers another port
+	defer func() {
+		for _, ln := range refused {
+			_ = ln.Close()
+		}
+	}()
+	for range 64 {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return "", nil, err
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		if listenPorts.held[port] {
+			refused = append(refused, ln)
+			continue
+		}
+		_ = ln.Close()
+		listenPorts.held[port] = true
+		return "127.0.0.1:" + strconv.Itoa(port), func() {
+			listenPorts.Lock()
+			defer listenPorts.Unlock()
+			delete(listenPorts.held, port)
+		}, nil
+	}
+	return "", nil, errors.New("no free loopback port that no running server holds")
+}
+
+// serverLog is a started server's stdout and stderr, safe to read while the
+// process writes it.
+type serverLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *serverLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *serverLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// listeningOn reports whether the server logged that it listens on addr (the
+// "listening" record internal/server writes once its listener is bound). A
+// connection to addr alone does not tell this server from another one that
+// holds the port.
+func (l *serverLog) listeningOn(addr string) bool {
+	for _, line := range strings.Split(l.String(), "\n") {
+		var rec struct{ Msg, Addr string }
+		if json.Unmarshal([]byte(line), &rec) == nil && rec.Msg == "listening" && rec.Addr == addr {
+			return true
+		}
+	}
+	return false
 }
 
 // freshDatabase names a database file in the scenario's temp directory, once.
@@ -496,6 +577,10 @@ func (h *harness) stopServer() {
 	}
 	if h.server != nil && h.server.Process != nil {
 		endServer(h.server)
+	}
+	if h.releaseAddr != nil {
+		h.releaseAddr()
+		h.releaseAddr = nil
 	}
 	if h.dir != "" {
 		_ = os.RemoveAll(h.dir)

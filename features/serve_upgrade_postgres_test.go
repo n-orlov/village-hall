@@ -1,11 +1,8 @@
 package features
 
 import (
-	"bytes"
 	"context"
-	"net"
 	"os/exec"
-	"strconv"
 	"testing"
 	"time"
 
@@ -27,15 +24,14 @@ func TestTwoServersStartedTogetherOnOnePostgresReopenATaskOnce(t *testing.T) {
 	h := &harness{binary: buildBoard(t), leg: "postgres", dbURL: url}
 	var servers []*exec.Cmd
 	var addrs []string
-	logs := make([]*bytes.Buffer, 2)
+	logs := make([]*serverLog, 2)
 	for i := range logs {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		addr, release, err := reserveListenAddr()
 		if err != nil {
 			t.Fatal(err)
 		}
-		addr := "127.0.0.1:" + strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-		_ = ln.Close()
-		logs[i] = &bytes.Buffer{}
+		t.Cleanup(release)
+		logs[i] = &serverLog{}
 		cmd := exec.Command(h.binary, "serve")
 		cmd.Env = h.env("BOARD_LISTEN="+addr, "BOARD_DB_URL="+url)
 		cmd.Stdout, cmd.Stderr = logs[i], logs[i]
@@ -64,12 +60,11 @@ func TestTwoServersStartedTogetherOnOnePostgresReopenATaskOnce(t *testing.T) {
 	}
 }
 
-func waitListening(t *testing.T, addr string, logs *bytes.Buffer) {
+func waitListening(t *testing.T, addr string, logs *serverLog) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		if conn, err := net.Dial("tcp", addr); err == nil {
-			_ = conn.Close()
+		if logs.listeningOn(addr) {
 			return
 		}
 		time.Sleep(25 * time.Millisecond)
@@ -96,15 +91,14 @@ func TestTwoServersStartedTogetherOnOnePostgresCreateOneInbox(t *testing.T) {
 	h := &harness{binary: buildBoard(t), leg: "postgres", dbURL: url}
 	var servers []*exec.Cmd
 	var addrs []string
-	logs := make([]*bytes.Buffer, 2)
+	logs := make([]*serverLog, 2)
 	for i := range logs {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		addr, release, err := reserveListenAddr()
 		if err != nil {
 			t.Fatal(err)
 		}
-		addr := "127.0.0.1:" + strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-		_ = ln.Close()
-		logs[i] = &bytes.Buffer{}
+		t.Cleanup(release)
+		logs[i] = &serverLog{}
 		cmd := exec.Command(h.binary, "serve")
 		cmd.Env = h.env("BOARD_LISTEN="+addr, "BOARD_DB_URL="+url, "BOARD_MIGRATE=off")
 		cmd.Stdout, cmd.Stderr = logs[i], logs[i]

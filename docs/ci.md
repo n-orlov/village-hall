@@ -96,6 +96,10 @@ the host daemon, not a child of it:
   scenarios are in `junit-features-serial.xml`, which `ci/suite.sh` merges with
   `junit-features.xml`. `ci/suitecheck` fails when the default suite's
   concurrency is not above 1, or when either exclusion is dropped from it.
+  A scenario's port comes from `reserveListenAddr`, which never hands out a
+  port another running server of the test binary holds, and the harness counts
+  its server started only when that server logs `listening` on that address: a
+  bare connection could reach another scenario's server, whose keys answer 401.
 
 `ci/suite.sh` runs the `features/` pass once per leg of `BOARD_CI_DB_LEGS`
 (default `sqlite postgres`; SQLite is always first and keeps the file names it
