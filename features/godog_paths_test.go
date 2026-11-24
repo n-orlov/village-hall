@@ -124,3 +124,22 @@ func TestGodogPathsRejectsMissing(t *testing.T) {
 		t.Errorf("resolveGodogPaths(features/a.feature) in %s = %v, %v", dir, got, err)
 	}
 }
+
+// TestGodogPathsStaysInsidePackage: a selector that climbs out of the package
+// directory, or names the directory itself as a bundle member's neighbour, is
+// rejected like any other nonexistent selector, and a bundle name is matched
+// exactly (no prefix, case or extension variants).
+func TestGodogPathsStaysInsidePackage(t *testing.T) {
+	for _, spec := range []string{
+		"../features/health.feature",
+		"/health.feature",
+		"Keys.feature",
+		"keys",
+		"features/keys.feature.bak",
+		"features/keys.feature/",
+	} {
+		if got, err := resolveGodogPaths(spec, ".", godogBundles); err == nil {
+			t.Errorf("resolveGodogPaths(%q) = %v, nil; want an error", spec, got)
+		}
+	}
+}
