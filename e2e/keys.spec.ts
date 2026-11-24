@@ -163,13 +163,13 @@ for (const vp of viewports) {
       await bare.dispose();
     });
 
-    test('the list is a table from 768 px and cards below it', async ({ page }) => {
+    test('the list is a table from 1024 px and cards below it', async ({ page }) => {
       await page.goto('/#/settings/keys');
       const row = page.getByTestId('key-row').first();
       await expect(row).toBeVisible();
       const display = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).display);
       const head = page.locator('thead');
-      if (vp.size.width < 768) {
+      if (vp.size.width < 1024) {
         expect(await display(row)).toBe('flex');
         expect((await head.boundingBox())?.width ?? 0).toBeLessThanOrEqual(1);
       } else {

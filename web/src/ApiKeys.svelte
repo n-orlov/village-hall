@@ -131,40 +131,40 @@
       <p class="text-sm text-text-muted">A key lets an agent call the API.</p>
     </div>
   {:else}
-    <div class="mb-3 flex"><SortSelect columns={KEY_SORT_LABELS} {sort} onsort={setSort} /></div>
-    <!-- One table: from 768 px a dense table, below it each row is a card. -->
-    <table class="block w-full text-left wrap-anywhere md:table md:table-fixed md:border-collapse">
-      <thead class="sr-only md:table-header-group md:not-sr-only">
-        <tr class="md:border-b md:border-border">
+    <div class="mb-3 flex"><SortSelect columns={KEY_SORT_LABELS} {sort} onsort={setSort} hideFrom="lg" /></div>
+    <!-- One table: from 1024 px a dense table (its fixed columns need more than the main column of a 768 px screen), below it each row is a card. -->
+    <table class="block w-full text-left wrap-anywhere lg:table lg:table-fixed lg:border-collapse">
+      <thead class="sr-only lg:table-header-group lg:not-sr-only">
+        <tr class="lg:border-b lg:border-border">
           <SortHeader column="name" label="Name" {sort} onsort={setSort} class={th} />
-          <th scope="col" class="{th} md:w-24">Owner</th>
-          <SortHeader column="prefix" label="Prefix" {sort} onsort={setSort} class="{th} md:w-24" />
-          <SortHeader column="status" label="Status" {sort} onsort={setSort} class="{th} md:w-24" />
-          <SortHeader column="created" label="Created" {sort} onsort={setSort} class="{th} md:w-24" />
-          <SortHeader column="used" label="Last used" {sort} onsort={setSort} class="{th} md:w-28" />
-          <SortHeader column="expires" label="Expires" {sort} onsort={setSort} class="{th} md:w-28" />
-          <th scope="col" class={`${th} md:w-28`}><span class="sr-only">Actions</span></th>
+          <th scope="col" class="{th} lg:w-24">Owner</th>
+          <SortHeader column="prefix" label="Prefix" {sort} onsort={setSort} class="{th} lg:w-24" />
+          <SortHeader column="status" label="Status" {sort} onsort={setSort} class="{th} lg:w-24" />
+          <SortHeader column="created" label="Created" {sort} onsort={setSort} class="{th} lg:w-24" />
+          <SortHeader column="used" label="Last used" {sort} onsort={setSort} class="{th} lg:w-28" />
+          <SortHeader column="expires" label="Expires" {sort} onsort={setSort} class="{th} lg:w-28" />
+          <th scope="col" class={`${th} lg:w-28`}><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
-      <tbody class="flex flex-col gap-3 md:table-row-group">
+      <tbody class="flex flex-col gap-3 lg:table-row-group">
         {#each rows as key (key.id)}
           <tr
             data-testid="key-row"
             data-name={key.name}
-            class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border bg-surface-raised p-4 md:table-row md:rounded-none md:border-0 md:border-b md:bg-transparent md:p-0"
+            class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border bg-surface-raised p-4 lg:table-row lg:rounded-none lg:border-0 lg:border-b lg:bg-transparent lg:p-0"
           >
-            <td class="min-w-0 flex-1 font-medium md:table-cell md:px-3 md:py-3">{key.name}</td>
-            <td class="w-full text-sm text-text-muted md:table-cell md:w-auto md:px-3 md:py-3" data-testid="key-owner">
+            <td class="min-w-0 flex-1 font-medium lg:table-cell lg:px-3 lg:py-3">{key.name}</td>
+            <td class="w-full text-sm text-text-muted lg:table-cell lg:w-auto lg:px-3 lg:py-3" data-testid="key-owner">
               <span class={label}>Owner </span>{keyOwnerText(key.owner)}
             </td>
-            <td class="md:table-cell md:px-3 md:py-3"><code class="font-mono text-sm text-text-muted">{key.display_prefix}</code></td>
-            <td class="md:table-cell md:px-3 md:py-3" data-testid="key-status"
+            <td class="lg:table-cell lg:px-3 lg:py-3"><code class="font-mono text-sm text-text-muted">{key.display_prefix}</code></td>
+            <td class="lg:table-cell lg:px-3 lg:py-3" data-testid="key-status"
               ><span class="inline-block rounded-md border px-2 py-0.5 text-xs font-medium {toneClasses(keyTone(key.status))}">{key.status}</span></td
             >
-            <td class="w-full text-sm text-text-muted md:table-cell md:w-auto md:px-3 md:py-3">
+            <td class="w-full text-sm text-text-muted lg:table-cell lg:w-auto lg:px-3 lg:py-3">
               <span class={label}>Created </span><time datetime={key.created_at} title={absoluteTime(key.created_at)}>{relativeTime(key.created_at, now)}</time>
             </td>
-            <td class="w-full text-sm text-text-muted md:table-cell md:w-auto md:px-3 md:py-3">
+            <td class="w-full text-sm text-text-muted lg:table-cell lg:w-auto lg:px-3 lg:py-3">
               <span class={label}>Last used </span>
               {#if key.last_used_at !== undefined}
                 <time datetime={key.last_used_at} title={absoluteTime(key.last_used_at)}>{relativeTime(key.last_used_at, now)}</time>
@@ -172,7 +172,7 @@
                 never
               {/if}
             </td>
-            <td class="w-full text-sm text-text-muted md:table-cell md:w-auto md:px-3 md:py-3">
+            <td class="w-full text-sm text-text-muted lg:table-cell lg:w-auto lg:px-3 lg:py-3">
               <span class={label}>Expires </span>
               {#if key.expires_at !== undefined}
                 <time datetime={key.expires_at}>{absoluteTime(key.expires_at)}</time>
@@ -180,9 +180,9 @@
                 never
               {/if}
             </td>
-            <td class="w-full md:table-cell md:w-auto md:px-3 md:py-3 md:text-right">
+            <td class="w-full lg:table-cell lg:w-auto lg:px-3 lg:py-3 lg:text-right">
               {#if key.status !== 'revoked'}
-                <button type="button" class="{secondary} w-full md:w-auto md:px-3" onclick={() => (revoking = key.name)}>Revoke</button>
+                <button type="button" class="{secondary} w-full lg:w-auto lg:px-3" onclick={() => (revoking = key.name)}>Revoke</button>
               {/if}
             </td>
           </tr>

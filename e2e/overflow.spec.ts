@@ -5,7 +5,7 @@ import { test as base } from './fixtures';
 import { expectInitiatives } from './chips';
 import { items, showAllBands } from './now';
 
-// R3: at 390, 820, 1024 and 1440 px the page never scrolls sideways, whatever text the API accepts. Signs in through the mock provider.
+// R3: at 390, 768 and 1440 px (and 1024 px for the Now view) the page never scrolls sideways, whatever text the API accepts. Signs in through the mock provider.
 // Every case seeds the longest unbroken text the server takes (no space to wrap at): a 200-character
 // title, a 40-character slug, 20 tags of 40 characters, a 64-character key name; wide glyphs (W) and
 // narrow ones (i) both, since they stress the line breaking differently.
@@ -28,12 +28,15 @@ const test = base;
 // another. Letter spacing widens every font the same way, so the second pass fails wherever the page only fits by the margin of
 // the font it was built in, whichever font the machine has.
 const WIDE_GLYPHS = '*, *::before, *::after { letter-spacing: 0.05em !important; }';
+// R9 j: one viewport per distinct layout. The CSS breakpoints are 768 (the wide layout) and 1024 (the Now view's dock), so 390 is
+// below both, 768 sits on the first, 1440 is above both, and 1024 sits on the second, which only the Now view has (nowOnly: only
+// the states whose hash is #/now run there). ci/suitecheck pins this list against the min-width/max-width px values in web/src.
 const viewports = [
-  { name: 'phone', size: { width: 390, height: 844 }, css: '' },
-  { name: 'phone-wide-glyphs', size: { width: 390, height: 844 }, css: WIDE_GLYPHS },
-  { name: 'tablet', size: { width: 820, height: 1180 }, css: '' },
-  { name: 'small-desktop', size: { width: 1024, height: 768 }, css: '' },
-  { name: 'desktop', size: { width: 1440, height: 900 }, css: '' },
+  { name: 'phone', size: { width: 390, height: 844 }, css: '', nowOnly: false },
+  { name: 'phone-wide-glyphs', size: { width: 390, height: 844 }, css: WIDE_GLYPHS, nowOnly: false },
+  { name: 'tablet', size: { width: 768, height: 1024 }, css: '', nowOnly: false },
+  { name: 'small-desktop', size: { width: 1024, height: 768 }, css: '', nowOnly: true },
+  { name: 'desktop', size: { width: 1440, height: 900 }, css: '', nowOnly: false },
 ] as const;
 
 const wide = (n: number, ch = 'W') => ch.repeat(n);
@@ -394,12 +397,14 @@ const openAttention = async (page: Page, seed: Seed2) => {
 const ATTENTION_WITHIN = '[data-testid=now-view], [data-testid=now-view] *';
 const DIALOG_WITHIN = '[role=dialog] *';
 
-type Phase2State = { name: string; open: (page: Page, seed: Seed2) => Promise<void>; within: string };
+// hash: the route the state opens at, so the 1024 px pass can pick the Now states.
+type Phase2State = { name: string; hash: string; open: (page: Page, seed: Seed2) => Promise<void>; within: string };
 
 // The finite list of Phase 2 states this spec holds to the no-sideways-scroll bar: 2 views, 6 dialogs and the live indicator.
 const PHASE2_STATES: Phase2State[] = [
   {
     name: 'view #/now',
+    hash: '#/now',
     within: ATTENTION_WITHIN,
     open: async (page, seed) => {
       await openAttention(page, seed);
@@ -414,6 +419,7 @@ const PHASE2_STATES: Phase2State[] = [
   },
   {
     name: 'view #/notes',
+    hash: '#/notes',
     within: '[data-testid=notes-view], [data-testid=notes-view] *',
     open: async (page, seed) => {
       await page.goto(`/#/notes?initiative=${P2_SLUG}`);
@@ -426,6 +432,7 @@ const PHASE2_STATES: Phase2State[] = [
   },
   {
     name: 'view #/notes broadcasts',
+    hash: '#/notes',
     within: '[data-testid=notes-view], [data-testid=notes-view] *',
     open: async (page) => {
       await page.goto(`/#/notes?broadcast=only&resource=${P2_RESOURCE}`);
@@ -436,6 +443,7 @@ const PHASE2_STATES: Phase2State[] = [
   },
   {
     name: 'dialog answer ask',
+    hash: '#/now',
     within: DIALOG_WITHIN,
     open: async (page, seed) => {
       await openAttention(page, seed);
@@ -448,6 +456,7 @@ const PHASE2_STATES: Phase2State[] = [
   },
   {
     name: 'dialog withdraw ask',
+    hash: '#/now',
     within: DIALOG_WITHIN,
     open: async (page, seed) => {
       await openAttention(page, seed);
@@ -458,6 +467,7 @@ const PHASE2_STATES: Phase2State[] = [
   },
   {
     name: 'dialog post note',
+    hash: '#/notes',
     within: DIALOG_WITHIN,
     open: async (page, seed) => {
       await page.goto(`/#/notes?initiative=${P2_SLUG}`);
@@ -474,6 +484,7 @@ const PHASE2_STATES: Phase2State[] = [
   },
   {
     name: 'dialog close from attention',
+    hash: '#/now',
     within: DIALOG_WITHIN,
     open: async (page, seed) => {
       await openAttention(page, seed);
@@ -484,6 +495,7 @@ const PHASE2_STATES: Phase2State[] = [
   },
   {
     name: 'dialog record check from attention',
+    hash: '#/now',
     within: DIALOG_WITHIN,
     open: async (page, seed) => {
       await openAttention(page, seed);
@@ -771,6 +783,11 @@ for (const vp of viewports) {
       }, vp.css);
     });
 
+    // The 1024 px pass runs the Now states only (R9 j): everything declared through general() is left out of it.
+    const general = (title: string, body: Parameters<typeof test>[1]) => {
+      if (!vp.nowOnly) test(title, body);
+    };
+
     test.beforeAll(async ({ playwright, baseURL }) => {
       const seed = await playwright.request.newContext({
         baseURL,
@@ -787,7 +804,7 @@ for (const vp of viewports) {
       await seed.dispose();
     });
 
-    test(`the ${vp.name} pass sets the page ${vp.css === '' ? 'in the font as it is' : 'with wider glyphs'}`, async ({ page }) => {
+    general(`the ${vp.name} pass sets the page ${vp.css === '' ? 'in the font as it is' : 'with wider glyphs'}`, async ({ page }) => {
       await page.goto('/#/initiatives');
       await expect(page.locator('[data-testid=initiative-row]').first()).toBeVisible();
       const spacing = await page.evaluate(() => getComputedStyle(document.body).letterSpacing);
@@ -795,7 +812,7 @@ for (const vp of viewports) {
       else expect(spacing).not.toBe('normal');
     });
 
-    test('the Initiatives list holds the longest accepted titles, slugs and tags without scrolling sideways', async ({ page }) => {
+    general('the Initiatives list holds the longest accepted titles, slugs and tags without scrolling sideways', async ({ page }) => {
       await page.goto('/#/initiatives');
       await expect(page.locator('[data-testid=initiative-row][data-slug=ovf-wide-title]')).toBeVisible();
       for (const i of initiatives) await expect(page.locator(`[data-testid=initiative-row][data-slug=${i.slug}]`)).toHaveCount(1);
@@ -806,7 +823,7 @@ for (const vp of viewports) {
       await expect(page.locator('[data-testid=initiative-row][data-slug=ovf-wide-title]')).toContainText(wide(200));
     });
 
-    test('the Tasks view and the New task sheet hold the longest accepted values without scrolling sideways', async ({ page, playwright, baseURL }) => {
+    general('the Tasks view and the New task sheet hold the longest accepted values without scrolling sideways', async ({ page, playwright, baseURL }) => {
       const slug = `ovf${'w'.repeat(37)}`;
       const seed = await playwright.request.newContext({
         baseURL,
@@ -837,7 +854,7 @@ for (const vp of viewports) {
       await expectNothingPastRight(page, '[role=dialog] *', vp.size.width);
     });
 
-    test('the API keys list holds the longest accepted key names without scrolling sideways', async ({ page }) => {
+    general('the API keys list holds the longest accepted key names without scrolling sideways', async ({ page }) => {
       await page.goto('/#/settings/keys');
       for (const name of keyNames) await expect(page.locator(`[data-testid=key-row]`, { hasText: name })).toHaveCount(1);
       await expectNoSidewaysScroll(page);
@@ -845,7 +862,7 @@ for (const vp of viewports) {
       await expect(page.locator('[data-testid=key-row]', { hasText: keyNames[0] })).toContainText(keyNames[0]);
     });
 
-    test('the revoke confirmation names a 64-character key without scrolling sideways', async ({ page }) => {
+    general('the revoke confirmation names a 64-character key without scrolling sideways', async ({ page }) => {
       await page.goto('/#/settings/keys');
       const row = page.locator('[data-testid=key-row]', { hasText: keyNames[0] });
       await row.getByRole('button', { name: 'Revoke' }).click();
@@ -856,7 +873,7 @@ for (const vp of viewports) {
       await expectNothingPastRight(page, '[role=dialog] *', vp.size.width);
     });
 
-    test('creating an initiative with the longest slug shows a toast that stays inside the viewport', async ({ page }) => {
+    general('creating an initiative with the longest slug shows a toast that stays inside the viewport', async ({ page }) => {
       await page.goto('/#/initiatives');
       await page.getByRole('button', { name: 'New initiative' }).locator('visible=true').click();
       const dialog = page.getByRole('dialog', { name: 'New initiative' });
@@ -871,7 +888,7 @@ for (const vp of viewports) {
       await expectNothingPastRight(page, '[data-testid=toast]', vp.size.width);
     });
 
-    test('a freshly created 64-character key shows once without scrolling sideways', async ({ page }) => {
+    general('a freshly created 64-character key shows once without scrolling sideways', async ({ page }) => {
       await page.goto('/#/settings/keys');
       await page.getByRole('button', { name: 'New API key' }).locator('visible=true').click();
       const dialog = page.getByRole('dialog', { name: 'New API key' });
@@ -884,7 +901,7 @@ for (const vp of viewports) {
     });
 
     for (const state of PHASE1_STATES) {
-      test(`${state.name} holds the longest accepted values without scrolling sideways`, async ({ page, playwright, baseURL }) => {
+      general(`${state.name} holds the longest accepted values without scrolling sideways`, async ({ page, playwright, baseURL }) => {
         seeded ??= seedPhase1(playwright, baseURL);
         const seed = await seeded;
         await state.open(page, seed);
@@ -893,7 +910,7 @@ for (const vp of viewports) {
       });
     }
 
-    for (const state of PHASE2_STATES) {
+    for (const state of PHASE2_STATES.filter((s) => !vp.nowOnly || s.hash === '#/now')) {
       test(`${state.name} holds the longest accepted values without scrolling sideways`, async ({ page, playwright, baseURL }) => {
         seeded2 ??= seedPhase2(playwright, baseURL);
         const seed = await seeded2;
@@ -904,7 +921,7 @@ for (const vp of viewports) {
     }
 
     for (const state of PHASE3_STATES) {
-      test(`${state.name} holds the longest accepted values without scrolling sideways`, async ({ page, playwright, baseURL }) => {
+      general(`${state.name} holds the longest accepted values without scrolling sideways`, async ({ page, playwright, baseURL }) => {
         seeded3 ??= seedPhase3(playwright, baseURL);
         const seed = await seeded3;
         await state.open(page, seed);
@@ -939,7 +956,7 @@ for (const vp of viewports) {
     // The Tasks view's Needs attention section (R2): a task with an open ask whose live lease is held by a 40-character
     // handle, a done task and a blocking ask, all in the 40-character-slug initiative, so each card carries the longest
     // ref and initiative link, and one the longest holder.
-    test('the Needs attention section on the Tasks view holds the longest refs, slugs and holders without scrolling sideways', async ({ page, playwright, baseURL }) => {
+    general('the Needs attention section on the Tasks view holds the longest refs, slugs and holders without scrolling sideways', async ({ page, playwright, baseURL }) => {
       seeded2 ??= seedPhase2(playwright, baseURL);
       const seed = await seeded2;
       const api = await actorContext(playwright, baseURL, P2_ACTOR, P2_WAY_BACK);
@@ -969,7 +986,7 @@ for (const vp of viewports) {
       });
     }
 
-    test('the Phase 3 list names the views, the Needs attention sections, the Stranded panel, the chips, the three dialogs and the six sorted tables', () => {
+    general('the Phase 3 list names the views, the Needs attention sections, the Stranded panel, the chips, the three dialogs and the six sorted tables', () => {
       expect(PHASE3_STATES.map((s) => s.name)).toEqual([
         'view #/timeline',
         'view #/actors',
@@ -992,7 +1009,7 @@ for (const vp of viewports) {
       ]);
     });
 
-    test('the Phase 2 list names the views, the six dialogs and the three live indicator states', () => {
+    general('the Phase 2 list names the views, the six dialogs and the three live indicator states', () => {
       const names = PHASE2_STATES.map((s) => s.name);
       expect(names.filter((n) => n.startsWith('view '))).toEqual(['view #/now', 'view #/notes', 'view #/notes broadcasts']);
       // Acknowledge has its own test above: its sheet, then the toast it raises, over a lease with the longest values.
@@ -1006,7 +1023,7 @@ for (const vp of viewports) {
       expect(LIVE_STATES).toEqual(['live', 'offline', 'reconnecting']);
     });
 
-    test('the Phase 1 list names the 3 views and the 9 dialogs', () => {
+    general('the Phase 1 list names the 3 views and the 9 dialogs', () => {
       const names = PHASE1_STATES.map((s) => s.name);
       expect(names.filter((n) => n.startsWith('view '))).toEqual(['view #/tasks', 'view #/i/<slug>', 'view #/t/<ref>']);
       expect(names.filter((n) => n.startsWith('dialog ')).map((n) => n.slice('dialog '.length))).toEqual([

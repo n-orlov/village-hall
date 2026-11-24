@@ -913,6 +913,12 @@ Scripts, each run through `ci/run.sh` unless noted:
   phone variant must also run at the phone viewport: it imports `phone` or
   `layoutViewports` from `e2e/viewports.ts`, or declares a 390 px wide viewport
   (`TestKeptSpecsRunAtThePhone`).
+  Overflow viewports (R9 j): `e2e/overflow.spec.ts` runs one viewport per distinct layout,
+  390, 768 and 1440 px for every state and 1024 px (`nowOnly`) for the states whose hash is
+  `#/now`; the wide block (2560, 3440) is unchanged. `TestOverflowViewportsCoverEveryCSSBreakpoint`
+  in `ci/suitecheck` (`overflowviewports_test.go`) reads every `min-width`/`max-width` px value
+  of a media query under `web/src` and fails on a band with no every-state viewport, a
+  breakpoint no viewport sits on, or a spec that does not gate its Now-only viewport.
   Playwright runs once and
   the script does not repeat a failed run: a failure fails the suite.
   `junit-playwright.xml` and the Allure, trace and partial JUnit output (`playwright/`)
