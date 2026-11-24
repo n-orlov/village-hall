@@ -46,6 +46,14 @@ The scenarios in `features/` run on two database legs, chosen by
 
     BOARD_GODOG_PATHS=health.feature BOARD_DB_LEG=postgres ci/run.sh go test -count=1 ./features/ -run TestFeatures
 
+`BOARD_GODOG_PATHS` takes comma separated feature files relative to `features/`
+(each optionally `:<line>`); the repository's `features/` prefix is accepted
+too. `keys.feature` is a named bundle (`godogBundles` in
+`features/godog_test.go`) that runs `admin_keys.feature`, `api_keys.feature`
+and `ui_keys.feature`, each once. A selector that names no existing file or
+bundle, or a bundle with a missing member, fails the run before any scenario
+starts; unset, the whole directory runs.
+
 The Postgres leg starts a Postgres 16 container (pinned by digest in
 `features/postgres_test.go`) with testcontainers-go through the docker socket
 `ci/run.sh` mounted, so the container is a sibling of the toolchain container on

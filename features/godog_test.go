@@ -2,6 +2,8 @@ package features
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +66,8 @@ func legTags(tags, leg string) string {
 // TestFeatures runs the Godog scenarios against the real binary.
 //
 // BOARD_GODOG_PATHS (comma separated feature files relative to this package,
-// each optionally suffixed ":<line>") narrows the run to those files, and
+// each optionally suffixed ":<line>", or a bundle of godogBundles; see
+// godogPaths) narrows the run to those files, and
 // BOARD_DB_LEG (sqlite, the default, or postgres) selects the database the
 // server under test runs on. Unset, the whole directory runs on SQLite. A
 // scenario tagged @postgres runs on the Postgres leg only.
@@ -73,6 +76,10 @@ func legTags(tags, leg string) string {
 // scenario, so nothing a scenario leaves behind reaches the next one.
 func TestFeatures(t *testing.T) {
 	leg, err := dbLeg()
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := godogPaths()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +101,7 @@ func TestFeatures(t *testing.T) {
 			},
 			Options: &godog.Options{
 				Format:      godogFormatFor(i),
-				Paths:       godogPaths(),
+				Paths:       paths,
 				Strict:      true,
 				Tags:        legTags(fs.tags, leg),
 				Concurrency: fs.concurrency,
@@ -110,17 +117,67 @@ func TestFeatures(t *testing.T) {
 	}
 }
 
-func godogPaths() []string {
+// godogBundles are named selectors BOARD_GODOG_PATHS accepts besides feature
+// files: each expands to the existing files it names, and those files run as
+// if they had been listed one by one. They copy no scenario and add nothing to
+// the default suite, which still runs the whole directory.
+var godogBundles = map[string][]string{
+	// keys.feature: every scenario about API keys, from the admin CLI, the
+	// HTTP API and the web UI.
+	"keys.feature": {"admin_keys.feature", "api_keys.feature", "ui_keys.feature"},
+}
+
+// godogPaths returns the paths TestFeatures hands godog: "." (the whole
+// directory) when BOARD_GODOG_PATHS is unset, else the comma separated
+// selectors it names. A selector may carry the repository's "features/" prefix
+// (features/health.feature names health.feature), and a bundle of godogBundles
+// expands to its members; a path named twice runs once. Every resulting path
+// must exist inside this package's directory (after any ":<line>" suffix is
+// set aside): a selector naming no file or bundle, or a bundle whose member is
+// missing, is an error, never a smaller run.
+func godogPaths() ([]string, error) {
+	return resolveGodogPaths(os.Getenv("BOARD_GODOG_PATHS"), ".", godogBundles)
+}
+
+// resolveGodogPaths is godogPaths for the selector list spec, resolved against
+// the directory dir and the bundles given.
+func resolveGodogPaths(spec, dir string, bundles map[string][]string) ([]string, error) {
 	var paths []string
-	for _, p := range strings.Split(os.Getenv("BOARD_GODOG_PATHS"), ",") {
-		if p = strings.TrimSpace(p); p != "" {
+	seen := map[string]bool{}
+	root := os.DirFS(dir)
+	add := func(p string) error {
+		file := p
+		if i := strings.LastIndex(p, ".feature:"); i >= 0 {
+			file = p[:i+len(".feature")]
+		}
+		if _, err := fs.Stat(root, filepath.ToSlash(filepath.Clean(file))); err != nil {
+			return fmt.Errorf("BOARD_GODOG_PATHS: %q names no feature file in %s: %w", p, dir, err)
+		}
+		if !seen[p] {
+			seen[p] = true
 			paths = append(paths, p)
+		}
+		return nil
+	}
+	for _, p := range strings.Split(spec, ",") {
+		p = strings.TrimPrefix(strings.TrimSpace(p), "features/")
+		if p == "" {
+			continue
+		}
+		members, isBundle := bundles[p]
+		if !isBundle {
+			members = []string{p}
+		}
+		for _, m := range members {
+			if err := add(m); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if len(paths) == 0 {
-		return []string{"."}
+		return []string{"."}, nil
 	}
-	return paths
+	return paths, nil
 }
 
 // godogFormat returns the godog Format string the first suite of TestFeatures
