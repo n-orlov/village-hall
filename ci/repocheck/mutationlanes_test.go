@@ -1,6 +1,7 @@
 // mutationlanes_test.go pins the balance of the Jenkinsfile's full-mutation
 // units (task 012, R2): the three FULL_MUTATION units, summed over the
-// per-lane minutes of testdata/mutation_lane_minutes.json, each predict at most
+// per-lane minutes measured in a full run (testdata/mutation_lane_minutes.json)
+// plus a unit's own overhead, each predict at most
 // the table's limit (90 minutes, under the 95-minute budget and the 110-minute
 // bound), every lane of ci/quality.json's mutation_go.lanes sits in exactly one
 // unit, Stryker rides with lane base, and no two parts of internal/server share
@@ -17,42 +18,30 @@ import (
 	"testing"
 )
 
-type laneSpeed struct {
-	Task   string  `json:"task"`
-	Factor float64 `json:"factor"`
-	Basis  string  `json:"basis"`
-}
-
 type laneMinutes struct {
-	Baseline float64     `json:"baseline_minutes"`
-	Speed    []laneSpeed `json:"speed"`
+	Minutes float64 `json:"minutes"`
+	Basis   string  `json:"basis"`
 }
 
 type laneTable struct {
-	Calibration float64                `json:"calibration"`
-	FixedShare  float64                `json:"fixed_share"`
-	Limit       float64                `json:"limit_minutes"`
-	Lanes       map[string]laneMinutes `json:"lanes"`
+	Overhead float64                `json:"unit_overhead_minutes"`
+	Limit    float64                `json:"limit_minutes"`
+	Lanes    map[string]laneMinutes `json:"lanes"`
 }
 
-// predicted is a lane's minutes: calibration x baseline x (the share that does
-// not scale with test time + the rest times every measured speed factor).
+// predicted is a lane's measured minutes.
 func (tb laneTable) predicted(lane string) float64 {
-	l := tb.Lanes[lane]
-	scale := 1.0
-	for _, s := range l.Speed {
-		scale *= s.Factor
-	}
-	return tb.Calibration * l.Baseline * (tb.FixedShare + (1-tb.FixedShare)*scale)
+	return tb.Lanes[lane].Minutes
 }
 
 // strykerLane is the table's row for Stryker, which ci/mutation.sh runs at the
 // end of the unit holding lane base and which is no lane of quality.json.
 const strykerLane = "stryker"
 
-// unitMinutes sums a unit's lanes, plus Stryker when it holds lane base.
+// unitMinutes sums a unit's lanes, plus Stryker when it holds lane base, plus
+// the unit's own overhead.
 func (tb laneTable) unitMinutes(unit []string) float64 {
-	var sum float64
+	sum := tb.Overhead
 	for _, l := range unit {
 		sum += tb.predicted(l)
 		if l == "base" {
@@ -68,8 +57,8 @@ func (tb laneTable) unitMinutes(unit []string) float64 {
 // in one unit.
 func laneBalanceProblems(units [][]string, lanes map[string][]string, tb laneTable) []string {
 	problems := fullLaneProblems(units, lanes)
-	if tb.Limit <= 0 || tb.Calibration <= 0 || tb.FixedShare < 0 || tb.FixedShare >= 1 {
-		problems = append(problems, "the lane table has no usable limit, calibration or fixed share")
+	if tb.Limit <= 0 || tb.Overhead < 0 {
+		problems = append(problems, "the lane table has no usable limit or unit overhead")
 	}
 	for l := range lanes {
 		if _, ok := tb.Lanes[l]; !ok {
@@ -80,13 +69,8 @@ func laneBalanceProblems(units [][]string, lanes map[string][]string, tb laneTab
 		if _, ok := lanes[l]; !ok && l != strykerLane {
 			problems = append(problems, "the lane table has minutes for lane "+l+", which ci/quality.json does not define")
 		}
-		if m.Baseline <= 0 {
-			problems = append(problems, "the lane table has no baseline minutes for lane "+l)
-		}
-		for _, s := range m.Speed {
-			if s.Factor <= 0 || s.Factor > 1 || s.Task == "" || s.Basis == "" {
-				problems = append(problems, "lane "+l+" has a speed factor without a task, a basis or a value in (0, 1]")
-			}
+		if m.Minutes <= 0 || m.Basis == "" {
+			problems = append(problems, "lane "+l+" has no measured minutes or no basis for them")
 		}
 	}
 	if _, ok := tb.Lanes[strykerLane]; !ok {
@@ -163,22 +147,22 @@ func TestFullMutationUnitsAreBalancedFromTheLaneTable(t *testing.T) {
 	// A table that has not been read as a whole proves nothing about the
 	// units: the units' own lane lists are read from the Jenkinsfile text.
 	merged := replaceOnce(t,
-		replaceOnce(t, jf, "lanes: 'server-core,logic'", "lanes: 'server-core,server-ops,logic'"),
-		"lanes: 'server-ops,cli,cli-core'", "lanes: 'cli,cli-core'")
+		replaceOnce(t, jf, "lanes: 'server-ops,logic'", "lanes: 'server-core,server-ops,logic'"),
+		"lanes: 'server-core,base'", "lanes: 'base'")
 	if got := laneBalanceProblems(fullMutationLanes(merged), lanes, tb); len(got) == 0 {
 		t.Error("server-core and server-ops in one unit passes the balance check")
 	} else if !strings.Contains(strings.Join(got, "\n"), "parts of internal/server") {
 		t.Errorf("server-core and server-ops in one unit is not named as two server parts: %v", got)
 	}
 	overloaded := replaceOnce(t,
-		replaceOnce(t, jf, "lanes: 'server-core,logic'", "lanes: 'server-core,logic,cli,cli-core'"),
-		"lanes: 'server-ops,cli,cli-core'", "lanes: 'server-ops'")
+		replaceOnce(t, jf, "lanes: 'server-ops,logic'", "lanes: 'server-ops,logic,cli,cli-core'"),
+		"lanes: 'server-streams,cli,cli-core'", "lanes: 'server-streams'")
 	if got := laneBalanceProblems(fullMutationLanes(overloaded), lanes, tb); !strings.Contains(strings.Join(got, "\n"), "over the 90 limit") {
 		t.Errorf("a unit over the limit is not named: %v", got)
 	}
 	for name, doctored := range map[string]func(laneTable) laneTable{
 		"a lane without minutes": func(x laneTable) laneTable {
-			y := laneTable{Calibration: x.Calibration, FixedShare: x.FixedShare, Limit: x.Limit, Lanes: map[string]laneMinutes{}}
+			y := laneTable{Overhead: x.Overhead, Limit: x.Limit, Lanes: map[string]laneMinutes{}}
 			for l, m := range x.Lanes {
 				if l != "cli" {
 					y.Lanes[l] = m
@@ -187,7 +171,7 @@ func TestFullMutationUnitsAreBalancedFromTheLaneTable(t *testing.T) {
 			return y
 		},
 		"Stryker without minutes": func(x laneTable) laneTable {
-			y := laneTable{Calibration: x.Calibration, FixedShare: x.FixedShare, Limit: x.Limit, Lanes: map[string]laneMinutes{}}
+			y := laneTable{Overhead: x.Overhead, Limit: x.Limit, Lanes: map[string]laneMinutes{}}
 			for l, m := range x.Lanes {
 				if l != strykerLane {
 					y.Lanes[l] = m
@@ -196,19 +180,19 @@ func TestFullMutationUnitsAreBalancedFromTheLaneTable(t *testing.T) {
 			return y
 		},
 		"a heavier Stryker": func(x laneTable) laneTable {
-			y := laneTable{Calibration: x.Calibration, FixedShare: x.FixedShare, Limit: x.Limit, Lanes: map[string]laneMinutes{}}
+			y := laneTable{Overhead: x.Overhead, Limit: x.Limit, Lanes: map[string]laneMinutes{}}
 			for l, m := range x.Lanes {
 				y.Lanes[l] = m
 			}
-			y.Lanes[strykerLane] = laneMinutes{Baseline: 80}
+			y.Lanes[strykerLane] = laneMinutes{Minutes: 80, Basis: "x"}
 			return y
 		},
-		"a speed factor of more than 1": func(x laneTable) laneTable {
-			y := laneTable{Calibration: x.Calibration, FixedShare: x.FixedShare, Limit: x.Limit, Lanes: map[string]laneMinutes{}}
+		"a lane without a basis": func(x laneTable) laneTable {
+			y := laneTable{Overhead: x.Overhead, Limit: x.Limit, Lanes: map[string]laneMinutes{}}
 			for l, m := range x.Lanes {
 				y.Lanes[l] = m
 			}
-			y.Lanes["cli"] = laneMinutes{Baseline: 37, Speed: []laneSpeed{{Task: "024", Factor: 1.4, Basis: "x"}}}
+			y.Lanes["cli"] = laneMinutes{Minutes: x.Lanes["cli"].Minutes}
 			return y
 		},
 	} {
@@ -217,8 +201,8 @@ func TestFullMutationUnitsAreBalancedFromTheLaneTable(t *testing.T) {
 		}
 	}
 	for name, doctored := range map[string]string{
-		"a lane left out": replaceOnce(t, jf, "lanes: 'server-core,logic'", "lanes: 'server-core'"),
-		"a fourth unit":   replaceOnce(t, jf, "  [name: 'Mutation streams+base+Stryker', dir: 'base', lanes: 'server-streams,base'],", "  [name: 'Mutation streams+Stryker', dir: 'base', lanes: 'server-streams'],\n  [name: 'Mutation base', dir: 'b', lanes: 'base'],"),
+		"a lane left out": replaceOnce(t, jf, "lanes: 'server-ops,logic'", "lanes: 'server-ops'"),
+		"a fourth unit":   replaceOnce(t, jf, "  [name: 'Mutation core+base+Stryker', dir: 'base', lanes: 'server-core,base'],", "  [name: 'Mutation core', dir: 'server-core', lanes: 'server-core'],\n  [name: 'Mutation base+Stryker', dir: 'base', lanes: 'base'],"),
 	} {
 		if len(laneBalanceProblems(fullMutationLanes(doctored), lanes, tb)) == 0 {
 			t.Errorf("%s passes the balance check", name)

@@ -432,20 +432,21 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
     and judges every package once. The three units start together beside the
     Stability unit (1 + 3 of the 4 executors), each `internal/server` part in a
     unit of its own. The split is
-    `server-core,logic`, `server-ops,cli,cli-core` and `server-streams,base`
-    (with Stryker), predicted at about 67, 68 and 72 minutes against the
-    95-minute budget (the old split put `server-ops` with `base` and Stryker, 80).
-    The prediction is a committed table of minutes per lane
-    (`ci/repocheck/testdata/mutation_lane_minutes.json`): #235's split of
-    each lane (server-core 50, server-ops 45, logic 43, cli 37, server-streams
-    32, cli-core 27, base 5, Stryker 43), times 1.15 (the consoles of main 265,
-    271 and 272 are gone from Jenkins; their unit totals, 90.6 to 107.4 and
-    three units cut at 110.5, calibrate it), scaled by the measured speed-ups
-    of task 013 (`internal/server` 0.555), task 021 (SQLite-only mutants: the
-    server lanes 0.5, store and feed by their Postgres share) and task 024
-    (`internal/cli` 0.4), with 30 % of each lane fixed cost. Its per-lane
-    minutes: server-core 28, server-ops 26, server-streams 18, logic 38, cli 25,
-    cli-core 18, base 5, Stryker 49. `TestFullMutationUnitsAreBalancedFromTheLaneTable`
+    `server-ops,logic`, `server-streams,cli,cli-core` and `server-core,base`
+    (with Stryker), predicted at about 69, 66 and 68 minutes against the
+    95-minute budget. The prediction is a committed table of minutes per lane
+    measured in #325, a full run of the old split (`server-core,logic`,
+    `server-ops,cli,cli-core`, `server-streams,base`: 65.8, 74.8 and 59.4
+    minutes), in `ci/repocheck/testdata/mutation_lane_minutes.json`: a lane is
+    the sum over its packages of `ci/mutation.sh`'s covered run plus
+    gremlins' `elapsed_time` in the package's archived report, Stryker its own
+    run, and every unit is charged the largest unit overhead #325 showed (its
+    run minutes less its lanes', 2.7). Its per-lane minutes: server-core 17.7,
+    server-ops 20.4, server-streams 9.8, logic 45.5, cli 24.0, cli-core 29.0,
+    base 13.8, Stryker 34.2. That run came after the `internal/server` and
+    `internal/cli` test speed-ups and SQLite-only mutants, so they are inside
+    its minutes. The consoles of main 265, 271 and 272 are gone from Jenkins,
+    so their per-lane split cannot be read. `TestFullMutationUnitsAreBalancedFromTheLaneTable`
     sums the table over `FULL_MUTATION`, and fails on a unit over 90 minutes,
     a lane in no unit or two, other than three units, or two parts of
     `internal/server` in one unit. An EXTENDED, MUTATION_FULL build re-measures it. Each runs `nproc / 3` gremlins workers at GOMAXPROCS 2 per

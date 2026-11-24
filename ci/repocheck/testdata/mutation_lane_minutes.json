@@ -1,19 +1,18 @@
 {
-  "about": "Predicted minutes per full-mutation lane on int21h-ws: calibration x baseline x (fixed_share + (1 - fixed_share) x the product of the speed factors). Read by TestFullMutationUnitsAreBalancedFromTheLaneTable. Raw inputs: artifacts 012/inputs.md of the run that wrote it.",
-  "baseline_about": "Minutes per lane on #235's times (the Jenkinsfile's balance comment before this table): the only per-lane split that survives, as Jenkins no longer holds the consoles of main 265, 271 and 272.",
-  "calibration": 1.15,
-  "calibration_about": "Unit totals on main 265: 90.6/95.6/102.5, main 271: 107.4/100.3/105.6, main 272: all three cut at 110.5 (PRD results table), against the old table's heaviest unit of 96: 110.5/96 = 1.15, the conservative end.",
-  "fixed_share": 0.3,
-  "fixed_share_about": "Share of a lane's minutes that does not scale with test time (compiling and linking each mutant's test binary, gremlins' work copies). An assumption, to be re-measured by task 014's EXTENDED+MUTATION_FULL build.",
+  "about": "Measured minutes per full-mutation lane on int21h-ws, from board/ci main #325 (EXTENDED=true MUTATION_FULL=true, 24 Nov 2026: three units side by side beside the Stability unit, as every full run). A unit's predicted minutes are the sum of its lanes' minutes (plus Stryker for the unit holding lane base) plus unit_overhead_minutes. Read by TestFullMutationUnitsAreBalancedFromTheLaneTable. Raw inputs: artifacts 012/full-325 of the run that wrote it.",
+  "lane_minutes_about": "A gremlins lane is the sum over its packages (or parts) of ci/mutation.sh's covered run ('covered run of ./<pkg> took Ns' in the console; a second part of one package reuses the first part's run) plus gremlins' elapsed_time in that package's archived report (ci-results/mutation/internal-<pkg>.json). Stryker is 'ci/mutation.sh: stryker over web/src/lib' to its report line (MutationTestExecutor: Done in 33 minutes and 59 seconds).",
+  "scaling_about": "#325 ran after task 013 (internal/server tests faster), task 021 (mutants run the SQLite leg only) and task 024 (internal/cli tests faster) had landed, so their speed-ups are already in these minutes and no factor is applied. Jenkins no longer holds the consoles of main 265, 271 and 272 (their unit totals only survive in the PRD: 90.6/95.6/102.5, 107.4/100.3/105.6, three units cut at 110.5), so their per-lane split cannot be read.",
+  "unit_overhead_minutes": 2.7,
+  "unit_overhead_about": "A unit's run minutes in #325's timing.md less its lanes' minutes: server-core+logic 65.8 - 63.1 = 2.7, ops+cli 74.8 - 73.4 = 1.4, streams+base+Stryker 59.4 - 57.8 = 1.6 (container start, gremlins' work copies, the gate of the unit); the largest is charged to every unit.",
   "limit_minutes": 90,
   "lanes": {
-    "server-core": {"baseline_minutes": 50, "speed": [{"task": "013", "factor": 0.555, "basis": "internal/server suite 35.855 s (main275) to 19.897 s (#306)"}, {"task": "021", "factor": 0.5, "basis": "SQLite-only: go-tests.md finding 1 leaf split, postgres 69.6 s of 139.1 s (no post-021 mutation log exists)"}]},
-    "server-ops": {"baseline_minutes": 45, "speed": [{"task": "013", "factor": 0.555, "basis": "as server-core"}, {"task": "021", "factor": 0.5, "basis": "as server-core"}]},
-    "server-streams": {"baseline_minutes": 32, "speed": [{"task": "013", "factor": 0.555, "basis": "as server-core"}, {"task": "021", "factor": 0.5, "basis": "as server-core"}]},
-    "logic": {"baseline_minutes": 43, "speed": [{"task": "021", "factor": 0.674, "basis": "internal/feed is 24.6 of the 67.2 s suite time of the lane's packages (main275), 89 % of it in its postgres leaf: 1 - 0.366 x 0.89"}]},
-    "cli": {"baseline_minutes": 37, "speed": [{"task": "024", "factor": 0.4, "basis": "internal/cli suite 33.696 s (main275) to 13.508 s (#306)"}]},
-    "cli-core": {"baseline_minutes": 27, "speed": [{"task": "024", "factor": 0.4, "basis": "as cli"}]},
-    "base": {"baseline_minutes": 5, "speed": [{"task": "021", "factor": 0.7, "basis": "internal/store leaves 35.7 s (main275), 10.7 s of them postgres; internal/domain 0.01 s"}]},
-    "stryker": {"baseline_minutes": 43, "speed": []}
+    "server-core": {"minutes": 17.7, "basis": "internal/server#core: covered run 16 s + gremlins 1043.8 s"},
+    "server-ops": {"minutes": 20.4, "basis": "internal/server#ops: covered run 31 s + gremlins 1191.4 s"},
+    "server-streams": {"minutes": 9.8, "basis": "internal/server#streams: covered run 18 s + gremlins 571.0 s"},
+    "logic": {"minutes": 45.5, "basis": "21 packages: covered runs + gremlins, summed (artifacts 012/full-325/lane-minutes.json)"},
+    "cli": {"minutes": 24.0, "basis": "internal/cli#views: gremlins 1437.8 s (reuses #core's covered run)"},
+    "cli-core": {"minutes": 29.0, "basis": "internal/cli#core: covered run 27 s + gremlins 1715.2 s"},
+    "base": {"minutes": 13.8, "basis": "internal/domain 1 s + 90.7 s, internal/store 63 s + 670.6 s"},
+    "stryker": {"minutes": 34.2, "basis": "web/src/lib: 16:50:30 to 17:24:43 in #325's console"}
   }
 }

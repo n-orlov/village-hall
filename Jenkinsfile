@@ -173,10 +173,13 @@
 //          min. #235 (four units, three of them
 //          waiting for the stability units, Stryker on 11 processes) ended
 //          mutation 80 minutes after Core, at 128 minutes in all.
-//          The three units' lanes are balanced from a committed per-lane
-//          minutes table (see FULL_MUTATION): about 67, 68 and 72 minutes
-//          predicted a unit once tasks 013, 021 and 024 had landed, each at
-//          most 90, against the 95-minute budget.
+//          The three units' lanes are balanced from a committed table of
+//          per-lane minutes measured in #325 (see FULL_MUTATION), whose
+//          old split (server-core,logic / server-ops,cli,cli-core /
+//          server-streams,base) ran 65.8, 74.8 and 59.4 minutes: the split
+//          server-ops,logic / server-streams,cli,cli-core / server-core,base
+//          (with Stryker) is predicted at about 69, 66 and 68 minutes, each
+//          at most 90, against the 95-minute budget.
 //        - incremental (the nightly's default, MUTATION_MODE=incremental):
 //          the reference is the last successful build of this job whose
 //          description says mutation(full). The Mutation plan unit copies
@@ -238,16 +241,14 @@ import groovy.transform.Field
 // gremlins. Balanced from the per-lane minutes table
 // ci/repocheck/testdata/mutation_lane_minutes.json (TestFullMutationUnitsAre
 // BalancedFromTheLaneTable sums it over these units and fails past 90 a unit).
-// Minutes per lane, predicted: #235's split (server-core 50, server-ops 45,
-// logic 43, cli 37, server-streams 32, cli-core 27, base 5, Stryker 43; the
-// consoles of #265, #271 and #272 are gone from Jenkins, so their unit totals,
-// up to 107.4 and cut at 110.5, only calibrate it, x 1.15), scaled by task 013's
-// internal/server speed-up (x 0.555), task 021's SQLite-only mutant runs (the
-// server lanes x 0.5; store and feed shares of base and logic) and task 024's
-// fake-clock ask polls (cli x 0.4), 30 % of every lane being fixed cost:
-// server-core 28, server-ops 26, server-streams 18, logic 38, cli 25, cli-core
-// 18, base 5, Stryker 49, so about 67 + 68 + 72 minutes in the three units
-// below (the old split put server-ops with base and Stryker, 80). Each
+// Minutes per lane, measured in #325 (a full run of the old split, 65.8, 74.8
+// and 59.4 minutes a unit; each lane its covered runs plus gremlins'
+// elapsed_time, after the internal/server and internal/cli speed-ups and
+// SQLite-only mutants had landed): server-core 17.7, server-ops 20.4,
+// server-streams 9.8, logic 45.5, cli 24.0, cli-core 29.0, base 13.8, Stryker
+// 34.2, plus 2.7 a unit of overhead, so about 69 + 66 + 68 minutes in the
+// three units below (the old split's 74.8-minute unit held server-ops, cli and
+// cli-core). The consoles of #265, #271 and #272 are gone from Jenkins. Each
 // internal/server part sits in a unit of its own, so an incremental run with
 // internal/server changed runs its three parts side by side. All three start
 // together beside the one Stability unit (4 executors); dir is its outdir
@@ -269,9 +270,9 @@ import groovy.transform.Field
 // global OOM on the host.
 @Field final String MUTATION_MEMORY = 'BOARD_CI_MEMORY=12g'
 @Field final List FULL_MUTATION = [
-  [name: 'Mutation server-core+logic', dir: 'server-core', lanes: 'server-core,logic'],
-  [name: 'Mutation ops+cli', dir: 'cli', lanes: 'server-ops,cli,cli-core'],
-  [name: 'Mutation streams+base+Stryker', dir: 'base', lanes: 'server-streams,base'],
+  [name: 'Mutation ops+logic', dir: 'server-ops', lanes: 'server-ops,logic'],
+  [name: 'Mutation streams+cli', dir: 'cli', lanes: 'server-streams,cli,cli-core'],
+  [name: 'Mutation core+base+Stryker', dir: 'base', lanes: 'server-core,base'],
 ]
 
 // @NonCPS: timingReport (@NonCPS) calls it for an attempt still running, and a

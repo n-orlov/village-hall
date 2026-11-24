@@ -976,11 +976,11 @@ func TestFullMutationIsThreeUnitsOverEveryPackage(t *testing.T) {
 		t.Error(p)
 	}
 	for name, doctored := range map[string]string{
-		"a lane left out":       replaceOnce(t, jf, "lanes: 'server-core,logic'", "lanes: 'server-core'"),
-		"a lane twice":          replaceOnce(t, jf, "lanes: 'server-core,logic'", "lanes: 'server-core,logic,base'"),
-		"Stryker skipped":       replaceOnce(t, jf, "dir: 'base', lanes: 'server-streams,base'", "dir: 'base', lanes: 'server-streams,nope'"),
-		"an unknown lane":       replaceOnce(t, jf, "lanes: 'server-core,logic'", "lanes: 'server-core,logic,extra'"),
-		"a fourth unit":         replaceOnce(t, jf, "  [name: 'Mutation streams+base+Stryker', dir: 'base', lanes: 'server-streams,base'],", "  [name: 'Mutation streams+Stryker', dir: 'base', lanes: 'server-streams'],\n  [name: 'Mutation base', dir: 'b', lanes: 'base'],"),
+		"a lane left out":       replaceOnce(t, jf, "lanes: 'server-ops,logic'", "lanes: 'server-ops'"),
+		"a lane twice":          replaceOnce(t, jf, "lanes: 'server-ops,logic'", "lanes: 'server-ops,logic,base'"),
+		"Stryker skipped":       replaceOnce(t, jf, "dir: 'base', lanes: 'server-core,base'", "dir: 'base', lanes: 'server-core,nope'"),
+		"an unknown lane":       replaceOnce(t, jf, "lanes: 'server-ops,logic'", "lanes: 'server-ops,logic,extra'"),
+		"a fourth unit":         replaceOnce(t, jf, "  [name: 'Mutation core+base+Stryker', dir: 'base', lanes: 'server-core,base'],", "  [name: 'Mutation core', dir: 'server-core', lanes: 'server-core'],\n  [name: 'Mutation base+Stryker', dir: 'base', lanes: 'base'],"),
 		"no FULL_MUTATION list": replaceOnce(t, jf, "@Field final List FULL_MUTATION = [", "@Field final List OTHER = ["),
 	} {
 		if len(fullLaneProblems(fullMutationLanes(doctored), lanes)) == 0 {
