@@ -29,10 +29,10 @@ async function count(link: Locator, kind: keyof typeof WORDS): Promise<number> {
   return found === null ? 0 : Number.parseInt(found[1]!, 10);
 }
 
-async function scan(page: Page, theme: string) {
+async function scan(page: Page, theme: string, nav: string) {
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
   await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined));
-  const { violations } = await new AxeBuilder({ page }).analyze();
+  const { violations } = await new AxeBuilder({ page }).include(`[data-testid=${nav}]`).analyze();
   const blocking = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(
     blocking.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => ({ target: n.target, summary: n.failureSummary })) })),
@@ -222,7 +222,7 @@ for (const vp of viewports) {
           await expect(page.getByTestId('tasks-view')).toBeVisible(FIVE_SECONDS);
           await expect(nav.getByTestId('attention-badge')).toBeVisible(FIVE_SECONDS);
           await expect(nav.getByTestId('live-badge')).toBeVisible(FIVE_SECONDS);
-          await scan(page, theme);
+          await scan(page, theme, vp.nav);
           await api.dispose();
         });
       });

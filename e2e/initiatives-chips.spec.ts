@@ -257,9 +257,9 @@ for (const vp of viewports) {
         const i = await seedInitiatives(api, `axe-${theme}-${vp.name}`);
         const p = await seedPage(api, `axe-${theme}-${vp.name}`);
         await page.addInitScript(([key, t]) => localStorage.setItem(key!, t!), ['vh.theme', theme]);
-        const axe = async () => {
+        const axe = async (scope: string) => {
           await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined));
-          const { violations } = await new AxeBuilder({ page }).analyze();
+          const { violations } = await new AxeBuilder({ page }).include(scope).analyze();
           return violations
             .filter((v) => v.impact === 'serious' || v.impact === 'critical')
             .map((v) => ({ rule: v.id, impact: v.impact, nodes: v.nodes.map((n) => ({ target: n.target, summary: n.failureSummary })) }));
@@ -270,13 +270,13 @@ for (const vp of viewports) {
         await expect.poll(() => ownRows(page, i.prefix)).toEqual([i.slugs.both, i.slugs.onlyA]);
         await openChips(page);
         await expect(tagChip(page, i.tagA)).toHaveAttribute('aria-pressed', 'true');
-        expect(await axe(), 'serious or critical axe violations on Initiatives').toEqual([]);
+        expect(await axe('[aria-labelledby=initiatives-heading]'), 'serious or critical axe violations on Initiatives').toEqual([]);
 
         await page.goto(`/#/i/${p.slug}?tag=${p.tagA}&sort=title&dir=asc`);
         await expect.poll(() => tableRefs(page)).toEqual([p.refs.both, p.refs.onlyA]);
         await openChips(page);
         await expect(tagChip(page, p.tagA)).toHaveAttribute('aria-pressed', 'true');
-        expect(await axe(), 'serious or critical axe violations on the initiative page').toEqual([]);
+        expect(await axe('[data-testid=initiative-page]'), 'serious or critical axe violations on the initiative page').toEqual([]);
         await api.dispose();
       });
     }

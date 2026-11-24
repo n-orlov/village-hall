@@ -3750,6 +3750,10 @@ stylesheet, so vis-timeline loads nothing external. A planted remote image turns
 reads the same on two consecutive polls (`e2e/settle.ts`), and no spec under `e2e/` waits for the browser's
 `networkidle`, a fixed quiet period every test would pay (R9 h).
 
+Only `e2e/a11y.spec.ts` scans whole pages with axe. A feature spec's axe scan, in its light and its dark test alike, is
+scoped with `.include(...)` to the component under test (the view, the chip filter and sort control, the navigation,
+the Stranded panel or the open dialog), keeps every rule and drops no scan (R9 k).
+
 **Touch and phone ergonomics.** At the phone width (390x844) every visible interactive element
 (`a, button, input, select, textarea, [role=button]`) in the shell, the forms, the lists and the
 dialogs has a hit area of at least 44x44 CSS px, and every visible `input`, `select` and `textarea`

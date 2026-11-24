@@ -394,7 +394,7 @@ for (const vp of viewports) {
         await expect(dialog.getByTestId('task-title')).toHaveText('Task A', FIVE_SECONDS);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined));
-        const { violations } = await new AxeBuilder({ page }).analyze();
+        const { violations } = await new AxeBuilder({ page }).include('[data-testid=dialog]').analyze();
         const blocking = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target) }));
         expect(blocking, 'serious or critical axe violations').toEqual([]);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

@@ -118,16 +118,16 @@ for (const vp of viewports) {
         await page.goto(`/#/t/${s.task}`);
         await expect(page.getByTestId('stranded-panel')).toBeVisible(FIVE_SECONDS);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        const scan = async () => {
+        const scan = async (scope: string) => {
           await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined));
-          const { violations } = await new AxeBuilder({ page }).analyze();
+          const { violations } = await new AxeBuilder({ page }).include(scope).analyze();
           const blocking = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
           expect(blocking.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target) })), 'serious or critical axe violations').toEqual([]);
         };
-        await scan();
+        await scan('[data-testid=stranded-panel]');
         await page.getByRole('button', { name: `Acknowledge lease ${s.lease}` }).click();
         await expect(page.getByRole('dialog', { name: `Acknowledge lease ${s.lease}` })).toBeVisible();
-        await scan();
+        await scan('[data-testid=dialog]');
         await s.api.dispose();
       });
     });

@@ -351,7 +351,7 @@ for (const vp of [
           await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
           await expect(page.locator('html')).toHaveAttribute('data-density', density);
           await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined));
-          const { violations } = await new AxeBuilder({ page }).analyze();
+          const { violations } = await new AxeBuilder({ page }).include('[data-testid=now-view]').analyze();
           const found = violations
             .filter((v) => v.impact === 'serious' || v.impact === 'critical')
             .map((v) => ({ rule: v.id, impact: v.impact, nodes: v.nodes.map((n) => ({ target: n.target, summary: n.failureSummary })) }));

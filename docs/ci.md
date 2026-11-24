@@ -919,7 +919,10 @@ Scripts, each run through `ci/run.sh` unless noted:
   `sameorigin.spec.ts` seeds in a `beforeAll`, runs its per-view loop at the desktop
   viewport only and waits for explicit readiness (a ready locator, then the recorded
   request list reading the same on two consecutive polls, `e2e/settle.ts`); no `e2e/*.ts` file
-  waits for `networkidle` (`TestNoE2EFileWaitsForNetworkIdle` in `ci/suitecheck`, R9 h). `e2e/run-dir-reporter.ts` removes the run's directory
+  waits for `networkidle` (`TestNoE2EFileWaitsForNetworkIdle` in `ci/suitecheck`, R9 h).
+  Only `a11y.spec.ts` scans whole pages with axe; every other spec scopes each of its scans, light and
+  dark, to the component under test with `.include(...)`, no rule disabled and no scan removed
+  (`TestFeatureSpecAxeScansAreScopedToTheComponent` in `ci/suitecheck`, R9 k). `e2e/run-dir-reporter.ts` removes the run's directory
   of worker directories when the run ends.
   Logic and layout viewports (R9 i): `e2e/viewports.ts` exports `logicViewports` (desktop
   only) and `layoutViewports` (phone and desktop). A spec with no viewport-dependent

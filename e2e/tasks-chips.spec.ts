@@ -181,7 +181,7 @@ for (const vp of viewports) {
         await expect(tagChip(page, s.tagA)).toHaveAttribute('aria-pressed', 'true');
         await expect(tagChip(page, s.tagB)).toHaveAttribute('aria-pressed', 'false');
         await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined));
-        const { violations } = await new AxeBuilder({ page }).analyze();
+        const { violations } = await new AxeBuilder({ page }).include('[data-testid=chip-filter]').include('[data-testid=sort-select]').analyze();
         const blocking = violations
           .filter((v) => v.impact === 'serious' || v.impact === 'critical')
           .map((v) => ({ rule: v.id, impact: v.impact, nodes: v.nodes.map((n) => ({ target: n.target, summary: n.failureSummary })) }));

@@ -273,7 +273,7 @@ for (const vp of viewports) {
         await row.getByTestId('tag-add-open').click();
         await row.getByTestId('tag-input').fill('ttag');
         await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined));
-        const { violations } = await new AxeBuilder({ page }).analyze();
+        const { violations } = await new AxeBuilder({ page }).include(`[data-testid=task-row][data-ref="${s.target}"]`).analyze();
         const blocking = violations
           .filter((v) => v.impact === 'serious' || v.impact === 'critical')
           .map((v) => ({ rule: v.id, impact: v.impact, nodes: v.nodes.map((n) => ({ target: n.target, summary: n.failureSummary })) }));
