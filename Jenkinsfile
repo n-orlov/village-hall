@@ -125,8 +125,9 @@
 //
 // Package test-time budget (R9 e): after ci/quality.sh, the Quality unit runs
 // ci/pkgtime over the Suite unit's ci-results/junit-go.xml and
-// ci/pkgtime/budgets.json: a budgeted package (internal/server) whose test time
-// is over its budget, or that has no testsuite in the junit, fails the unit.
+// ci/pkgtime/budgets.json (budgets-race.json for a -race build, whose slowdown is
+// the detector's): a budgeted package (internal/server) whose test time is over
+// its budget, or that has no testsuite in the junit, fails the unit.
 //
 // Phases; each phase's units run in parallel:
 //   1. Core (every build): Lint, Web UI, Suite, E2E, Image, Allure smoke, then
@@ -942,7 +943,10 @@ pipeline {
                            // R9 e: the Suite unit's Go junit holds each budgeted package
                            // (ci/pkgtime/budgets.json) to its test time; the gates above and
                            // this check both run, and either failing fails the unit.
-                           int budgets = sh(returnStatus: true, script: 'ci/run.sh go run ./ci/pkgtime -junit "$BOARD_CI_OUT/junit-go.xml" -budgets ci/pkgtime/budgets.json')
+                           // A -race build (nightly, EXTENDED) is held to ci/pkgtime/budgets-race.json,
+                           // R9 e's own 80 s: the race detector's slowdown is not the package's.
+                           String budgetsFile = (env.BOARD_CI_GO_EXTRA_FLAGS ?: '').contains('-race') ? 'ci/pkgtime/budgets-race.json' : 'ci/pkgtime/budgets.json'
+                           int budgets = sh(returnStatus: true, script: "ci/run.sh go run ./ci/pkgtime -junit \"\$BOARD_CI_OUT/junit-go.xml\" -budgets ${budgetsFile}")
                            gates != 0 ? gates : budgets
                          }])
                 env.QUALITY_RESULT = results['Quality'] == 'fail' ? 'failing' : 'passing'

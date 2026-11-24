@@ -19,16 +19,19 @@ func pkgtimeProblems(jf string) []string {
 	if end := strings.Index(quality, "parallel branches"); end >= 0 {
 		quality = quality[:end]
 	}
-	call := `go run ./ci/pkgtime -junit "$BOARD_CI_OUT/junit-go.xml" -budgets ci/pkgtime/budgets.json`
+	call := `go run ./ci/pkgtime -junit \"\$BOARD_CI_OUT/junit-go.xml\" -budgets ${budgetsFile}`
 	i := strings.Index(quality, call)
 	if i < 0 {
-		return append(problems, "Quality never runs ci/pkgtime over $BOARD_CI_OUT/junit-go.xml and ci/pkgtime/budgets.json")
+		return append(problems, "Quality never runs ci/pkgtime over $BOARD_CI_OUT/junit-go.xml and a budgets file")
+	}
+	if !strings.Contains(quality, `(env.BOARD_CI_GO_EXTRA_FLAGS ?: '').contains('-race') ? 'ci/pkgtime/budgets-race.json' : 'ci/pkgtime/budgets.json'`) {
+		problems = append(problems, "a -race build is not held to ci/pkgtime/budgets-race.json, nor any other build to ci/pkgtime/budgets.json")
 	}
 	gates := strings.Index(quality, "ci/quality.sh")
 	if gates < 0 || gates > i {
 		problems = append(problems, "ci/pkgtime does not run after ci/quality.sh")
 	}
-	if !strings.Contains(quality, "returnStatus: true, script: 'ci/run.sh "+call) {
+	if !strings.Contains(quality, `returnStatus: true, script: "ci/run.sh `+call+`"`) {
 		problems = append(problems, "ci/pkgtime's status is not read")
 	}
 	if !strings.Contains(quality, "gates != 0 ? gates : budgets") {
@@ -41,12 +44,14 @@ func TestQualityRunsThePackageTimeBudgetAfterTheGates(t *testing.T) {
 	jf := readRepoFile(t, "Jenkinsfile")
 	expectProblems(t, jf, pkgtimeProblems, map[string]string{
 		"no check": replaceOnce(t, jf, "go run ./ci/pkgtime -junit", "true -junit"),
-		"other junit": replaceOnce(t, jf, `-junit "$BOARD_CI_OUT/junit-go.xml"`,
-			`-junit "$BOARD_CI_OUT/junit-features.xml"`),
-		"other budgets": replaceOnce(t, jf, "-budgets ci/pkgtime/budgets.json'", "-budgets /dev/null'"),
+		"other junit": replaceOnce(t, jf, `-junit \"\$BOARD_CI_OUT/junit-go.xml\"`,
+			`-junit \"\$BOARD_CI_OUT/junit-features.xml\"`),
+		"other budgets":                  replaceOnce(t, jf, "-budgets ${budgetsFile}", "-budgets /dev/null"),
+		"race build on the plain budget": replaceOnce(t, jf, "? 'ci/pkgtime/budgets-race.json' :", "? 'ci/pkgtime/budgets.json' :"),
+		"plain build on the race budget": replaceOnce(t, jf, ": 'ci/pkgtime/budgets.json'\n", ": 'ci/pkgtime/budgets-race.json'\n"),
 		"status dropped": replaceOnce(t, jf, "gates != 0 ? gates : budgets",
 			"gates"),
-		"status not read": replaceOnce(t, jf, "int budgets = sh(returnStatus: true, script: 'ci/run.sh go run ./ci/pkgtime",
-			"int budgets = sh(script: 'ci/run.sh go run ./ci/pkgtime"),
+		"status not read": replaceOnce(t, jf, "int budgets = sh(returnStatus: true, script: ",
+			"int budgets = sh(script: "),
 	})
 }

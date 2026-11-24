@@ -25,7 +25,7 @@
 #   BOARD_CI_PLAYWRIGHT=only ci/suite.sh         # only Playwright (and the web build, if none is stashed)
 #
 # The Go package matrix's JUnit (<outdir>/junit-go.xml) is also what ci/pkgtime
-# reads in the Quality unit: a budgeted package (ci/pkgtime/budgets.json) whose
+# reads in the Quality unit: a budgeted package (ci/pkgtime/budgets.json, or budgets-race.json under -race) whose
 # <testsuite time> is over its budget fails the build.
 #
 # BOARD_CI_PLAYWRIGHT (operator ruling 001-WAVE, task 035): which parts of the

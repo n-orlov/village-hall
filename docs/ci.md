@@ -670,11 +670,16 @@ ci-results/junit-go.xml -budgets ci/pkgtime/budgets.json`, and either failing fa
 the unit. `ci/pkgtime` holds each package in `ci/pkgtime/budgets.json` to the test
 time (`<testsuite time>`) the Suite unit's Go junit records for it: `internal/server`
 at 28 s, at most 80% of the 35.855 s of main build 275. A package missing from the
-junit fails too. A budget is only ever lowered. `ci/pkgtime/main_test.go` feeds it
+junit fails too. A `-race` build (nightly, EXTENDED) is held to
+`ci/pkgtime/budgets-race.json` instead (`internal/server` at 80 s, R9 e), since the
+race detector's slowdown is not the package's. A budget is only ever lowered. `ci/pkgtime/main_test.go` feeds it
 junit fixtures with `internal/server` at the budget (pass) and one second over (fail).
 To stay inside it, `internal/server`'s ask-wait tests run with sub-second windows
 (`WithAskWaitUnit`, the test hook that shortens a second of `?wait=` in a test rig)
-and its answer-cannot-be-stored cases run as parallel subtests. Its Postgres leg
+and its answer-cannot-be-stored cases run as parallel subtests. Those windows hold a
+slot of `go test -parallel` and no CPU, so the package's `TestMain` gives it two
+slots per CPU unless the caller named `-parallel` (`ci/stability.sh` at
+`-parallel=1` stays serial). Its Postgres leg
 migrates one template database per container and creates each test's database from
 it (`CREATE DATABASE ... TEMPLATE`), so no test pays 23 migrations of its own.
 

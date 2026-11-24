@@ -15,9 +15,11 @@ import (
 // held to: at most 80% of it.
 const main275Server = 35.855
 
-func committedBudget(t *testing.T) float64 {
+func committedBudget(t *testing.T) float64 { return budgetIn(t, "budgets.json") }
+
+func budgetIn(t *testing.T, file string) float64 {
 	t.Helper()
-	b, err := os.ReadFile("budgets.json")
+	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +63,29 @@ func check(junit string) (int, string, string) {
 func TestTheCommittedBudgetIsAtMost80PercentOfMain275(t *testing.T) {
 	if got, limit := committedBudget(t), 0.8*main275Server; got > limit {
 		t.Errorf("internal/server's budget is %g s, want at most %g s (80%% of %g s in main 275)", got, limit, main275Server)
+	}
+}
+
+// raceBudget is R9 e's own number: internal/server's covered run, which is the
+// -race build's, takes at most 80 s.
+const raceBudget = 80
+
+func TestTheRaceBudgetIsR9eNumberAndNotBelowThePlainOne(t *testing.T) {
+	got := budgetIn(t, "budgets-race.json")
+	if got > raceBudget || got < committedBudget(t) {
+		t.Errorf("internal/server's -race budget is %g s, want between its plain budget %g s and %d s", got, committedBudget(t), raceBudget)
+	}
+}
+
+func TestARaceBuildIsHeldToTheRaceBudgetAtItsEdge(t *testing.T) {
+	budget := budgetIn(t, "budgets-race.json")
+	var out, errb bytes.Buffer
+	if code := run([]string{"-junit", fixture(t, "race-at.xml", budget), "-budgets", "budgets-race.json"}, &out, &errb); code != 0 {
+		t.Errorf("at the race budget: code %d, out %q; want 0", code, out.String())
+	}
+	out.Reset()
+	if code := run([]string{"-junit", fixture(t, "race-over.xml", budget+1), "-budgets", "budgets-race.json"}, &out, &errb); code != 1 || !strings.HasPrefix(out.String(), "FAIL internal/server:") {
+		t.Errorf("one second over the race budget: code %d, out %q; want 1 and a FAIL line", code, out.String())
 	}
 }
 

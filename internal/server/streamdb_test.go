@@ -3,10 +3,13 @@ package server
 import (
 	"context"
 	"database/sql"
+	goflag "flag"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -112,6 +115,7 @@ var (
 // use, before any (parallel) test opens a database, and removes the Postgres
 // container the tests of this package share.
 func TestMain(m *testing.M) {
+	raiseParallelWhenUnset()
 	installSQLiteHoldHook()
 	if err := installMarkFunc(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -122,6 +126,30 @@ func TestMain(m *testing.M) {
 		sharedPostgresDone()
 	}
 	os.Exit(code)
+}
+
+// sleepBoundParallelFactor is how many parallel tests this package lets run per
+// CPU. Most of its time is real-clock windows (the ask waits, the feed's quiet
+// periods, the hold-and-release races), during which a test holds a slot of
+// go test's -parallel and no CPU: at the default of one slot per CPU a unit
+// capped at 4 CPUs ran 97 s of test time in 4 slots (29 s in build 305).
+const sleepBoundParallelFactor = 2
+
+// raiseParallelWhenUnset gives the package sleepBoundParallelFactor slots per
+// CPU unless a caller named -parallel itself (ci/stability.sh's run at
+// -parallel=1 keeps meaning one test at a time). It changes how many tests
+// overlap, never a window, a bound or an assertion.
+func raiseParallelWhenUnset() {
+	// the testing flags are parsed by m.Run, after TestMain starts: an explicit
+	// -parallel is read from the arguments go test passed
+	for _, a := range os.Args[1:] {
+		if strings.HasPrefix(a, "-test.parallel") || strings.HasPrefix(a, "--test.parallel") {
+			return
+		}
+	}
+	if f := goflag.Lookup("test.parallel"); f != nil {
+		_ = f.Value.Set(strconv.Itoa(sleepBoundParallelFactor * runtime.GOMAXPROCS(0)))
+	}
 }
 
 // startPostgres returns the Postgres container the tests of this package share,
