@@ -259,7 +259,7 @@ func TestGodogSuiteCheckFailsOnADoctoredGodogTest(t *testing.T) {
 	src := godogSource(t)
 	cases := []struct{ name, from, to, want string }{
 		{"no concurrency on the default suite", "concurrency: godogConcurrency, ", "", "sets no concurrency"},
-		{"concurrency of one", "const godogConcurrency = 4", "const godogConcurrency = 1", "not an integer above 1"},
+		{"concurrency of one", "const godogConcurrency = 2", "const godogConcurrency = 1", "not an integer above 1"},
 		{"serve-upgrade exclusion dropped", ` + " && ~" + tagServeUpgrade`, ``, "does not exclude @serve-upgrade"},
 		{"dedicated-database exclusion dropped", `"~" + tagDedicated + " && ~" + tagServeUpgrade`, `"~" + tagServeUpgrade`, "does not exclude @dedicated-database"},
 		{"serial suite not serial", "concurrency: 1,", "concurrency: 2,", "serial suite's concurrency is not 1"},

@@ -72,8 +72,9 @@ the host daemon, not a child of it:
   `@postgres` runs on the Postgres leg only (the SQLite leg runs `~@postgres`).
 - scenarios run concurrently: `TestFeatures` builds a harness for each scenario
   (its own temporary directory, free port, server and database) and runs the
-  default Godog suite `godogConcurrency` (4) scenarios at a time, the number set
-  once in `features/godog_test.go`. The scenarios tagged `@dedicated-database`
+  default Godog suite `godogConcurrency` (2) scenarios at a time, the number set
+  once in `features/godog_test.go` (more took the agent past the load ceiling
+  of 12 beside E2E, because the Postgres container is outside the unit's CPU cap). The scenarios tagged `@dedicated-database`
   and `@serve-upgrade` (every scenario of `serve_upgrade.feature`) are left out
   of that suite and run after it in a second suite of one scenario at a time.
   Godog's JUnit formatter writes one file per suite, so the second suite's

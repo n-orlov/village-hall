@@ -15,8 +15,11 @@ import (
 // builds its own harness, its own temporary directory, its own server on its own
 // free port and its own database, so scenarios share only the compiled binary,
 // the leg's one Postgres container (a database each) and the output formatters,
-// which take their own locks.
-const godogConcurrency = 4
+// which take their own locks. The number is also bounded from above: the Suite
+// unit shares the agent with E2E, and four scenarios at once took the agent's
+// 1-minute load past R6's ceiling of 12 (each scenario starts a server and
+// drives a Postgres container that no CPU cap reaches), so it is two.
+const godogConcurrency = 2
 
 // Scenarios that must not overlap another scenario run in a second suite of one
 // scenario at a time: the ones tagged @dedicated-database start (and stop) a
