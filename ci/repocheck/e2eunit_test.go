@@ -56,7 +56,7 @@ func functionBody(jf, sig string) string {
 }
 
 // e2eUnitProblems: Playwright is not inside Suite and is the whole of E2E, and
-// the bounds are Suite 45 (120 EXTENDED) and E2E 120.
+// the bounds are Suite 45 (120 EXTENDED) and E2E 40.
 func e2eUnitProblems(jf string) []string {
 	var problems []string
 	core, _ := jenkinsStage(jf, "Core")
@@ -80,8 +80,8 @@ func e2eUnitProblems(jf string) []string {
 	if m := unitMinutesRE.FindStringSubmatch(suite); m == nil || m[1] != "nightly ? 120 : 45" {
 		problems = append(problems, "Suite's bound is not 45 minutes (120 EXTENDED)")
 	}
-	if m := unitMinutesRE.FindStringSubmatch(e2e); m == nil || m[1] != "120" {
-		problems = append(problems, "E2E's bound is not 120 minutes on push and EXTENDED builds")
+	if m := unitMinutesRE.FindStringSubmatch(e2e); m == nil || m[1] != "40" {
+		problems = append(problems, "E2E's bound is not 40 minutes on push and EXTENDED builds")
 	}
 	if !strings.Contains(e2e, "signal: 'E2E'") {
 		problems = append(problems, "E2E does not signal Quality")
@@ -101,8 +101,9 @@ func TestJenkinsfileRunsPlaywrightInItsOwnUnit(t *testing.T) {
 	expectProblems(t, jf, e2eUnitProblems, map[string]string{
 		"Playwright inside Suite":     replaceOnce(t, jf, "BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh", "ci/run.sh ci/suite.sh"),
 		"E2E running everything":      replaceOnce(t, jf, "BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh", "ci/run.sh ci/suite.sh"),
-		"an E2E bound of 45":          replaceOnce(t, jf, "name: 'E2E', minutes: 120,", "name: 'E2E', minutes: 45,"),
-		"an E2E bound of 180":         replaceOnce(t, jf, "name: 'E2E', minutes: 120,", "name: 'E2E', minutes: 180,"),
+		"an E2E bound of 45":          replaceOnce(t, jf, "name: 'E2E', minutes: 40,", "name: 'E2E', minutes: 45,"),
+		"an E2E bound of 120":         replaceOnce(t, jf, "name: 'E2E', minutes: 40,", "name: 'E2E', minutes: 120,"),
+		"an E2E bound of 180":         replaceOnce(t, jf, "name: 'E2E', minutes: 40,", "name: 'E2E', minutes: 180,"),
 		"a Suite bound of 60":         replaceOnce(t, jf, "minutes: nightly ? 120 : 45, signal: 'Suite'", "minutes: nightly ? 120 : 60, signal: 'Suite'"),
 		"a Suite bound of 120 always": replaceOnce(t, jf, "minutes: nightly ? 120 : 45, signal: 'Suite'", "minutes: 120, signal: 'Suite'"),
 		"E2E not signalling Quality":  replaceOnce(t, jf, "signal: 'E2E'", "signal: 'Other'"),

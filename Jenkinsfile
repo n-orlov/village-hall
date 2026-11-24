@@ -129,7 +129,7 @@
 //      minutes, 120 EXTENDED) and E2E is the same script with
 //      BOARD_CI_PLAYWRIGHT=only: the Playwright suite on E2E_WORKERS workers
 //      (2, R6: see Playwright workers below), run once (the script repeats
-//      no failed run, of Playwright or anything else; 120 minutes), in
+//      no failed run, of Playwright or anything else; 40 minutes), in
 //      parallel with Suite, which no longer waits for it.
 //   2. Stability and Mutation, side by side, once Core passed:
 //      - Stability (EXTENDED=true, or nightly on main): one unit (one
@@ -799,7 +799,7 @@ pipeline {
     // push build (it ends ABORTED, endSuperseded()), and waits behind a
     // nightly or parameterized one.
     disableConcurrentBuilds(abortPrevious: supersedable())
-    // A backstop only: every unit has its own bound. Core (Suite's or E2E's 120
+    // A backstop only: every unit has its own bound. Core (Suite's 120 on a nightly or E2E's 40
     // minutes at worst, then Quality), the mutation plan, a 110-minute
     // mutation unit after a stability wait, the gate, and Perf; a nightly
     // takes about an hour (incremental) to 130 minutes (full).
@@ -870,8 +870,8 @@ pipeline {
           units << [name: 'Suite', minutes: nightly ? 120 : 45, signal: 'Suite', after: 'Web UI', needs: ['web-dist'],
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh') }]
           // Playwright alone (BOARD_CI_PLAYWRIGHT=only): every spec, on
-          // E2E_WORKERS workers, run once with no repeat of a failed run. 120 minutes on every build.
-          units << [name: 'E2E', minutes: 120, signal: 'E2E', sample: true, after: 'Web UI', needs: ['web-dist'],
+          // E2E_WORKERS workers, run once with no repeat of a failed run. 40 minutes on every build.
+          units << [name: 'E2E', minutes: 40, signal: 'E2E', sample: true, after: 'Web UI', needs: ['web-dist'],
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
           // Both platforms cross-built and never pushed; the amd64 image is run
           // and probed. The root Dockerfile is built once per architecture, by the

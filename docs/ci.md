@@ -319,7 +319,7 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   Suite unit asks `ci/suite.sh` to skip the step (`BOARD_CI_PLAYWRIGHT=skip`) and
   E2E asks it for only that step (`BOARD_CI_PLAYWRIGHT=only`: Playwright once on
   the web build the Web UI unit stashed, with no repeat of a failed run; no
-  Vitest, no Go pass). E2E's bound is 120 minutes on push and `EXTENDED` builds alike; Suite's
+  Vitest, no Go pass). E2E's bound is 40 minutes on push and `EXTENDED` builds alike; Suite's
   stays 45 minutes (120 `EXTENDED`). Nothing else about Playwright changed: one
   worker, no `fullyParallel`, no shards, no added retry, no raised per-test
   timeout, no raised thread budget, and every test runs on every push build.
@@ -551,7 +551,7 @@ exclusions and the ABORTED end against doctored copies.
 
 `ci/repocheck/jenkinsfile_test.go` pins all of it: Core, then Stability and
 Mutation side by side, then Perf, with the Core units and Quality's wait for
-Suite, E2E and Image (E2E: Playwright alone, 120 minutes; Suite: 45, 120 `EXTENDED`; a unit's own timeout is a failure, not retried, a wait with no node stays infra); the Perf unit (30 minutes, after the stability and mutation units, `perf.json` archived); the job shape (the one `AMD` label for every `node()`, the three
+Suite, E2E and Image (E2E: Playwright alone, 40 minutes; Suite: 45, 120 `EXTENDED`; a unit's own timeout is a failure, not retried, a wait with no node stays infra); the Perf unit (30 minutes, after the stability and mutation units, `perf.json` archived); the job shape (the one `AMD` label for every `node()`, the three
 booleanParams, `disableConcurrentBuilds(abortPrevious: supersedable())`, the 300-minute timeout, the
 per-attempt container cleanup by exact ID); the nightly lane (cron `17 0 * * *`
 on `main` only); the Quality unit; the three Mutation modes (diff: one 45-minute
