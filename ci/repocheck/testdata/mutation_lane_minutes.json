@@ -1,0 +1,19 @@
+{
+  "about": "Predicted minutes per full-mutation lane on int21h-ws: calibration x baseline x (fixed_share + (1 - fixed_share) x the product of the speed factors). Read by TestFullMutationUnitsAreBalancedFromTheLaneTable. Raw inputs: artifacts 012/inputs.md of the run that wrote it.",
+  "baseline_about": "Minutes per lane on #235's times (the Jenkinsfile's balance comment before this table): the only per-lane split that survives, as Jenkins no longer holds the consoles of main 265, 271 and 272.",
+  "calibration": 1.15,
+  "calibration_about": "Unit totals on main 265: 90.6/95.6/102.5, main 271: 107.4/100.3/105.6, main 272: all three cut at 110.5 (PRD results table), against the old table's heaviest unit of 96: 110.5/96 = 1.15, the conservative end.",
+  "fixed_share": 0.3,
+  "fixed_share_about": "Share of a lane's minutes that does not scale with test time (compiling and linking each mutant's test binary, gremlins' work copies). An assumption, to be re-measured by task 014's EXTENDED+MUTATION_FULL build.",
+  "limit_minutes": 90,
+  "lanes": {
+    "server-core": {"baseline_minutes": 50, "speed": [{"task": "013", "factor": 0.555, "basis": "internal/server suite 35.855 s (main275) to 19.897 s (#306)"}, {"task": "021", "factor": 0.5, "basis": "SQLite-only: go-tests.md finding 1 leaf split, postgres 69.6 s of 139.1 s (no post-021 mutation log exists)"}]},
+    "server-ops": {"baseline_minutes": 45, "speed": [{"task": "013", "factor": 0.555, "basis": "as server-core"}, {"task": "021", "factor": 0.5, "basis": "as server-core"}]},
+    "server-streams": {"baseline_minutes": 32, "speed": [{"task": "013", "factor": 0.555, "basis": "as server-core"}, {"task": "021", "factor": 0.5, "basis": "as server-core"}]},
+    "logic": {"baseline_minutes": 43, "speed": [{"task": "021", "factor": 0.674, "basis": "internal/feed is 24.6 of the 67.2 s suite time of the lane's packages (main275), 89 % of it in its postgres leaf: 1 - 0.366 x 0.89"}]},
+    "cli": {"baseline_minutes": 37, "speed": [{"task": "024", "factor": 0.4, "basis": "internal/cli suite 33.696 s (main275) to 13.508 s (#306)"}]},
+    "cli-core": {"baseline_minutes": 27, "speed": [{"task": "024", "factor": 0.4, "basis": "as cli"}]},
+    "base": {"baseline_minutes": 5, "speed": [{"task": "021", "factor": 0.7, "basis": "internal/store leaves 35.7 s (main275), 10.7 s of them postgres; internal/domain 0.01 s"}]},
+    "stryker": {"baseline_minutes": 43, "speed": []}
+  }
+}

@@ -427,7 +427,24 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
     `ci/mutation-merge.sh`, which merges their reports into `ci-results/mutation`
     and judges every package once. The three units start together beside the
     Stability unit (1 + 3 of the 4 executors), each `internal/server` part in a
-    unit of its own. Each runs `nproc / 3` gremlins workers at GOMAXPROCS 2 per
+    unit of its own. The split is
+    `server-core,logic`, `server-ops,cli,cli-core` and `server-streams,base`
+    (with Stryker), predicted at about 67, 68 and 72 minutes against the
+    95-minute budget (the old split put `server-ops` with `base` and Stryker, 80).
+    The prediction is a committed table of minutes per lane
+    (`ci/repocheck/testdata/mutation_lane_minutes.json`): #235's split of
+    each lane (server-core 50, server-ops 45, logic 43, cli 37, server-streams
+    32, cli-core 27, base 5, Stryker 43), times 1.15 (the consoles of main 265,
+    271 and 272 are gone from Jenkins; their unit totals, 90.6 to 107.4 and
+    three units cut at 110.5, calibrate it), scaled by the measured speed-ups
+    of task 013 (`internal/server` 0.555), task 021 (SQLite-only mutants: the
+    server lanes 0.5, store and feed by their Postgres share) and task 024
+    (`internal/cli` 0.4), with 30 % of each lane fixed cost. Its per-lane
+    minutes: server-core 28, server-ops 26, server-streams 18, logic 38, cli 25,
+    cli-core 18, base 5, Stryker 49. `TestFullMutationUnitsAreBalancedFromTheLaneTable`
+    sums the table over `FULL_MUTATION`, and fails on a unit over 90 minutes,
+    a lane in no unit or two, other than three units, or two parts of
+    `internal/server` in one unit. An EXTENDED, MUTATION_FULL build re-measures it. Each runs `nproc / 3` gremlins workers at GOMAXPROCS 2 per
     worker (`BOARD_MUTATION_WORKERS`, `BOARD_MUTATION_TEST_CPU`; `nproc / 2`
     when at most two units run), 12 workers on `int21h-ws`, at `nice 10`, under
     a 110-minute limit and a single attempt; Stryker, at the end of the unit
