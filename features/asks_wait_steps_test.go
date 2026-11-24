@@ -33,16 +33,30 @@ type askWait struct {
 // ?wait= exactly as the scenario wrote them, a fraction included, so the server
 // and not the step decides what a wait of that length means.
 func (h *harness) startAskWait(parent context.Context, seconds, ref, actor string) error {
-	if err := h.requireKey(); err != nil {
-		return err
-	}
 	n, err := strconv.ParseFloat(seconds, 64)
 	if err != nil {
 		return fmt.Errorf("wait of %q seconds: %w", seconds, err)
 	}
-	w := &askWait{started: time.Now(), wait: wholeAndFractionalSeconds(n), done: make(chan struct{})}
+	return h.startAskWaitQuery(parent, time.Now(), "wait="+seconds, wholeAndFractionalSeconds(n), ref, actor)
+}
+
+// startAskWaitUntil sends, in the background, a wait held until the seconds
+// from now (a fraction of a second included) through ?wait= and until (see
+// untilQuery).
+func (h *harness) startAskWaitUntil(parent context.Context, ref string, seconds float64, actor string) error {
+	started, hold := time.Now(), wholeAndFractionalSeconds(seconds)
+	return h.startAskWaitQuery(parent, started, untilQuery(started, hold), hold, ref, actor)
+}
+
+// startAskWaitQuery sends GET <ask>?<query> in the background, a wait the
+// server is asked to hold for hold from started.
+func (h *harness) startAskWaitQuery(parent context.Context, started time.Time, query string, hold time.Duration, ref, actor string) error {
+	if err := h.requireKey(); err != nil {
+		return err
+	}
+	w := &askWait{started: started, wait: hold, done: make(chan struct{})}
 	h.api.wait = w
-	target := fmt.Sprintf("http://%s%s?wait=%s", h.addr, h.askPath(ref, ""), seconds)
+	target := fmt.Sprintf("http://%s%s?%s", h.addr, h.askPath(ref, ""), query)
 	key := h.key
 	go func() {
 		defer close(w.done)
@@ -66,6 +80,17 @@ func (h *harness) startAskWait(parent context.Context, seconds, ref, actor strin
 		w.took = time.Since(w.started)
 	}()
 	return nil
+}
+
+// untilQuery is the query of a wait held until hold after now. ?wait= takes
+// whole seconds only (1 to 300), so the query asks for hold rounded up to a
+// whole second and sets until at the instant hold after now: the server ends
+// the hold at until, to the nanosecond, when it comes first (SPEC 7.2). That
+// is how a scenario holds a wait for less than a second without a wire change,
+// the way `vh ask --poll` ends its last wait at the deadline.
+func untilQuery(now time.Time, hold time.Duration) string {
+	whole := max(int((hold+time.Second-1)/time.Second), 1)
+	return url.Values{"wait": {strconv.Itoa(whole)}, "until": {now.Add(hold).UTC().Format(time.RFC3339Nano)}}.Encode()
 }
 
 // wholeAndFractionalSeconds is the duration a step's "N seconds" names: N may be
@@ -112,6 +137,14 @@ func (h *harness) waitStillHeld(_ context.Context) error {
 // so that 0 and 301 are tried too.
 func (h *harness) requestAskWaiting(ctx context.Context, ref, wait, actor string) error {
 	path := h.askPath(ref, "") + "?wait=" + url.QueryEscape(wait)
+	return h.sendTask(ctx, http.MethodGet, path, "", actor)
+}
+
+// requestAskWaitingUntil asks for the ask with a wait held until the seconds
+// from now (a fraction of a second included), through ?wait= and until (see
+// untilQuery).
+func (h *harness) requestAskWaitingUntil(ctx context.Context, ref string, seconds float64, actor string) error {
+	path := h.askPath(ref, "") + "?" + untilQuery(time.Now(), wholeAndFractionalSeconds(seconds))
 	return h.sendTask(ctx, http.MethodGet, path, "", actor)
 }
 
@@ -209,10 +242,10 @@ func (h *harness) pollSeenAt(ctx context.Context, ref string) (int64, error) {
 }
 
 // pollSeenWhenWaitEnded checks that the wait, which ended, wrote poll_seen_at at
-// its end: no earlier than one second before the wait ran out (the start of the
-// wait wrote it at least that much earlier, and no renewal falls inside a wait
-// this short) and no later than the response arrived. The value is kept as the
-// moment the wait ended.
+// its end: no earlier than half the wait after it started (the start of the
+// wait wrote it at the start, at least that much earlier than the end, and no
+// renewal falls inside a wait this short) and no later than the response
+// arrived. The value is kept as the moment the wait ended.
 func (h *harness) pollSeenWhenWaitEnded(ctx context.Context, ref string) error {
 	w := h.api.wait
 	if w == nil {
@@ -227,7 +260,7 @@ func (h *harness) pollSeenWhenWaitEnded(ctx context.Context, ref string) error {
 	if err != nil {
 		return err
 	}
-	low := w.started.Add(w.wait - time.Second).UnixMilli()
+	low := w.started.Add(w.wait / 2).UnixMilli()
 	high := w.started.Add(w.took).UnixMilli()
 	if at < low || at > high {
 		return fmt.Errorf("poll_seen_at of %s is %d, want the end of the wait (%d to %d)", ref, at, low, high)
@@ -261,6 +294,8 @@ func (h *harness) clockPastWaitEnd(ctx context.Context, seconds int, ref string)
 
 func registerAskWaitSteps(sc *godog.ScenarioContext, h *harness) {
 	sc.Step(`^I start a wait of (\d+(?:\.\d+)?) seconds on the ask "([^"]*)" as actor "([^"]*)"$`, h.startAskWait)
+	sc.Step(`^I start a wait on the ask "([^"]*)" until (\d+(?:\.\d+)?) seconds from now as actor "([^"]*)"$`, h.startAskWaitUntil)
+	sc.Step(`^I request the ask "([^"]*)" waiting until (\d+(?:\.\d+)?) seconds from now as actor "([^"]*)"$`, h.requestAskWaitingUntil)
 	sc.Step(`^the wait ends within (\d+(?:\.\d+)?) seconds$`, h.waitEndsWithin)
 	sc.Step(`^the wait is still held$`, h.waitStillHeld)
 	sc.Step(`^I request the ask "([^"]*)" waiting "([^"]*)" seconds as actor "([^"]*)"$`, h.requestAskWaiting)

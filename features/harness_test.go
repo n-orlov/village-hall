@@ -41,6 +41,10 @@ func dbLeg() (string, error) {
 	}
 }
 
+// featuresBuildTag is the build tag of the binary every scenario drives
+// (boardBuildArgs).
+const featuresBuildTag = "vhfeatures"
+
 // boardPackage is the import path of the binary every scenario drives.
 const boardPackage = "github.com/n-orlov/village-hall/cmd/vh"
 
@@ -49,9 +53,12 @@ const boardPackage = "github.com/n-orlov/village-hall/cmd/vh"
 // -cover, and with a coverMode (the suite's BOARD_FEATURES_COVERMODE, the
 // unit pass's mode) -covermode=<mode> too: `go tool covdata` cannot merge
 // atomic counters (a -race unit pass) with a set-mode binary's. Neither set:
-// the plain build. A mode without a coverDir is ignored.
+// the plain build. A mode without a coverDir is ignored. Every build carries
+// -tags vhfeatures, which only swaps in internal/cli/pollsecond_features.go:
+// the binary then reads BOARD_FEATURES_POLL_SECOND, so a scenario can make a
+// --poll deadline pass in under a second, and is the shipped binary otherwise.
 func boardBuildArgs(binary, coverDir, coverMode string) []string {
-	args := []string{"build", "-o", binary}
+	args := []string{"build", "-tags", featuresBuildTag, "-o", binary}
 	if coverDir != "" {
 		args = append(args, "-cover")
 		if coverMode != "" {
@@ -87,6 +94,12 @@ type harness struct {
 	exit   int
 	stdout string
 	stderr string
+	// took is how long the last command run in the foreground ran.
+	took time.Duration
+	// pollSecond, once a scenario sets it, is BOARD_FEATURES_POLL_SECOND for
+	// every client command: how long a second of --poll lasts in the binary
+	// the harness builds (internal/cli/pollsecond_features.go).
+	pollSecond string
 
 	status int
 
@@ -204,7 +217,9 @@ func (h *harness) runArgs(ctx context.Context, args []string, extra ...string) e
 	if h.stdin != "" {
 		cmd.Stdin, h.stdin = strings.NewReader(h.stdin), ""
 	}
+	started := time.Now()
 	err := cmd.Run()
+	h.took = time.Since(started)
 	h.stdout, h.stderr = out.String(), errb.String()
 	var exitErr *exec.ExitError
 	switch {

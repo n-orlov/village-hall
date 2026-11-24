@@ -4,7 +4,9 @@ Feature: Ask long-poll
   until N seconds pass, which returns the still-open ask (200). The change feed wakes the wait. While a wait is
   held the ask's poll_seen_at is set, and asker_waiting is true when the ask is open, its mode is poll and
   poll_seen_at is within the last 60 seconds. The end of a wait writes poll_seen_at too, and time after it is
-  simulated by moving the stored poll_seen_at back from that value, never by waiting.
+  simulated by moving the stored poll_seen_at back from that value, never by waiting. A wait that runs out is
+  held for under a second: it asks for ?wait=1 with until (SPEC 7.2) at the instant the scenario names, and the
+  server ends the hold there.
 
   Background:
     Given a new database for the board commands
@@ -53,7 +55,7 @@ Feature: Ask long-poll
     And the response path "state" is "withdrawn"
 
   Scenario: a wait that runs out returns the open ask
-    When I request the ask "A1" waiting "1" seconds as actor "claude@laptop"
+    When I request the ask "A1" waiting until 0.3 seconds from now as actor "claude@laptop"
     Then the response status is 200
     And the response path "state" is "open"
     And the response path "answer" is absent
@@ -61,8 +63,8 @@ Feature: Ask long-poll
     And within 1 seconds the poll of the ask "A1" is seen in the database
 
   Scenario: asker_waiting is true during a wait and false 60 seconds after it ends
-    When I start a wait of 2 seconds on the ask "A1" as actor "claude@laptop"
-    Then within 2 seconds the poll of the ask "A1" is seen in the database
+    When I start a wait on the ask "A1" until 0.9 seconds from now as actor "claude@laptop"
+    Then within 0.9 seconds the poll of the ask "A1" is seen in the database
     When I request the ask "A1" as actor "operator@laptop"
     Then the response path "asker_waiting" is "true"
     And the wait is still held
@@ -87,19 +89,19 @@ Feature: Ask long-poll
 
   Scenario: a wait that makes the asker waiting appends one ask_polling event, and only that wait
     Then exactly 0 ask_polling events exist for the ask "A1"
-    When I request the ask "A1" waiting "1" seconds as actor "claude@laptop"
+    When I request the ask "A1" waiting until 0.3 seconds from now as actor "claude@laptop"
     Then exactly 1 ask_polling event exists for the ask "A1"
     And the latest ask_polling event of the ask "A1" is on the task "aa-1" and the initiative "aa"
     And the latest ask_polling event of the ask "A1" has principal "system:poll" and actor "claude@laptop"
-    When I request the ask "A1" waiting "1" seconds as actor "claude@laptop"
+    When I request the ask "A1" waiting until 0.3 seconds from now as actor "claude@laptop"
     Then exactly 1 ask_polling event exists for the ask "A1"
     When the poll of the ask "A1" was last seen 61 seconds ago
-    And I request the ask "A1" waiting "1" seconds as actor "claude@laptop"
+    And I request the ask "A1" waiting until 0.3 seconds from now as actor "claude@laptop"
     Then exactly 2 ask_polling events exist for the ask "A1"
 
   Scenario: an ask in stop mode is never waiting
     When I raise an ask with body "{'question':'Anything?'}" as actor "claude@laptop"
-    And I request the ask "A2" waiting "1" seconds as actor "claude@laptop"
+    And I request the ask "A2" waiting until 0.3 seconds from now as actor "claude@laptop"
     Then the response status is 200
     And the response path "state" is "open"
     And the response path "asker_waiting" is "false"

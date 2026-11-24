@@ -287,17 +287,20 @@ func TestPollDeadlineIsExactlyTheRequestedDuration(t *testing.T) {
 	for _, c := range []struct {
 		now     time.Time
 		seconds int64
+		second  time.Duration
 		want    time.Time
 	}{
-		{at(0), 600, at(0).Add(600 * time.Second)},
-		{at(400_000), 600, time.Date(2026, 3, 4, 12, 10, 0, 400_000, time.UTC)},
-		{at(1), 1, time.Date(2026, 3, 4, 12, 0, 1, 1, time.UTC)},
-		{at(123_000), 1, time.Date(2026, 3, 4, 12, 0, 1, 123_000, time.UTC)},
-		{at(999_999_999), 0, at(999_999_999)},
-		{at(7_000_000), 30, at(7_000_000).Add(30 * time.Second)},
+		{at(0), 600, time.Second, at(0).Add(600 * time.Second)},
+		{at(400_000), 600, time.Second, time.Date(2026, 3, 4, 12, 10, 0, 400_000, time.UTC)},
+		{at(1), 1, time.Second, time.Date(2026, 3, 4, 12, 0, 1, 1, time.UTC)},
+		{at(123_000), 1, time.Second, time.Date(2026, 3, 4, 12, 0, 1, 123_000, time.UTC)},
+		{at(999_999_999), 0, time.Second, at(999_999_999)},
+		{at(7_000_000), 30, time.Second, at(7_000_000).Add(30 * time.Second)},
+		{at(123_000), 1, 300 * time.Millisecond, time.Date(2026, 3, 4, 12, 0, 0, 300_123_000, time.UTC)},
+		{at(1), 2, 300 * time.Millisecond, at(1).Add(600 * time.Millisecond)},
 	} {
-		if got := pollDeadline(c.now, c.seconds); !got.Equal(c.want) {
-			t.Errorf("pollDeadline(%s, %d) = %s, want %s", c.now.Format(time.RFC3339Nano), c.seconds, got.Format(time.RFC3339Nano), c.want.Format(time.RFC3339Nano))
+		if got := pollDeadline(c.now, c.seconds, c.second); !got.Equal(c.want) {
+			t.Errorf("pollDeadline(%s, %d, %s) = %s, want %s", c.now.Format(time.RFC3339Nano), c.seconds, c.second, got.Format(time.RFC3339Nano), c.want.Format(time.RFC3339Nano))
 		}
 	}
 }

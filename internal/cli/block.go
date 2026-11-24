@@ -47,7 +47,7 @@ func blockCmd(args []string, stdout, stderr io.Writer, env Env) int {
 	if !p.has("--json") {
 		_, _ = fmt.Fprintf(stdout, "ok ask %s raised\n", v.Ref)
 	}
-	return blockWait(ctx, c, p, v, raw, wait, stdout, stderr)
+	return blockWait(ctx, c, p, v, raw, pollDeadline(nowFn(), wait, pollSecond(env)), stdout, stderr)
 }
 
 // parseBlock reads the command line and the seconds of --poll (0 without it).
@@ -91,14 +91,13 @@ func printBlocked(p parsedArgs, v blockView, raw json.RawMessage, stdout io.Writ
 	return ExitOK
 }
 
-// blockWait waits up to seconds for the answer of the raised poll ask v,
+// blockWait waits up to deadline for the answer of the raised poll ask v,
 // renewing the lease the block kept before each wait, and prints how it ended.
-func blockWait(ctx context.Context, c *client, p parsedArgs, v blockView, raw json.RawMessage, seconds int64, stdout, stderr io.Writer) int {
+func blockWait(ctx context.Context, c *client, p parsedArgs, v blockView, raw json.RawMessage, deadline time.Time, stdout, stderr io.Writer) int {
 	fetch := waitFetch(ctx, c, v.Ref)
 	if v.Lease != nil {
 		fetch = renewing(ctx, c, v.Lease.Ref, fetch)
 	}
-	deadline := pollDeadline(nowFn(), seconds)
 	r := pollAsk(read{a: v.askView, raw: raw}, deadline, nowFn, fetch)
 	if r.err != nil {
 		return report(stderr, askRefFailure(v.Ref)(r.err))

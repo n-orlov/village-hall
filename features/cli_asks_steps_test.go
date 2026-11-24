@@ -65,7 +65,7 @@ func (h *harness) startClientInBackground(ctx context.Context, line, actor strin
 	}
 	bg := &backgroundClient{done: make(chan struct{})}
 	cmd := exec.CommandContext(ctx, h.binary, words[1:]...)
-	cmd.Env = h.env("BOARD_URL=http://"+h.addr, "BOARD_API_KEY="+h.key, "BOARD_ACTOR="+actor)
+	cmd.Env = h.env(append([]string{"BOARD_URL=http://" + h.addr, "BOARD_API_KEY=" + h.key, "BOARD_ACTOR=" + actor}, h.pollSecondEnv()...)...)
 	cmd.Stdout, cmd.Stderr = &bg.out, &bg.err
 	if err := cmd.Start(); err != nil {
 		return err
@@ -117,7 +117,37 @@ func (h *harness) backgroundClientWaits() error {
 	}
 }
 
+// clientPollSecond makes a second of --poll last ms milliseconds, under a
+// real second, in every client command the scenario runs from here on.
+func (h *harness) clientPollSecond(ms int) error {
+	if ms <= 0 || ms >= 1000 {
+		return fmt.Errorf("a --poll second of %d ms: want 1 to 999", ms)
+	}
+	h.pollSecond = fmt.Sprintf("%dms", ms)
+	return nil
+}
+
+// pollSecondEnv is the client's BOARD_FEATURES_POLL_SECOND, when the scenario
+// set one.
+func (h *harness) pollSecondEnv() []string {
+	if h.pollSecond == "" {
+		return nil
+	}
+	return []string{"BOARD_FEATURES_POLL_SECOND=" + h.pollSecond}
+}
+
+// clientRanFor checks how long the last foreground command ran: at least low
+// seconds and under high.
+func (h *harness) clientRanFor(low, high float64) error {
+	if h.took < wholeAndFractionalSeconds(low) || h.took >= wholeAndFractionalSeconds(high) {
+		return fmt.Errorf("the client ran for %s, want at least %g and under %g seconds", h.took, low, high)
+	}
+	return nil
+}
+
 func registerCLIAskSteps(sc *godog.ScenarioContext, h *harness) {
+	sc.Step(`^a second of the client's --poll lasts (\d+) milliseconds$`, h.clientPollSecond)
+	sc.Step(`^the client ran for at least (\d+(?:\.\d+)?) and under (\d+(?:\.\d+)?) seconds$`, h.clientRanFor)
 	sc.Step(`^a text file holds "([^"]*)"$`, h.textFileHolds)
 	sc.Step(`^I start the client '([^']*)' as actor "([^"]*)" in the background$`, h.startClientInBackground)
 	sc.Step(`^the background client ends within (\d+(?:\.\d+)?) seconds$`, h.backgroundClientEnds)

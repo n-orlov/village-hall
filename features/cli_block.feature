@@ -3,6 +3,9 @@ Feature: Raising an ask and stopping or waiting from the command line, vh block
   ends the caller's lease on the task as blocked on the ask and prints the ok line of vh ask and then that of
   vh lease end. --poll D keeps the lease, renews it while it waits and exits 0, 6 or 3 as vh ask --poll does.
   It exits 4 for an unknown task, 6 for a closed one and 2 for a malformed command line. A refusal writes nothing.
+  A --poll deadline that runs out is reached in under a second: the harness's build of vh (-tags vhfeatures)
+  lets a scenario make a second of --poll last less, and --poll 1s then ends at that shorter deadline through
+  the same waits.
 
   Background:
     Given a new database for the board commands
@@ -98,8 +101,10 @@ Feature: Raising an ask and stopping or waiting from the command line, vh block
 
   Scenario: --poll with a short deadline exits 3 and leaves the ask open and the lease live
     Given I run the client 'vh start aa-1 "working"' as actor "claude@laptop"
+    And a second of the client's --poll lasts 300 milliseconds
     When I run the client 'vh block aa-1 "Which port?" --poll 1s' as actor "claude@laptop"
     Then the exit code is 3
+    And the client ran for at least 0.3 and under 1 seconds
     And stdout is:
       """
       ok ask A1 raised
@@ -111,8 +116,10 @@ Feature: Raising an ask and stopping or waiting from the command line, vh block
     And exactly 1 lease_renewed event exists for the lease "L1"
 
   Scenario: --poll without a lease prints the same lines and renews nothing
+    Given a second of the client's --poll lasts 300 milliseconds
     When I run the client 'vh block aa-1 "Which port?" --poll 1s' as actor "claude@laptop"
     Then the exit code is 3
+    And the client ran for at least 0.3 and under 1 seconds
     And stdout is:
       """
       ok ask A1 raised

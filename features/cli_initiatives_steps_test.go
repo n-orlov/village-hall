@@ -64,6 +64,7 @@ func (h *harness) runClientNamed(ctx context.Context, line string, actor, wayBac
 	if task != "" {
 		extra = append(extra, prefix+"TASK="+task)
 	}
+	extra = append(extra, h.pollSecondEnv()...)
 	return h.runArgs(ctx, words[1:], extra...)
 }
 

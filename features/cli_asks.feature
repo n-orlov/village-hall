@@ -3,6 +3,9 @@ Feature: Asks and answers from the command line
   withdraw read and withdraw asks, and vh answer answers one, directly or
   as a relay of what a person said somewhere else. An ask that is not open
   exits 6 with the next action, an unknown ask exits 4.
+  A --poll deadline that runs out is reached in under a second: the harness's build of vh (-tags vhfeatures)
+  lets a scenario make a second of --poll last less, and --poll 1s then ends at that shorter deadline through
+  the same waits.
 
   Background:
     Given a new database for the board commands
@@ -324,8 +327,10 @@ Feature: Asks and answers from the command line
     And stderr is empty
 
   Scenario: ask --poll with a short deadline exits 3 and leaves the ask open
+    Given a second of the client's --poll lasts 300 milliseconds
     When I run the client 'vh ask aa-1 "Which port?" --poll 1s' as actor "claude@laptop"
     Then the exit code is 3
+    And the client ran for at least 0.3 and under 1 seconds
     And stdout is exactly "A1 still open → vh ask show A1"
     And stderr is empty
     And the ask "A1" is "open" in the database

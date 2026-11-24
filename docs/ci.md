@@ -897,7 +897,11 @@ Scripts, each run through `ci/run.sh` unless noted:
   database leg whose log shows scenarios ran but that left no non-empty counter
   file in the feature coverage directory fails the suite and is named, as does a
   run whose feature profile has no blocks; a unit-only merged profile is never
-  accepted. `features/coverage_test.go` pins the build line, the emitted
+  accepted. The harness builds that binary with `-tags vhfeatures` as well,
+  with or without coverage: it swaps in `internal/cli/pollsecond_features.go`,
+  so a scenario can set `BOARD_FEATURES_POLL_SECOND` (a Go duration under a
+  second) and a `--poll 1s` deadline passes in that time; the image and the
+  release never carry the tag. `features/coverage_test.go` pins the build line, the emitted
   counters and the server flush; `ci/suitecheck` probes the suite's refusal per leg.
   When `web/package.json` exists it first runs `npm ci` and `npm run build` in
   `web/` (the build lands in `internal/webui/dist`, so the Go passes embed the

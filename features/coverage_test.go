@@ -13,20 +13,21 @@ import (
 // TestBoardBuildArgsFollowsTheCoverSettings pins the build line the suite's
 // merged coverage depends on: -cover only with a coverage directory, and the
 // unit pass's mode when one is named (atomic under -race), because
-// `go tool covdata` refuses to merge atomic and set counters.
+// `go tool covdata` refuses to merge atomic and set counters. Every line
+// carries -tags vhfeatures (the --poll second a scenario may shorten).
 func TestBoardBuildArgsFollowsTheCoverSettings(t *testing.T) {
 	cases := []struct {
 		name                string
 		coverDir, coverMode string
 		want                []string
 	}{
-		{"no coverage: the plain build", "", "", []string{"build", "-o", "/b", boardPackage}},
-		{"cover dir only: -cover, default mode", "/cov", "", []string{"build", "-o", "/b", "-cover", boardPackage}},
-		{"cover dir and set", "/cov", "set", []string{"build", "-o", "/b", "-cover", "-covermode=set", boardPackage}},
-		{"cover dir and atomic", "/cov", "atomic", []string{"build", "-o", "/b", "-cover", "-covermode=atomic", boardPackage}},
-		{"cover dir and an unusual mode is passed through verbatim", "/cov", "count", []string{"build", "-o", "/b", "-cover", "-covermode=count", boardPackage}},
-		{"the binary path is the -o operand", "/cov", "set", []string{"build", "-o", "/b", "-cover", "-covermode=set", boardPackage}},
-		{"a mode without a cover dir is ignored", "", "atomic", []string{"build", "-o", "/b", boardPackage}},
+		{"no coverage: the plain build", "", "", []string{"build", "-tags", "vhfeatures", "-o", "/b", boardPackage}},
+		{"cover dir only: -cover, default mode", "/cov", "", []string{"build", "-tags", "vhfeatures", "-o", "/b", "-cover", boardPackage}},
+		{"cover dir and set", "/cov", "set", []string{"build", "-tags", "vhfeatures", "-o", "/b", "-cover", "-covermode=set", boardPackage}},
+		{"cover dir and atomic", "/cov", "atomic", []string{"build", "-tags", "vhfeatures", "-o", "/b", "-cover", "-covermode=atomic", boardPackage}},
+		{"cover dir and an unusual mode is passed through verbatim", "/cov", "count", []string{"build", "-tags", "vhfeatures", "-o", "/b", "-cover", "-covermode=count", boardPackage}},
+		{"the binary path is the -o operand", "/cov", "set", []string{"build", "-tags", "vhfeatures", "-o", "/b", "-cover", "-covermode=set", boardPackage}},
+		{"a mode without a cover dir is ignored", "", "atomic", []string{"build", "-tags", "vhfeatures", "-o", "/b", boardPackage}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

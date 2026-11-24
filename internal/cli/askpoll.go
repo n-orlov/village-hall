@@ -116,10 +116,12 @@ func endedAfter(a askView, deadline time.Time) bool {
 	return at.After(deadline)
 }
 
-// pollDeadline is the deadline of a --poll of seconds raised at now: exactly
-// now plus seconds, to the nanosecond, never rounded or otherwise moved.
-func pollDeadline(now time.Time, seconds int64) time.Time {
-	return now.Add(time.Duration(seconds) * time.Second).Round(0)
+// pollDeadline is the deadline of a --poll of seconds raised at now, each of
+// them second long: exactly now plus seconds, to the nanosecond, never rounded
+// or otherwise moved. second is a real second (pollSecond) in every build but
+// the scenario harness's.
+func pollDeadline(now time.Time, seconds int64, second time.Duration) time.Time {
+	return now.Add(time.Duration(seconds) * second).Round(0)
 }
 
 // askPoll raises the ask as a poll ask, then waits for its end up to seconds.
@@ -138,7 +140,7 @@ func askPoll(p parsedArgs, body map[string]any, seconds int64, stdout, stderr io
 	if err := json.Unmarshal(raw, &first); err != nil {
 		return report(stderr, err)
 	}
-	deadline := pollDeadline(nowFn(), seconds)
+	deadline := pollDeadline(nowFn(), seconds, pollSecond(env))
 	r := pollAsk(read{a: first, raw: raw}, deadline, nowFn, waitFetch(ctx, c, first.Ref))
 	if r.err != nil {
 		return report(stderr, askRefFailure(first.Ref)(r.err))
