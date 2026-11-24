@@ -59,17 +59,17 @@ Feature: Browser sessions: CSRF protection, logout and expiry
 
   Scenario: a session idle for longer than the idle timeout expires
     Given the mock OIDC provider signs in "alice@example.com" with a verified email
-    And the board server is running with OIDC login allowing "alice@example.com" and BOARD_SESSION_IDLE set to "900ms"
+    And the board server is running with OIDC login allowing "alice@example.com" and BOARD_SESSION_IDLE set to "800ms"
     When the browser opens "/"
     And the browser follows the redirects
     Then the response status is 200
-    When the browser waits 0.45 seconds
+    When the browser waits 0.3 seconds
     And the browser calls GET "/auth/session" as an API client
     Then the response status is 200
-    When the browser waits 0.45 seconds
+    When the browser waits 0.3 seconds
     And the browser calls GET "/auth/session" as an API client
     Then the response status is 200
-    When the browser waits 1.35 seconds
+    When the browser waits 0.9 seconds
     And the browser calls GET "/auth/session" as an API client
     Then the response status is 401
     And the database holds 1 session

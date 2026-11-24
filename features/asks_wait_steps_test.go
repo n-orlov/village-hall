@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -16,7 +17,8 @@ import (
 // goes on, with the moment it started and, once it ends, how.
 type askWait struct {
 	started time.Time
-	seconds int
+	// wait is the length the request asked the server to hold it for.
+	wait time.Duration
 	// seenAtEnd is poll_seen_at as the end of the wait left it, in stored
 	// milliseconds, once a step has read it.
 	seenAtEnd int64
@@ -27,18 +29,24 @@ type askWait struct {
 	err       error
 }
 
-// startAskWait sends the wait request in the background.
-func (h *harness) startAskWait(parent context.Context, seconds int, ref, actor string) error {
+// startAskWait sends the wait request in the background. The seconds go into
+// ?wait= exactly as the scenario wrote them, a fraction included, so the server
+// and not the step decides what a wait of that length means.
+func (h *harness) startAskWait(parent context.Context, seconds, ref, actor string) error {
 	if err := h.requireKey(); err != nil {
 		return err
 	}
-	w := &askWait{started: time.Now(), seconds: seconds, done: make(chan struct{})}
+	n, err := strconv.ParseFloat(seconds, 64)
+	if err != nil {
+		return fmt.Errorf("wait of %q seconds: %w", seconds, err)
+	}
+	w := &askWait{started: time.Now(), wait: wholeAndFractionalSeconds(n), done: make(chan struct{})}
 	h.api.wait = w
-	target := fmt.Sprintf("http://%s%s?wait=%d", h.addr, h.askPath(ref, ""), seconds)
+	target := fmt.Sprintf("http://%s%s?wait=%s", h.addr, h.askPath(ref, ""), seconds)
 	key := h.key
 	go func() {
 		defer close(w.done)
-		ctx, cancel := context.WithTimeout(parent, time.Duration(seconds)*time.Second+30*time.Second)
+		ctx, cancel := context.WithTimeout(parent, w.wait+30*time.Second)
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 		if err != nil {
@@ -219,7 +227,7 @@ func (h *harness) pollSeenWhenWaitEnded(ctx context.Context, ref string) error {
 	if err != nil {
 		return err
 	}
-	low := w.started.Add(time.Duration(w.seconds)*time.Second - time.Second).UnixMilli()
+	low := w.started.Add(w.wait - time.Second).UnixMilli()
 	high := w.started.Add(w.took).UnixMilli()
 	if at < low || at > high {
 		return fmt.Errorf("poll_seen_at of %s is %d, want the end of the wait (%d to %d)", ref, at, low, high)
@@ -252,7 +260,7 @@ func (h *harness) clockPastWaitEnd(ctx context.Context, seconds int, ref string)
 }
 
 func registerAskWaitSteps(sc *godog.ScenarioContext, h *harness) {
-	sc.Step(`^I start a wait of (\d+) seconds on the ask "([^"]*)" as actor "([^"]*)"$`, h.startAskWait)
+	sc.Step(`^I start a wait of (\d+(?:\.\d+)?) seconds on the ask "([^"]*)" as actor "([^"]*)"$`, h.startAskWait)
 	sc.Step(`^the wait ends within (\d+(?:\.\d+)?) seconds$`, h.waitEndsWithin)
 	sc.Step(`^the wait is still held$`, h.waitStillHeld)
 	sc.Step(`^I request the ask "([^"]*)" waiting "([^"]*)" seconds as actor "([^"]*)"$`, h.requestAskWaiting)
