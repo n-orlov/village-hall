@@ -471,6 +471,7 @@ func TestAWaitWithUntilEndsAtUntil(t *testing.T) {
 	t.Parallel()
 	forEachLeg(t, func(t *testing.T, _ string, dbs databases) {
 		testAWaitWithUntilEndsAtUntil(t, openStore(t, dbs.New(t)))
+		testAWaitWithUntilPastAnswersAtOnce(t, openStore(t, dbs.New(t)))
 	})
 }
 
@@ -488,7 +489,6 @@ func testAWaitWithUntilEndsAtUntil(t *testing.T, st *store.Store) {
 	}{
 		{untilQuery("1", time.Now().Add(150*time.Millisecond)), 150 * time.Millisecond, 450 * time.Millisecond},
 		{untilQuery("1", time.Now().Add(time.Hour)), second, 950 * time.Millisecond},
-		{untilQuery("5", time.Now().Add(-time.Minute)), 0, 250 * time.Millisecond},
 	} {
 		started := time.Now()
 		w := r.startWait(ref, c.query)
@@ -500,6 +500,34 @@ func testAWaitWithUntilEndsAtUntil(t *testing.T, st *store.Store) {
 	}
 	if polledAt(t, as, ref) == nil {
 		t.Error("the waits did not mark the poll")
+	}
+}
+
+// testAWaitWithUntilPastAnswersAtOnce: until already past answers at once,
+// with the ask open and the poll marked. Time is the test clock's, which never
+// moves here: the wait is 300 seconds long and nothing ends the ask, so the
+// read at until, whose timer the clock fires at once because until is behind
+// it, is the only thing that can end the wait. Its ending at all proves it was
+// not held, and its timer being set proves until is what ended it; nothing here
+// depends on how long the request takes on a loaded host (a real-clock window
+// of 250 ms failed at 256 ms beside full mutation).
+func testAWaitWithUntilPastAnswersAtOnce(t *testing.T, st *store.Store) {
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	clock := newTestClock()
+	r := askClockRig(t, st, newToken(t, st), clock, time.Hour, clock.Now)
+	ref := r.raiseAsk()
+	w := r.startWait(ref, untilQuery("300", clock.Now().Add(-time.Minute)))
+	w.ends(t)
+	if w.status != http.StatusOK || w.state != "open" {
+		t.Errorf("until a minute past: %d %q, want 200 open", w.status, w.state)
+	}
+	if clock.armed.Load() == 0 {
+		t.Error("until a minute past: the wait ended without taking its read at until")
+	}
+	if polledAt(t, &asks.Store{Store: st}, ref) == nil {
+		t.Error("until a minute past: the wait did not mark the poll")
 	}
 }
 
