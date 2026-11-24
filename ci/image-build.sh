@@ -17,6 +17,11 @@
 # Jenkins agent, outside ci/run.sh (it needs the docker CLI), in the Quality
 # stage.
 #
+# BOARD_CI_CPUS=<n> (the Jenkinsfile sets it on the Image unit, as it does for
+# ci/run.sh) caps the BuildKit container at n CPUs (cpu-quota over a 100 ms
+# period), so the two cross-compiles of the Dockerfile cannot run the agent's
+# load past 12 (R6); unset or empty: no cap.
+#
 #   ci/image-build.sh [amd64-tar]    # default ci-results/board-image.tar
 set -eu
 
@@ -56,8 +61,13 @@ docker cp "$holder:/buildx" "$work/config/cli-plugins/docker-buildx"
 docker rm "$holder" >/dev/null
 export DOCKER_CONFIG="$work/config"
 
+cpu_opts=""
+if [ -n "${BOARD_CI_CPUS:-}" ]; then
+	cpu_opts="--driver-opt cpu-period=100000 --driver-opt cpu-quota=$((BOARD_CI_CPUS * 100000))"
+fi
+# shellcheck disable=SC2086 # cpu_opts is two words per option, by design
 docker buildx create --name "$builder" --driver docker-container \
-	--driver-opt "image=$buildkit_image" >/dev/null
+	--driver-opt "image=$buildkit_image" $cpu_opts >/dev/null
 
 mkdir -p "$(dirname "$tar_path")"
 rm -f "$tar_path" "$oci_path"

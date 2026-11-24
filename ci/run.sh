@@ -24,6 +24,12 @@
 #     Jenkinsfile sets it on every full-mode mutation unit (SPEC 15.3), where
 #     a mutated cli.test once grew to 54 GB. Containers the sibling starts
 #     through the docker socket (Postgres testcontainers) are outside it.
+#   - BOARD_CI_CPUS=<n> (docker's --cpus, e.g. 4) caps the sibling's CPU time:
+#     the kernel throttles its threads at n CPUs, and a throttled thread is not
+#     runnable, so it does not count in the host's load average. The Jenkinsfile
+#     sets it on every Core unit (R6: load at most 12 on int21h-ws, 12 hardware
+#     threads, where an uncapped Go build of a cold cache ran 25-30 threads).
+#     Empty or unset: no cap.
 set -eu
 
 workspace=${RALPHD_HOST_WORKSPACE:-$PWD}
@@ -31,6 +37,7 @@ image=${BOARD_CI_IMAGE:-board-ci:local}
 volume=${BOARD_CI_CACHE_VOLUME:-board-go-cache}
 npm_volume=${BOARD_CI_NPM_VOLUME:-board-npm-cache}
 memory=${BOARD_CI_MEMORY:-}
+cpus=${BOARD_CI_CPUS:-}
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
     echo "error: image $image not found; build it with:" >&2
@@ -59,6 +66,7 @@ set -- "$@" docker run --rm \
     --mount "type=volume,src=$volume,dst=/go-cache" \
     --mount "type=volume,src=$npm_volume,dst=/npm-cache" \
     ${memory:+--memory=$memory --memory-swap=$memory} \
+    ${cpus:+--cpus=$cpus} \
     ${RALPHD_RUN_ID:+--label ralphd.run=$RALPHD_RUN_ID} \
     ${RALPHD_RUN_ID:+--label ralphd.role=sibling}
 

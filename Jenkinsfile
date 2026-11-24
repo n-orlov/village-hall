@@ -111,6 +111,12 @@
 // (ci/loadsample.sh header), which the report archives. The ceiling (load at most 12 on every row) and the
 // Playwright worker count are judged on that file.
 //
+// CPU caps (R6, task 020): a unit's cpus: is exported as BOARD_CI_CPUS, which
+// ci/run.sh passes as docker run --cpus and ci/image-build.sh as its BuildKit
+// container's cpu-quota, so the Core phase cannot run the agent's 12 hardware
+// threads past a load of 12 (an uncapped cold Go build ran 25-30 threads). The
+// four largest caps sum to 12 (ci/repocheck/cpucap_test.go); empty is no cap.
+//
 // Playwright workers (R6, task 010): E2E_WORKERS below, 2, at most 3 (ci/suitecheck
 // pins it). It is exported as BOARD_E2E_WORKERS to ci/suite.sh, which hands it
 // to e2e/playwright.config.ts (ci/suite.sh header). Chosen from builds #288 and
@@ -502,7 +508,7 @@ def runUnit(Map u) {
               int left = u.minutes * 60 - (int) ((nowMs() - a.start) / 1000) - 120
               withEnv(["RALPHD_RUN_ID=${runId}", "BOARD_CI_SHA=${commitSha}",
                        "BOARD_IMAGE_REVISION=${commitSha}", "BOARD_IMAGE_VERSION=${imageVersion}",
-                       "BOARD_UNIT_NAME=${u.name}", "BOARD_UNIT_SAMPLE=${u.sample ? 'yes' : ''}", "BOARD_UNIT_BOUND_SECONDS=${left > 60 ? left : 60}"]) {
+                       "BOARD_UNIT_NAME=${u.name}", "BOARD_UNIT_SAMPLE=${u.sample ? 'yes' : ''}", "BOARD_CI_CPUS=${u.cpus ?: ''}", "BOARD_UNIT_BOUND_SECONDS=${left > 60 ? left : 60}"]) {
                 int rc = u.body()
                 // -1: the durable-task wrapper died (agent restart killed its
                 // process group), so the command never finished. 124: the
@@ -856,22 +862,22 @@ pipeline {
           currentBuild.description = 'int21h-ws: ' + lanes.join(' + ') + (nightly ? ' (-race)' : '')
           def units = []
           // gofmt, go vet, tidy drift, golangci-lint.
-          units << [name: 'Lint', minutes: 30, body: { sh(returnStatus: true, script: 'ci/run.sh ci/lint.sh') }]
+          units << [name: 'Lint', minutes: 30, cpus: 2, body: { sh(returnStatus: true, script: 'ci/run.sh ci/lint.sh') }]
           // The web UI, built once per build (R9 l): ci/web-build.sh writes
           // internal/webui/dist, which the unit stashes as web-dist. Suite, E2E and
           // Quality (needs, below) wait for it and unstash it, and run no web build
           // of their own (ci/suite.sh finds the build's marker). The Image unit's
           // Dockerfile builds its own, inside the image.
-          units << [name: 'Web UI', minutes: 15, signal: 'Web UI',
+          units << [name: 'Web UI', minutes: 15, cpus: 2, signal: 'Web UI',
                     body: { sh(returnStatus: true, script: 'ci/run.sh ci/web-build.sh') },
                     extraStash: { stash name: 'web-dist', includes: 'internal/webui/dist/**', allowEmpty: true }]
           // Everything but Playwright: Vitest, the Go passes and the merged files
           // (BOARD_CI_PLAYWRIGHT=skip, ci/suite.sh header), on the stashed web build.
-          units << [name: 'Suite', minutes: nightly ? 120 : 45, signal: 'Suite', after: 'Web UI', needs: ['web-dist'],
+          units << [name: 'Suite', minutes: nightly ? 120 : 45, cpus: 4, signal: 'Suite', after: 'Web UI', needs: ['web-dist'],
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=skip ci/run.sh ci/suite.sh') }]
           // Playwright alone (BOARD_CI_PLAYWRIGHT=only): every spec, on
           // E2E_WORKERS workers, run once with no repeat of a failed run. 40 minutes on every build.
-          units << [name: 'E2E', minutes: 40, signal: 'E2E', sample: true, after: 'Web UI', needs: ['web-dist'],
+          units << [name: 'E2E', minutes: 40, cpus: 3, signal: 'E2E', sample: true, after: 'Web UI', needs: ['web-dist'],
                     body: { unitSh(script: 'BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh') }]
           // Both platforms cross-built and never pushed; the amd64 image is run
           // and probed. The root Dockerfile is built once per architecture, by the
@@ -880,7 +886,7 @@ pipeline {
           // its own (ci/repocheck imagebuildonce_test.go). It also unstashes the Web UI
           // unit's build, so the dry run's release binaries embed it and build no UI
           // (ci/release-build.sh); only the Dockerfile builds the UI again.
-          units << [name: 'Image', minutes: 30, signal: 'Image', after: 'Web UI', needs: ['web-dist'],
+          units << [name: 'Image', minutes: 30, cpus: 2, signal: 'Image', after: 'Web UI', needs: ['web-dist'],
                     body: {
                       int rc = sh(returnStatus: true, script: 'ci/image-build.sh "$BOARD_CI_OUT/board-image.tar" && ci/image-check.sh "$BOARD_CI_OUT"')
                       if (rc != 0) {
@@ -891,7 +897,7 @@ pipeline {
                       sh(returnStatus: true, script: 'ci/release-check.sh "$BOARD_CI_OUT"')
                     },
                     extraStash: { stash name: 'image', includes: 'ci-results/board-image.tar,ci-results/board-image-oci.tar', allowEmpty: true }]
-          units << [name: 'Allure smoke', minutes: 15,
+          units << [name: 'Allure smoke', minutes: 15, cpus: 1,
                     body: {
                       sh(returnStatus: true, script: '''
                         set -e
@@ -919,7 +925,7 @@ pipeline {
                   error('Quality: no results to read from ' + lost.join(', ') + ' (' +
                         lost.collect { it + ': ' + (results[it] ?: 'no result') + ', ' + (attemptLog[it] ? attemptSummary(attemptLog[it]) : 'no attempt') }.join('; ') + ')')
                 }
-                runUnit([name: 'Quality', minutes: 30, needs: ['res-suite', 'res-e2e', 'res-image', 'image', 'web-dist'],
+                runUnit([name: 'Quality', minutes: 30, cpus: 4, needs: ['res-suite', 'res-e2e', 'res-image', 'image', 'web-dist'],
                          body: {
                            if (env.CI_NIGHTLY == 'true') {
                              sh "ci/run.sh sh -c 'rm -rf /go-cache/trivy/db /go-cache/trivy/java-db /go-cache/xdg-cache/govulncheck'"

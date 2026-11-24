@@ -208,7 +208,7 @@ func TestLoadSampleRefusesAnUnreadableProcDirectory(t *testing.T) {
 func TestJenkinsfileRunsTheE2EUnitUnderTheLoadSampler(t *testing.T) {
 	jf := readRepoFile(t, "Jenkinsfile")
 	for _, want := range []string{
-		"name: 'E2E', minutes: 40, signal: 'E2E', sample: true",
+		"name: 'E2E', minutes: 40, cpus: 3, signal: 'E2E', sample: true",
 		`ci/loadsample.sh "$BOARD_CI_OUT/load-samples.txt" -- `,
 		"BOARD_UNIT_SAMPLE=${u.sample ? 'yes' : ''}",
 	} {

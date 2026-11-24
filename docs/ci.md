@@ -215,6 +215,27 @@ and which process push the load past 12 (task 020).
 at a short interval (rows, fields, the exact percentages, a clean stop on TERM,
 the command's exit status) and checks the Jenkinsfile runs the E2E unit under it.
 
+### CPU caps on Core units (R6, task 020)
+
+int21h-ws has 12 hardware threads, so a load above 12 is an oversubscribed
+agent. Main #304's samples (`load-samples-procs.txt`, by process and cgroup)
+named the owners: the Image unit's two cross-compiles of the Dockerfile
+(`compile=34` threads, load 22.5) and Suite's `internal/server` test binary
+(10 runnable threads, load 12.4); earlier push builds ran 25-30 in their first
+minutes, every Core unit compiling a cold Go cache at the same time. Every Core
+unit therefore runs under a CPU cap, the `cpus:` field of its entry in the
+`Jenkinsfile` (Lint 2, Web UI 2, Suite 4, E2E 3, Image 2, Allure smoke 1, Quality
+4): the attempt exports it as `BOARD_CI_CPUS`, `ci/run.sh` turns it into
+`docker run --cpus` (the kernel throttles the container's threads at that many
+CPUs, and a throttled thread is not runnable, so it adds nothing to the load
+average), and `ci/image-build.sh` gives its BuildKit container the same quota
+(`--driver-opt cpu-quota`, over a 100 ms period). The four largest caps sum to 12,
+the agent's four executors' worst case. Postgres testcontainers start outside the
+cap. Empty or unset means no cap (a local run, the mutation and stability units).
+`ci/repocheck/cpucap_test.go` pins the caps, their sum, the export, `ci/run.sh`'s
+`--cpus` and the BuildKit quota. A cap lengthens the unit it holds: the units'
+minutes in `timing.md` are judged against their bounds as before.
+
 ### Playwright worker count
 
 The count is set in one place, `E2E_WORKERS` in the `Jenkinsfile` (2; at most 3

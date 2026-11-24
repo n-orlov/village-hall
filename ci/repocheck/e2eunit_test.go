@@ -104,8 +104,8 @@ func TestJenkinsfileRunsPlaywrightInItsOwnUnit(t *testing.T) {
 		"an E2E bound of 45":          replaceOnce(t, jf, "name: 'E2E', minutes: 40,", "name: 'E2E', minutes: 45,"),
 		"an E2E bound of 120":         replaceOnce(t, jf, "name: 'E2E', minutes: 40,", "name: 'E2E', minutes: 120,"),
 		"an E2E bound of 180":         replaceOnce(t, jf, "name: 'E2E', minutes: 40,", "name: 'E2E', minutes: 180,"),
-		"a Suite bound of 60":         replaceOnce(t, jf, "minutes: nightly ? 120 : 45, signal: 'Suite'", "minutes: nightly ? 120 : 60, signal: 'Suite'"),
-		"a Suite bound of 120 always": replaceOnce(t, jf, "minutes: nightly ? 120 : 45, signal: 'Suite'", "minutes: 120, signal: 'Suite'"),
+		"a Suite bound of 60":         replaceOnce(t, jf, "minutes: nightly ? 120 : 45, cpus: 4, signal: 'Suite'", "minutes: nightly ? 120 : 60, cpus: 4, signal: 'Suite'"),
+		"a Suite bound of 120 always": replaceOnce(t, jf, "minutes: nightly ? 120 : 45, cpus: 4, signal: 'Suite'", "minutes: 120, cpus: 4, signal: 'Suite'"),
 		"E2E not signalling Quality":  replaceOnce(t, jf, "signal: 'E2E'", "signal: 'Other'"),
 		"a sharded Playwright":        replaceOnce(t, jf, "BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh", "BOARD_CI_PLAYWRIGHT=only ci/run.sh ci/suite.sh --shard=1/2"),
 	})

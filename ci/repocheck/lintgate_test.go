@@ -59,7 +59,7 @@ func lintUnitProblems(jf string) []string {
 	if len(units) == 0 || units[0] != "Lint" {
 		problems = append(problems, "Lint is not the first Core unit: "+strings.Join(units, ","))
 	}
-	if !strings.Contains(core, "units << [name: 'Lint', minutes: 30, body: { sh(returnStatus: true, script: 'ci/run.sh ci/lint.sh') }]") {
+	if !strings.Contains(core, "units << [name: 'Lint', minutes: 30, cpus: 2, body: { sh(returnStatus: true, script: 'ci/run.sh ci/lint.sh') }]") {
 		problems = append(problems, "the Lint unit does not run ci/run.sh ci/lint.sh")
 	}
 	if !strings.Contains(jf, "catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {\n        try {") || !strings.Contains(functionBody(jf, "def unitBranch(Map u) {"), "runUnit(u)") {
@@ -74,9 +74,9 @@ func lintUnitProblems(jf string) []string {
 func TestLintUnitRunsGolangciLintBeforeLaterPhases(t *testing.T) {
 	jf := readRepoFile(t, "Jenkinsfile")
 	expectProblems(t, jf, lintUnitProblems, map[string]string{
-		"Lint declared after Suite":      replaceOnce(t, replaceOnce(t, jf, "units << [name: 'Lint'", "units << [name: 'Tidy'"), "units << [name: 'Suite'", "units << [name: 'Lint', minutes: 30, body: { sh(returnStatus: true, script: 'ci/run.sh ci/lint.sh') }]\n          units << [name: 'Suite'"),
+		"Lint declared after Suite":      replaceOnce(t, replaceOnce(t, jf, "units << [name: 'Lint'", "units << [name: 'Tidy'"), "units << [name: 'Suite'", "units << [name: 'Lint', minutes: 30, cpus: 2, body: { sh(returnStatus: true, script: 'ci/run.sh ci/lint.sh') }]\n          units << [name: 'Suite'"),
 		"a Lint unit that runs nothing":  replaceOnce(t, jf, "script: 'ci/run.sh ci/lint.sh'", "script: 'true'"),
-		"a Lint unit with another limit": replaceOnce(t, jf, "units << [name: 'Lint', minutes: 30,", "units << [name: 'Lint', minutes: 60,"),
+		"a Lint unit with another limit": replaceOnce(t, jf, "units << [name: 'Lint', minutes: 30, cpus: 2,", "units << [name: 'Lint', minutes: 60, cpus: 2,"),
 		"a red unit that cannot fail":    replaceOnce(t, jf, "catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {\n        try {", "catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {\n        try {"),
 	})
 
