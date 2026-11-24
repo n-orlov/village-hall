@@ -25,6 +25,10 @@ ARG TARGETARCH
 # and GET /api/v1/meta report what the image was built as; the build context has no .git.
 ARG VERSION=devel
 ARG REVISION=
+# GOMAXPROCS bounds the compiler's threads when the builder is given one (ci/image-build.sh
+# passes its CPU cap): a BuildKit step cgroup does not show Go the builder's cpu quota, so
+# without it each cross-compile starts a thread per hardware thread. Unset: Go's default.
+ARG GOMAXPROCS
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

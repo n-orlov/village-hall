@@ -246,7 +246,11 @@ unit therefore runs under a CPU cap, the `cpus:` field of its entry in the
 `docker run --cpus` (the kernel throttles the container's threads at that many
 CPUs, and a throttled thread is not runnable, so it adds nothing to the load
 average), and `ci/image-build.sh` gives its BuildKit container the same quota
-(`--driver-opt cpu-quota`, over a 100 ms period). The four largest caps sum to 12,
+(`--driver-opt cpu-quota`, over a 100 ms period) and passes it to both `docker buildx
+build` calls as the Dockerfile's `GOMAXPROCS` build arg, because a BuildKit step
+cgroup hides the quota from Go and the two cross-compiles otherwise ran 28 runnable
+compile threads in #310's first minutes (load 22; the Godog phase stayed at 8-10).
+The four largest caps sum to 12,
 the agent's four executors' worst case. Postgres testcontainers start outside the
 cap. Empty or unset means no cap (a local run, the mutation and stability units).
 `ci/repocheck/cpucap_test.go` pins the caps, their sum, the export, `ci/run.sh`'s

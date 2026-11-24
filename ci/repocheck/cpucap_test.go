@@ -104,6 +104,19 @@ func TestRunShCPUCap(t *testing.T) {
 // and returns the `docker buildx create` line it issued.
 func imageBuildCreateArgs(t *testing.T, env ...string) string {
 	t.Helper()
+	for _, line := range imageBuildLog(t, env...) {
+		if strings.HasPrefix(line, "docker buildx create") {
+			return line
+		}
+	}
+	t.Fatal("no docker buildx create in the stub docker's log")
+	return ""
+}
+
+// imageBuildLog runs the real ci/image-build.sh against a stub docker and
+// returns every line the stub saw.
+func imageBuildLog(t *testing.T, env ...string) []string {
+	t.Helper()
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatalf("repositoryRoot: %v", err)
@@ -131,13 +144,7 @@ func imageBuildCreateArgs(t *testing.T, env ...string) string {
 	if err != nil {
 		t.Fatalf("stub docker saw nothing: %v", err)
 	}
-	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.HasPrefix(line, "docker buildx create") {
-			return line
-		}
-	}
-	t.Fatalf("no docker buildx create in %q", raw)
-	return ""
+	return strings.Split(string(raw), "\n")
 }
 
 // TestImageBuildCapsTheBuildKitContainer: BOARD_CI_CPUS=3 gives the builder a
@@ -153,5 +160,42 @@ func TestImageBuildCapsTheBuildKitContainer(t *testing.T) {
 		if line := imageBuildCreateArgs(t, env...); strings.Contains(line, "cpu-quota") {
 			t.Errorf("env %v, yet the builder is capped: %q", env, line)
 		}
+	}
+}
+
+// TestImageBuildBoundsTheGoCompilerThreads: a BuildKit step cgroup hides the
+// builder's cpu quota from Go, so BOARD_CI_CPUS=3 is also passed to both
+// `docker buildx build` calls as the Dockerfile's GOMAXPROCS build arg (the two
+// cross-compiles ran 28 runnable compile threads in #310's first minutes);
+// unset or empty, no build arg is passed.
+func TestImageBuildBoundsTheGoCompilerThreads(t *testing.T) {
+	builds := func(env ...string) []string {
+		var out []string
+		for _, line := range imageBuildLog(t, env...) {
+			if strings.HasPrefix(line, "docker buildx build") {
+				out = append(out, line)
+			}
+		}
+		return out
+	}
+	capped := builds("BOARD_CI_CPUS=3")
+	if len(capped) != 2 {
+		t.Fatalf("want two buildx build calls, got %q", capped)
+	}
+	for _, line := range capped {
+		if !strings.Contains(line, "--build-arg GOMAXPROCS=3") {
+			t.Errorf("want --build-arg GOMAXPROCS=3 in %q", line)
+		}
+	}
+	for _, env := range [][]string{{}, {"BOARD_CI_CPUS="}} {
+		for _, line := range builds(env...) {
+			if strings.Contains(line, "GOMAXPROCS") {
+				t.Errorf("env %v, yet the build bounds Go: %q", env, line)
+			}
+		}
+	}
+	df := readRepoFile(t, "Dockerfile")
+	if !strings.Contains(df, "\nARG GOMAXPROCS\n") {
+		t.Errorf("the Dockerfile's build stage does not declare ARG GOMAXPROCS")
 	}
 }

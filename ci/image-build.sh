@@ -20,7 +20,10 @@
 # BOARD_CI_CPUS=<n> (the Jenkinsfile sets it on the Image unit, as it does for
 # ci/run.sh) caps the BuildKit container at n CPUs (cpu-quota over a 100 ms
 # period), so the two cross-compiles of the Dockerfile cannot run the agent's
-# load past 12 (R6); unset or empty: no cap.
+# load past 12 (R6); unset or empty: no cap. It is also passed to the Dockerfile
+# as the GOMAXPROCS build arg, because a BuildKit step cgroup hides the quota from
+# Go and the two cross-compiles would otherwise run a thread per hardware thread
+# each (28 runnable compile threads in #310's first minutes, load 22).
 #
 #   ci/image-build.sh [amd64-tar]    # default ci-results/board-image.tar
 set -eu
@@ -62,7 +65,9 @@ docker rm "$holder" >/dev/null
 export DOCKER_CONFIG="$work/config"
 
 cpu_opts=""
+procs_arg=""
 if [ -n "${BOARD_CI_CPUS:-}" ]; then
+	procs_arg="--build-arg GOMAXPROCS=$BOARD_CI_CPUS"
 	cpu_opts="--driver-opt cpu-period=100000 --driver-opt cpu-quota=$((BOARD_CI_CPUS * 100000))"
 fi
 # shellcheck disable=SC2086 # cpu_opts is two words per option, by design
@@ -72,13 +77,16 @@ docker buildx create --name "$builder" --driver docker-container \
 mkdir -p "$(dirname "$tar_path")"
 rm -f "$tar_path" "$oci_path"
 
+# procs_arg is one word-pair, or empty, by design (SC2086 below).
 # Both platforms in one build: the OCI layout holds an image index with both.
-docker buildx build --builder "$builder" -f Dockerfile \
+# shellcheck disable=SC2086
+docker buildx build --builder "$builder" -f Dockerfile $procs_arg \
 	--platform linux/amd64,linux/arm64 --provenance=false --sbom=false \
 	--build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
 	--output "type=oci,dest=$oci_path${oci_name:+,name=$oci_name}" .
 # The amd64 image again, from the builder's cache: loaded and saved.
-docker buildx build --builder "$builder" -f Dockerfile \
+# shellcheck disable=SC2086
+docker buildx build --builder "$builder" -f Dockerfile $procs_arg \
 	--platform linux/amd64 --provenance=false --sbom=false \
 	--build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
 	--tag "$tag" --load .
