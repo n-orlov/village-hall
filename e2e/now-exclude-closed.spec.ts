@@ -121,11 +121,24 @@ for (const vp of [
         await openFold(page, 'recent');
         await expectRows(page, s, false);
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-        // A 44 px target on one line with the window switch beside it.
-        const box = (await page.getByTestId('exclude-closed-control').boundingBox())!;
-        expect(box.height).toBeGreaterThanOrEqual(44);
-        const radio = (await page.getByTestId('now-window').locator('label').first().boundingBox())!;
-        expect(Math.abs(box.y + box.height / 2 - (radio.y + radio.height / 2))).toBeLessThanOrEqual(2);
+        // A 44 px target on one line with the window switch beside it. Both rectangles are read in one task, so a layout
+        // shift between two reads (the In flight band settling to the initiative filter above) cannot read as a
+        // misalignment, and the alignment is awaited like any other text or count until the layout has settled.
+        const control = () =>
+          page.evaluate(() => {
+            const rect = (selector: string) => {
+              const { y, height } = document.querySelector(selector)!.getBoundingClientRect();
+              return { y, height };
+            };
+            return { box: rect('[data-testid=exclude-closed-control]'), radio: rect('[data-testid=now-window] label') };
+          });
+        await expect
+          .poll(async () => {
+            const { box, radio } = await control();
+            return Math.abs(box.y + box.height / 2 - (radio.y + radio.height / 2));
+          }, FIVE_SECONDS)
+          .toBeLessThanOrEqual(2);
+        expect((await control()).box.height).toBeGreaterThanOrEqual(44);
         await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))).then(() => undefined));
         const { violations } = await new AxeBuilder({ page }).include('[data-testid=now-recent]').analyze();
         const found = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target) }));
