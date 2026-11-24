@@ -60,17 +60,24 @@ func (h *harness) startAskWait(parent context.Context, seconds int, ref, actor s
 	return nil
 }
 
+// wholeAndFractionalSeconds is the duration a step's "N seconds" names: N may be
+// written with a fraction, so a step that bounds a wait can be as short as the
+// scenario's own clock needs.
+func wholeAndFractionalSeconds(seconds float64) time.Duration {
+	return time.Duration(seconds * float64(time.Second))
+}
+
 // waitEndsWithin makes the background wait's response the scenario's last
 // response, failing when it has not ended within the seconds.
-func (h *harness) waitEndsWithin(_ context.Context, seconds int) error {
+func (h *harness) waitEndsWithin(_ context.Context, seconds float64) error {
 	w := h.api.wait
 	if w == nil {
 		return errors.New("no wait was started")
 	}
 	select {
 	case <-w.done:
-	case <-time.After(time.Duration(seconds) * time.Second):
-		return fmt.Errorf("the wait was still held after %d seconds", seconds)
+	case <-time.After(wholeAndFractionalSeconds(seconds)):
+		return fmt.Errorf("the wait was still held after %g seconds", seconds)
 	}
 	if w.err != nil {
 		return w.err
@@ -101,9 +108,9 @@ func (h *harness) requestAskWaiting(ctx context.Context, ref, wait, actor string
 }
 
 // responseWithin checks that the last request took less than the seconds.
-func (h *harness) responseWithin(_ context.Context, seconds int) error {
-	if took := h.api.answeredAt.Sub(h.api.sentAt); took >= time.Duration(seconds)*time.Second {
-		return fmt.Errorf("the request took %s, want under %d seconds", took, seconds)
+func (h *harness) responseWithin(_ context.Context, seconds float64) error {
+	if took := h.api.answeredAt.Sub(h.api.sentAt); took >= wholeAndFractionalSeconds(seconds) {
+		return fmt.Errorf("the request took %s, want under %g seconds", took, seconds)
 	}
 	return nil
 }
@@ -134,15 +141,15 @@ func (h *harness) placeholder(i int) string {
 }
 
 // pollSeenWithin waits for poll_seen_at of the ask to be set.
-func (h *harness) pollSeenWithin(ctx context.Context, seconds int, ref string) error {
-	deadline := time.Now().Add(time.Duration(seconds) * time.Second)
+func (h *harness) pollSeenWithin(ctx context.Context, seconds float64, ref string) error {
+	deadline := time.Now().Add(wholeAndFractionalSeconds(seconds))
 	for {
 		seen, err := h.pollSeen(ctx, ref)
 		if err != nil || seen {
 			return err
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("poll_seen_at of %s was not set within %d seconds", ref, seconds)
+			return fmt.Errorf("poll_seen_at of %s was not set within %g seconds", ref, seconds)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -246,11 +253,11 @@ func (h *harness) clockPastWaitEnd(ctx context.Context, seconds int, ref string)
 
 func registerAskWaitSteps(sc *godog.ScenarioContext, h *harness) {
 	sc.Step(`^I start a wait of (\d+) seconds on the ask "([^"]*)" as actor "([^"]*)"$`, h.startAskWait)
-	sc.Step(`^the wait ends within (\d+) seconds$`, h.waitEndsWithin)
+	sc.Step(`^the wait ends within (\d+(?:\.\d+)?) seconds$`, h.waitEndsWithin)
 	sc.Step(`^the wait is still held$`, h.waitStillHeld)
 	sc.Step(`^I request the ask "([^"]*)" waiting "([^"]*)" seconds as actor "([^"]*)"$`, h.requestAskWaiting)
-	sc.Step(`^the response arrived in under (\d+) seconds$`, h.responseWithin)
-	sc.Step(`^within (\d+) seconds the poll of the ask "([^"]*)" is seen in the database$`, h.pollSeenWithin)
+	sc.Step(`^the response arrived in under (\d+(?:\.\d+)?) seconds$`, h.responseWithin)
+	sc.Step(`^within (\d+(?:\.\d+)?) seconds the poll of the ask "([^"]*)" is seen in the database$`, h.pollSeenWithin)
 	sc.Step(`^the poll of the ask "([^"]*)" is not seen in the database$`, h.pollNotSeen)
 	sc.Step(`^the poll of the ask "([^"]*)" was last seen (\d+) seconds ago$`, h.backdatePoll)
 	sc.Step(`^the poll of the ask "([^"]*)" was last seen when the wait ended$`, h.pollSeenWhenWaitEnded)

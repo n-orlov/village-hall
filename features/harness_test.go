@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -417,27 +418,52 @@ func (h *harness) getWithKeyAndNoActor(ctx context.Context, path string) error {
 	return h.get(ctx, path, map[string]string{"Authorization": "Bearer " + h.key})
 }
 
-// keyFromAnotherDatabase migrates a throwaway SQLite database, mints a key on
-// it and remembers the key, so that a scenario holds a genuine key the
-// scenario's own (unmigrated) database has never seen.
-func (h *harness) keyFromAnotherDatabase(ctx context.Context) error {
+// foreignKey is the key every scenario that holds "a key made on another
+// database" shares: it is minted once per run, on a throwaway database that is
+// gone by the time the scenarios use the key, because a key's validity against
+// the scenario's own database does not depend on which scenario asks.
+var foreignKey struct {
+	once   sync.Once
+	stdout string // what the key creation printed
+	err    error
+}
+
+// keyFromAnotherDatabase remembers a genuine key the scenario's own
+// (unmigrated) database has never seen. The key comes from a migrated
+// throwaway SQLite database, created and the key minted on it once per run
+// (foreignKey), however many scenarios use the step.
+func (h *harness) keyFromAnotherDatabase(_ context.Context) error {
+	foreignKey.once.Do(func() { foreignKey.stdout, foreignKey.err = h.mintForeignKey() })
+	if foreignKey.err != nil {
+		return foreignKey.err
+	}
+	h.stdout = foreignKey.stdout
+	return h.rememberKey()
+}
+
+// mintForeignKey migrates a throwaway SQLite database, mints a key on it and
+// returns what the minting printed.
+func (h *harness) mintForeignKey() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 	dir, err := os.MkdirTemp("", "board-godog-other-")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	url := "BOARD_DB_URL=sqlite://" + filepath.Join(dir, "other.db")
+	var printed string
 	for _, args := range [][]string{{"admin", "migrate"}, {"admin", "keys", "create", "elsewhere"}} {
 		cmd := exec.CommandContext(ctx, h.binary, args...)
 		cmd.Env = h.env(url)
 		var out, errb bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &errb
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("board %s: %w: %s", strings.Join(args, " "), err, errb.String())
+			return "", fmt.Errorf("board %s: %w: %s", strings.Join(args, " "), err, errb.String())
 		}
-		h.stdout = out.String()
+		printed = out.String()
 	}
-	return h.rememberKey()
+	return printed, nil
 }
 
 func (h *harness) stopServer() {

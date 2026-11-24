@@ -332,11 +332,19 @@ func TestTheNowReadsStatementsDoNotGrowWithTheStoreAndExpiryAddsAFixedNumber(t *
 	}
 	small, large := growth{perInitiative: 3, extraInitiatives: 0, asks: 1}, growth{perInitiative: 24, extraInitiatives: 8, asks: 20}
 	eachLeg(t, func(t *testing.T, leg string) {
+		// The small and the large board are grown once per leg and read under every
+		// stranded-alert setting and request: a Now read with nothing due changes
+		// nothing, and the setting is the store's own switch (SetNotify), not part of
+		// the data the boards hold.
+		sa, scount := grownBoard(t, leg, small)
+		la, lcount := grownBoard(t, leg, large)
 		for _, alertSetting := range []struct {
 			name   string
 			alerts []string
 		}{{"alerts off", nil}, {"stranded alerts on", []string{store.NotifyStranded}}} {
 			alertsOn := alertSetting.alerts != nil
+			sa.Store.SetNotify(alertSetting.alerts)
+			la.Store.SetNotify(alertSetting.alerts)
 			for _, req := range requests {
 				ctx := context.Background()
 				if req.origin != "" {
@@ -345,9 +353,7 @@ func TestTheNowReadsStatementsDoNotGrowWithTheStoreAndExpiryAddsAFixedNumber(t *
 				label := alertSetting.name + ", " + req.name
 
 				// (b) nothing due: the same total on a small and on a larger board
-				sa, scount := grownBoard(t, leg, small, alertSetting.alerts...)
 				smallNoDue, smallFlight := readOf(ctx, t, sa, scount)
-				la, lcount := grownBoard(t, leg, large, alertSetting.alerts...)
 				largeNoDue, largeFlight := readOf(ctx, t, la, lcount)
 				if smallNoDue == 0 || largeFlight <= smallFlight {
 					t.Fatalf("%s: %d statements on the small board, %d tasks in flight there and %d on the large one: it proves nothing",

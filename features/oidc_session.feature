@@ -5,7 +5,7 @@ Feature: Browser sessions: CSRF protection, logout and expiry
   its absolute lifetime is spent, whatever its activity; its row is removed by the
   next request presenting it that is not refused (a refused one changes no row),
   or by the sweeper at its absolute expiry. The expiry scenarios
-  start the server with lifetimes of a few seconds, so the clock they drive is
+  start the server with lifetimes of under a second, so the clock they drive is
   the server's own and no step sleeps for longer than five seconds.
 
   Scenario: a cookie write without the CSRF token is rejected
@@ -59,17 +59,17 @@ Feature: Browser sessions: CSRF protection, logout and expiry
 
   Scenario: a session idle for longer than the idle timeout expires
     Given the mock OIDC provider signs in "alice@example.com" with a verified email
-    And the board server is running with OIDC login allowing "alice@example.com" and BOARD_SESSION_IDLE set to "2s"
+    And the board server is running with OIDC login allowing "alice@example.com" and BOARD_SESSION_IDLE set to "900ms"
     When the browser opens "/"
     And the browser follows the redirects
     Then the response status is 200
-    When the browser waits 1 second
+    When the browser waits 0.45 seconds
     And the browser calls GET "/auth/session" as an API client
     Then the response status is 200
-    When the browser waits 1 second
+    When the browser waits 0.45 seconds
     And the browser calls GET "/auth/session" as an API client
     Then the response status is 200
-    When the browser waits 3 seconds
+    When the browser waits 1.35 seconds
     And the browser calls GET "/auth/session" as an API client
     Then the response status is 401
     And the database holds 1 session
@@ -79,14 +79,14 @@ Feature: Browser sessions: CSRF protection, logout and expiry
 
   Scenario: a session expires at its absolute lifetime however active it is
     Given the mock OIDC provider signs in "alice@example.com" with a verified email
-    And the board server is running with OIDC login allowing "alice@example.com" and BOARD_SESSION_TTL set to "3s"
+    And the board server is running with OIDC login allowing "alice@example.com" and BOARD_SESSION_TTL set to "800ms"
     When the browser opens "/"
     And the browser follows the redirects
     Then the response status is 200
-    When the browser waits 2 seconds
+    When the browser waits 0.5 seconds
     And the browser calls GET "/auth/session" as an API client
     Then the response status is 200
-    When the browser waits 2 seconds
+    When the browser waits 0.5 seconds
     And the browser calls GET "/auth/session" as an API client
     Then the response status is 401
     And the database holds 1 session

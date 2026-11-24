@@ -61,7 +61,7 @@ Feature: Ask long-poll
     And within 1 seconds the poll of the ask "A1" is seen in the database
 
   Scenario: asker_waiting is true during a wait and false 60 seconds after it ends
-    When I start a wait of 3 seconds on the ask "A1" as actor "claude@laptop"
+    When I start a wait of 2 seconds on the ask "A1" as actor "claude@laptop"
     Then within 2 seconds the poll of the ask "A1" is seen in the database
     When I request the ask "A1" as actor "operator@laptop"
     Then the response path "asker_waiting" is "true"

@@ -105,8 +105,8 @@ func (h *harness) browserPutsSessionBack() error {
 
 // browserWaits really waits: the expiry scenarios run against short configured
 // lifetimes, so the clock they drive is the server's own.
-func (h *harness) browserWaits(ctx context.Context, seconds int) error {
-	d := time.Duration(seconds) * time.Second
+func (h *harness) browserWaits(ctx context.Context, seconds float64) error {
+	d := wholeAndFractionalSeconds(seconds)
 	if d > maxWait {
 		return fmt.Errorf("a wait of %s is longer than the %s a step may sleep", d, maxWait)
 	}
@@ -127,5 +127,5 @@ func registerSessionSteps(sc *godog.ScenarioContext, h *harness) {
 	sc.Step(`^the session was seen within the last minute$`, h.sessionSeenRecently)
 	sc.Step(`^the browser remembers its session cookie$`, h.browserRemembersSession)
 	sc.Step(`^the browser puts the remembered session cookie back$`, h.browserPutsSessionBack)
-	sc.Step(`^the browser waits (\d+) seconds?$`, h.browserWaits)
+	sc.Step(`^the browser waits (\d+(?:\.\d+)?) seconds?$`, h.browserWaits)
 }

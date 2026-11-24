@@ -98,7 +98,7 @@ Feature: Raising an ask and stopping or waiting from the command line, vh block
 
   Scenario: --poll with a short deadline exits 3 and leaves the ask open and the lease live
     Given I run the client 'vh start aa-1 "working"' as actor "claude@laptop"
-    When I run the client 'vh block aa-1 "Which port?" --poll 2s' as actor "claude@laptop"
+    When I run the client 'vh block aa-1 "Which port?" --poll 1s' as actor "claude@laptop"
     Then the exit code is 3
     And stdout is:
       """
@@ -111,7 +111,7 @@ Feature: Raising an ask and stopping or waiting from the command line, vh block
     And exactly 1 lease_renewed event exists for the lease "L1"
 
   Scenario: --poll without a lease prints the same lines and renews nothing
-    When I run the client 'vh block aa-1 "Which port?" --poll 2s' as actor "claude@laptop"
+    When I run the client 'vh block aa-1 "Which port?" --poll 1s' as actor "claude@laptop"
     Then the exit code is 3
     And stdout is:
       """

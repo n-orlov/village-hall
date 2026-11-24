@@ -324,7 +324,7 @@ Feature: Asks and answers from the command line
     And stderr is empty
 
   Scenario: ask --poll with a short deadline exits 3 and leaves the ask open
-    When I run the client 'vh ask aa-1 "Which port?" --poll 2s' as actor "claude@laptop"
+    When I run the client 'vh ask aa-1 "Which port?" --poll 1s' as actor "claude@laptop"
     Then the exit code is 3
     And stdout is exactly "A1 still open → vh ask show A1"
     And stderr is empty

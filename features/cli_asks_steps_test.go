@@ -87,15 +87,15 @@ func (h *harness) startClientInBackground(ctx context.Context, line, actor strin
 
 // backgroundClientEnds waits for the background client and makes its exit code
 // and output the scenario's last command result.
-func (h *harness) backgroundClientEnds(seconds int) error {
+func (h *harness) backgroundClientEnds(seconds float64) error {
 	bg := h.background
 	if bg == nil {
 		return errors.New("no background client was started")
 	}
 	select {
 	case <-bg.done:
-	case <-time.After(time.Duration(seconds) * time.Second):
-		return fmt.Errorf("the background client was still running after %d seconds", seconds)
+	case <-time.After(wholeAndFractionalSeconds(seconds)):
+		return fmt.Errorf("the background client was still running after %g seconds", seconds)
 	}
 	if bg.failure != nil {
 		return bg.failure
@@ -120,7 +120,7 @@ func (h *harness) backgroundClientWaits() error {
 func registerCLIAskSteps(sc *godog.ScenarioContext, h *harness) {
 	sc.Step(`^a text file holds "([^"]*)"$`, h.textFileHolds)
 	sc.Step(`^I start the client '([^']*)' as actor "([^"]*)" in the background$`, h.startClientInBackground)
-	sc.Step(`^the background client ends within (\d+) seconds$`, h.backgroundClientEnds)
+	sc.Step(`^the background client ends within (\d+(?:\.\d+)?) seconds$`, h.backgroundClientEnds)
 	sc.Step(`^the background client is still waiting$`, h.backgroundClientWaits)
 	sc.Step(`^stderr has (\d+) lines?$`, h.stderrHasLines)
 	sc.Step(`^the standard input holds "([^"]*)"$`, h.standardInputHolds)
