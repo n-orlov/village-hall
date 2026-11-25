@@ -167,36 +167,30 @@ func seedLeases(t *testing.T, st *store.Store, tasks int) leaseMix {
 		t.Fatal(err)
 	}
 	const hour = int64(time.Hour / time.Millisecond)
-	var mix leaseMix
-	lease := func(task string, n int, state string, started, expires int64) {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO leases (id, task_id, actor_id, intent, ttl_seconds, started_at, renewed_at, expires_at, state, ended_at)
-			VALUES (?, ?, ?, 'bulk', 3600, ?, ?, ?, ?, CASE WHEN ? = 'ended' THEN ? END)`,
-			fmt.Sprintf("%s-l%d", task, n), task, actor, started, started, expires, state, state, expires); err != nil {
+	// Set-based: one recursive count feeds one insert per kind of row, a handful
+	// of statements whatever the size (33000 tasks and their 100000 leases took
+	// 96 s under -race as one statement each). The rows are the same.
+	const nums = `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?) `
+	if _, err := tx.ExecContext(ctx, nums+`INSERT INTO tasks (id, initiative_id, seq, title, created_by, created_at, updated_at)
+		SELECT 'seeded-' || i, ?, 1000 + i, 'seeded seeded-' || i, ?, ?, ? FROM n`, tasks, ini, actor, base-4*hour, base-4*hour); err != nil {
+		t.Fatal(err)
+	}
+	lease := func(n int, every int, state string, started, expires int64) {
+		if _, err := tx.ExecContext(ctx, nums+`INSERT INTO leases (id, task_id, actor_id, intent, ttl_seconds, started_at, renewed_at, expires_at, state, ended_at)
+			SELECT 'seeded-' || i || '-l' || ?, 'seeded-' || i, ?, 'bulk', 3600, ?, ?, ?, ?, CASE WHEN ? = 'ended' THEN ? END FROM n WHERE i % ? = 0`,
+			tasks, n, actor, started, started, expires, state, state, expires, every); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for i := 1; i <= tasks; i++ {
-		task := fmt.Sprintf("seeded-%d", i)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO tasks (id, initiative_id, seq, title, created_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`, task, ini, 1000+i, "seeded "+task, actor, base-4*hour, base-4*hour); err != nil {
-			t.Fatal(err)
-		}
-		if i%5 == 0 {
-			lease(task, 0, "ended", base-3*hour, base-2*hour)
-			mix.ended++
-		}
-		if i%4 == 0 {
-			lease(task, 1, "live", base-2*hour, base-hour)
-			mix.due++
-		}
-		lease(task, 2, "live", base-hour, base+hour)
-		mix.due++
-		if i%2 == 0 {
-			lease(task, 3, "live", base+hour, base+100*hour)
-			mix.liveNotDue++
-		} else {
-			mix.newestDue++
-		}
+	lease(0, 5, "ended", base-3*hour, base-2*hour)
+	lease(1, 4, "live", base-2*hour, base-hour)
+	lease(2, 1, "live", base-hour, base+hour)
+	lease(3, 2, "live", base+hour, base+100*hour)
+	mix := leaseMix{
+		ended:      tasks / 5,
+		due:        tasks/4 + tasks, // the older live lease of every fourth, the one of every task
+		liveNotDue: tasks / 2,       // every second task's later lease
+		newestDue:  tasks - tasks/2, // the other tasks, whose due lease is the newest
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)

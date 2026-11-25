@@ -479,27 +479,50 @@ func testAWaitWithUntilEndsAtUntil(t *testing.T, st *store.Store) {
 	if err := st.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// each second of ?wait= lasts half a second, so a wait of 1 is held for 500 ms
+	// Until is read on the test clock, which moves only when the test moves it,
+	// so no real-clock window decides anything (a 450 ms ceiling failed at 698 ms
+	// on a host at load 22). Each second of ?wait= lasts half a second.
 	const second = 500 * time.Millisecond
-	r, as := askRigWaitUnit(t, st, newToken(t, st), newTestClock(), time.Hour, second)
+	clock := newTestClock()
+	as := &asks.Store{Store: st, Now: clock.Now}
+	cfg := streamSettings{poll: 100 * time.Millisecond, heartbeat: time.Minute, extra: func(*store.Store) []Option {
+		return []Option{WithAsks(as), WithAskTouch(time.Hour), WithAskClock(clock), WithAskWaitUnit(second)}
+	}}
+	r := startRig(t, st, newToken(t, st), cfg)
 	ref := r.raiseAsk()
-	for _, c := range []struct {
-		query    string
-		min, max time.Duration
-	}{
-		{untilQuery("1", time.Now().Add(150*time.Millisecond)), 150 * time.Millisecond, 450 * time.Millisecond},
-		{untilQuery("1", time.Now().Add(time.Hour)), second, 950 * time.Millisecond},
-	} {
-		started := time.Now()
-		w := r.startWait(ref, c.query)
-		w.ends(t)
-		took := time.Since(started)
-		if w.status != http.StatusOK || w.state != "open" || took < c.min || took > c.max {
-			t.Errorf("%s: %d %q after %s, want 200 open after %s to %s", c.query, w.status, w.state, took, c.min, c.max)
-		}
+
+	// until 150 ms ahead, inside the wait of 500 ms: the hold ends only when the
+	// clock reaches until, to the millisecond, and not at the wait's own end
+	armed := clock.armed.Load()
+	w := r.startWait(ref, untilQuery("1", clock.Now().Add(150*time.Millisecond)))
+	eventually(t, "the wait's timer at until", func() bool { return clock.armed.Load() > armed })
+	clock.Advance(149 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-w.done:
+		t.Fatal("the wait ended 1 ms before until")
+	default:
+	}
+	clock.Advance(time.Millisecond)
+	w.ends(t)
+	if w.status != http.StatusOK || w.state != "open" {
+		t.Errorf("until 150 ms ahead: %d %q, want 200 open", w.status, w.state)
 	}
 	if polledAt(t, as, ref) == nil {
-		t.Error("the waits did not mark the poll")
+		t.Error("the wait to until did not mark the poll")
+	}
+
+	// until an hour ahead, past the wait's own end: the wait runs out after its
+	// own 500 ms (a timer nothing here can shorten) and takes no read at until
+	armed = clock.armed.Load()
+	started := time.Now()
+	w = r.startWait(ref, untilQuery("1", clock.Now().Add(time.Hour)))
+	w.ends(t)
+	if took := time.Since(started); w.status != http.StatusOK || w.state != "open" || took < second {
+		t.Errorf("until an hour ahead: %d %q after %s, want 200 open after at least %s", w.status, w.state, took, second)
+	}
+	if got := clock.armed.Load(); got != armed {
+		t.Errorf("until past the wait's end set %d timer(s) at until, want none", got-armed)
 	}
 }
 
