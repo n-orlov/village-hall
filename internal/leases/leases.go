@@ -256,17 +256,18 @@ func (s Store) inTx(ctx context.Context, f func(*sql.Tx) error) error {
 }
 
 // conflictsOf lists the live leases of others that share a resource with l, each
-// with only the shared resources. An expired lease never conflicts. It is one
+// with only the shared resources. An expired lease never conflicts, and a
+// notice never does either, whether it is l or the other lease (SPEC 5.2). It is one
 // statement however many leases contest l: the leases and the shared resources
 // come back together, one row per lease and shared resource.
 func (s Store) conflictsOf(ctx context.Context, q queryer, l Lease, now time.Time) ([]domain.Holding, error) {
-	if len(l.Resources) == 0 {
+	if len(l.Resources) == 0 || l.Notice {
 		return []domain.Holding{}, nil
 	}
 	d := s.Store.Dialect()
 	rows, err := q.QueryContext(ctx, d.Rebind(`SELECT `+leaseColumns+`, r.resource`+leaseFrom+` JOIN lease_resources r ON r.lease_id = l.id
-		WHERE l.state = 'live' AND l.expires_at >= ? AND l.id <> ? AND r.resource IN (`+d.InSet()+`) ORDER BY l.id, r.resource`),
-		store.EncodeBound(now), l.ID, store.TextSet(l.Resources))
+		WHERE l.state = 'live' AND l.expires_at >= ? AND l.notice = ? AND l.id <> ? AND r.resource IN (`+d.InSet()+`) ORDER BY l.id, r.resource`),
+		store.EncodeBound(now), false, l.ID, store.TextSet(l.Resources))
 	if err != nil {
 		return nil, fmt.Errorf("read conflicts: %w", err)
 	}

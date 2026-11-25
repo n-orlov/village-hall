@@ -41,9 +41,11 @@ func (s Store) CheckIn(ctx context.Context, me string, queried []string) (Now, e
 		return Now{}, err
 	}
 	out := Now{Mine: []Lease{}, Others: []Lease{}}
-	holdings := make([]domain.Holding, len(live))
-	for i, l := range live {
-		holdings[i] = l.Holding()
+	holdings := make([]domain.Holding, 0, len(live))
+	for _, l := range live {
+		if !l.Notice {
+			holdings = append(holdings, l.Holding())
+		}
 		if l.Actor == me {
 			out.Mine = append(out.Mine, l)
 		} else {

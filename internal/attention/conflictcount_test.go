@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/n-orlov/village-hall/internal/audit"
+	"github.com/n-orlov/village-hall/internal/leases"
 	"github.com/n-orlov/village-hall/internal/store"
 	"github.com/n-orlov/village-hall/internal/store/storetest"
 )
@@ -33,6 +35,11 @@ func TestConflictCountIsOneStatementAndCountsTheSharedResources(t *testing.T) {
 			e.lease(t, me, "aa-1", "repo:board")
 			e.tick(2 * time.Minute)
 			e.lease(t, bob, "bb-1", "repo:board")
+		}, 0},
+		{"a notice lease sharing a resource with an ordinary lease", func(e env) {
+			e.lease(t, me, "aa-1", "repo:board")
+			e.tick(time.Second)
+			must(e.Leases.Start(ctx, bob, "key:x", leases.Start{Task: "bb-1", Intent: "freeze", Resources: []string{"repo:board"}, Notice: true}))
 		}, 0},
 		{"two resources shared by the same two leases", func(e env) {
 			e.lease(t, me, "aa-1", "repo:board", "host:x", "only:me")
@@ -91,5 +98,46 @@ func TestConflictCountKeepsTheConflictsOfTheScopeInOneStatement(t *testing.T) {
 		if n := len(rec.All()); n != 1 {
 			t.Errorf("%s: conflictCount issued %+v, want one statement", c.name, rec.All())
 		}
+	}
+}
+
+// TestANoticeIsNeverAConflictInEitherDirection: a notice and an ordinary lease
+// of different actors on one shared resource are no conflict in the section nor
+// in its count, whichever was started first (SPEC 5.2). Two ordinary leases on
+// the same resource still are, so the zero is the notice's doing.
+func TestANoticeIsNeverAConflictInEitherDirection(t *testing.T) {
+	start := func(e env, a audit.Actor, task string, notice bool) {
+		e.tick(time.Second)
+		ttl := int64(60)
+		must(e.Leases.Start(ctx, a, "key:x", leases.Start{Task: task, Intent: "work on " + task, TTL: &ttl,
+			Resources: []string{"svc:jenkins"}, Notice: notice}))
+	}
+	for _, d := range []struct {
+		name                    string
+		firstNotice, secondNote bool
+		want                    int
+	}{
+		{"A: the ordinary lease exists, the notice is started", false, true, 0},
+		{"B: the notice exists, the ordinary lease is started", true, false, 0},
+		{"control: two ordinary leases", false, false, 1},
+	} {
+		t.Run(d.name, func(t *testing.T) {
+			st, rec := storetest.OpenMigrated(t)
+			e := newEnvOn(t, st)
+			start(e, bob, "bb-1", d.firstNotice)
+			start(e, me, "aa-1", d.secondNote)
+			rec.Reset()
+			got, err := e.A.conflictCount(ctx, scope{}, e.Clock.now)
+			if err != nil || got != d.want {
+				t.Errorf("conflictCount = %d, %v, want %d", got, err, d.want)
+			}
+			if n := len(rec.All()); n != 1 {
+				t.Errorf("conflictCount issued %+v, want one statement", rec.All())
+			}
+			r := e.get(t, Query{})
+			if len(r.Conflicts) != d.want || r.Counts.Conflicts != d.want {
+				t.Errorf("section %+v, count %d, want %d", r.Conflicts, r.Counts.Conflicts, d.want)
+			}
+		})
 	}
 }

@@ -820,7 +820,11 @@ changes.
 
 Computed on read: the live, unexpired leases of **others** that hold any of the same resources as a lease. A
 lease never conflicts with itself, but two leases of one actor on different tasks that share a resource do
-conflict. An ended or expired lease conflicts with nothing. Starting or renewing a lease answers
+conflict. An ended or expired lease conflicts with nothing. **A notice lease (§4.4) is never part of a conflict**: it is
+not a conflict of the lease asked about and it is not the lease asked about, so a notice and an ordinary lease of
+another actor on one shared resource, whichever was started first, give an empty `conflicts` in the start or renew
+answer, in `GET /now` and `vh now --resources`, in the attention `conflicts` section and in its count, and the CLI
+never exits 7 for them. Starting or renewing a lease answers
 `{lease, conflicts}` (§6.5); each conflict is `{lease, holder, task, intent, expires_at, resources}`: the other
 lease's ref `L<n>`, its holder's handle, its task ref, its intent, its expiry, and only the resources both leases
 hold (in the order of the lease asked about), the conflicts in lease-number order. The CLI prints them
@@ -867,7 +871,8 @@ expired (§5.1):
   ended lease (nothing when none ended). An overdue watch is a `watch` task that is not closed and
   whose `next_check_at` is past; its last check is its latest `check_recorded` event.
 - A conflict is a resource that two or more live leases hold (§5.2, so two leases of one actor on
-  different tasks count); it lists every holder in lease-number order and the distinct tasks.
+  different tasks count; a notice lease is not counted, so a notice sharing a resource with an ordinary lease is no
+  conflict and adds 0 to `counts.conflicts`); it lists every holder in lease-number order and the distinct tasks.
 - `initiative` (repeatable: any of them) and `tag` (repeatable: all of
   them must match, each as the task's own tag, its initiative's tag or a derived actor-kind tag, §6.4) keep the items on a
   task or ask that matches; an ask on no task matches only by its initiative's tags, an ask on no initiative is left
