@@ -128,12 +128,22 @@ func (s Sessions) Delete(ctx context.Context, id string) error {
 }
 
 // DeleteExpired removes every session past its absolute expiry and returns how
-// many it removed. A session only the idle timeout has ended is removed when it
+// many it removed. A reader probe finds out whether any is due, and only then
+// is the writer taken. A session only the idle timeout has ended is removed when it
 // is next looked up (Lookup) by a request that is not refused, since the idle
 // clock is not indexed.
 func (s Sessions) DeleteExpired(ctx context.Context) (int, error) {
 	d := s.Store.Dialect()
-	res, err := s.Store.Writer().ExecContext(ctx, d.Rebind(`DELETE FROM sessions WHERE expires_at <= ?`), store.EncodeTime(s.now()))
+	cutoff := store.EncodeTime(s.now())
+	// A reader probe first: with nothing due, the sweep never takes the writer.
+	var due int
+	switch err := s.Store.Reader().QueryRowContext(ctx, d.Rebind(`SELECT 1 FROM sessions WHERE expires_at <= ? LIMIT 1`), cutoff).Scan(&due); {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, nil
+	case err != nil:
+		return 0, fmt.Errorf("delete expired sessions: %w", err)
+	}
+	res, err := s.Store.Writer().ExecContext(ctx, d.Rebind(`DELETE FROM sessions WHERE expires_at <= ?`), cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("delete expired sessions: %w", err)
 	}

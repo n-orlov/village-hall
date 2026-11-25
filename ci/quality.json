@@ -204,6 +204,7 @@
             ],
             "internal/auth": [
                 "keys.go",
+                "session.go",
                 "verify.go"
             ],
             "internal/actors": [

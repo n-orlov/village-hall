@@ -804,7 +804,8 @@ changes.
   its expiry even with the sweeper off. Expiry is idempotent and safe with several replicas (conditional
   update `WHERE state='live' AND expires_at < ?`: of two servers that race, one marks the lease and writes
   its one `lease_expired` event, the other finds it already expired). The same tick deletes expired
-  sessions (§4.9) and the Idempotency-Key rows older than 24 hours (§4.12).
+  sessions (§4.9) and the Idempotency-Key rows older than 24 hours (§4.12). Each of those two deletes first runs a reader `SELECT 1 … LIMIT 1` probe for a due row and takes the writer only
+  when one is there, so a tick with nothing expired opens no writer transaction (a lease expiry already worked this way).
 
 ### 5.2 Conflicts
 

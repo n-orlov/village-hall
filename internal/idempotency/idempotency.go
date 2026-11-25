@@ -180,9 +180,20 @@ func (s Store) Release(ctx context.Context, r Request) error {
 	return err
 }
 
-// DeleteExpired removes the rows older than Retention and returns how many.
+// DeleteExpired removes the rows older than Retention and returns how many. A
+// reader probe finds out whether any is due, and only then is the writer taken.
 func (s Store) DeleteExpired(ctx context.Context) (int64, error) {
-	res, err := s.Store.WriterFor(ctx).ExecContext(ctx, s.Store.Dialect().Rebind(`DELETE FROM idempotency_keys WHERE created_at < ?`), s.cutoff())
+	cutoff := s.cutoff()
+	// A reader probe first: with nothing due, the sweep never takes the writer.
+	var due int
+	probe := s.Store.Dialect().Rebind(`SELECT 1 FROM idempotency_keys WHERE created_at < ? LIMIT 1`)
+	switch err := s.Store.ReaderFor(ctx).QueryRowContext(ctx, probe, cutoff).Scan(&due); {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, nil
+	case err != nil:
+		return 0, err
+	}
+	res, err := s.Store.WriterFor(ctx).ExecContext(ctx, s.Store.Dialect().Rebind(`DELETE FROM idempotency_keys WHERE created_at < ?`), cutoff)
 	if err != nil {
 		return 0, err
 	}
