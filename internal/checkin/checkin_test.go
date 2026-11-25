@@ -45,6 +45,12 @@ func newEnv(t *testing.T) env {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	return newEnvOn(t, st)
+}
+
+// newEnvOn seeds the standard initiative and tasks on an already migrated store.
+func newEnvOn(t *testing.T, st *store.Store) env {
+	t.Helper()
 	now := t0
 	clock := func() time.Time { return now }
 	if _, err := (initiatives.Store{Store: st, Now: clock}).Create(ctx, me, "k", initiatives.New{Slug: "aa", Title: "I"}); err != nil {
