@@ -603,7 +603,7 @@ export interface paths {
         };
         /**
          * List leases
-         * @description A page of leases, oldest first, after expiring the leases that are due. Filters combine: `state` is `live` (the default), `ended`, `expired` or `all`; `actor` keeps the leases of one handle, `task` (ref or ULID) those on one task and `resource` those holding that resource. `limit` is 1 to 1000, default 100. `after` is the `L<n>` ref or id of the last lease of the previous page; `next_after` is the value to send, absent on the last page. A `task` that names nothing is 404.
+         * @description A page of leases, oldest first, after expiring the leases that are due. Filters combine: `state` is `live` (the default), `ended`, `expired` or `all`; `actor` keeps the leases of one handle, `task` (ref or ULID) those on one task and `resource` those holding that resource; `notice=true` keeps the notices and `notice=false` the ordinary leases. `limit` is 1 to 1000, default 100. `after` is the `L<n>` ref or id of the last lease of the previous page; `next_after` is the value to send, absent on the last page. A `task` that names nothing is 404.
          */
         get: operations["listLeases"];
         put?: never;
@@ -855,7 +855,7 @@ export interface paths {
         };
         /**
          * Check in
-         * @description The check-in bundle of the caller. After expiring the leases that are due it answers the `actor`, `my_leases` (the caller's live leases, each with its task ref, `title` and `expires_at`), `others_leases` (the live leases of other actors) and `conflicts`: the live leases that hold a resource of one of the caller's live leases, and those of other actors that hold one of the `resources` given, each with only the shared resources. `my_asks` holds the asks the caller raised that are open, and those answered since the caller's `notes` cursor or in the last 24 hours (the later of the two limits reaches further back), each with its answer. `notes` holds the notes after the caller's `notes` cursor that are on a task the caller holds a live lease on, on a resource of one of its live leases, mention its handle, or are broadcasts: at most 20 summaries, oldest first, and `notes_more` is how many more there are. `attention` is the count of each attention section of the whole board (`GET /api/v1/attention?fields=counts`). Reading it moves no cursor. `resources` is a comma-separated list of at most 20 resources of 1 to 100 characters, to check before starting.
+         * @description The check-in bundle of the caller. After expiring the leases that are due it answers the `actor`, `my_leases` (the caller's live leases, each with its task ref, `title` and `expires_at`), `others_leases` (the live ordinary leases of other actors), `notices` (every live notice of every actor, the caller's own included, oldest first, each with its task `title`, whatever the caller's resources; never in `my_leases` or `others_leases`) and `conflicts`: the live leases that hold a resource of one of the caller's live leases, and those of other actors that hold one of the `resources` given, each with only the shared resources. `my_asks` holds the asks the caller raised that are open, and those answered since the caller's `notes` cursor or in the last 24 hours (the later of the two limits reaches further back), each with its answer. `notes` holds the notes after the caller's `notes` cursor that are on a task the caller holds a live lease on, on a resource of one of its live leases, mention its handle, or are broadcasts: at most 20 summaries, oldest first, and `notes_more` is how many more there are. `attention` is the count of each attention section of the whole board (`GET /api/v1/attention?fields=counts`). Reading it moves no cursor. `resources` is a comma-separated list of at most 20 resources of 1 to 100 characters, to check before starting.
          */
         get: operations["getNow"];
         put?: never;
@@ -1754,10 +1754,12 @@ export interface components {
         Now: {
             /** @description The handle of the caller's actor. */
             actor: string;
-            /** @description The caller's live leases, oldest first. */
+            /** @description The caller's live ordinary leases, oldest first. Notices are in `notices`. */
             my_leases: components["schemas"]["NowLease"][];
-            /** @description The live leases of other actors, oldest first. */
+            /** @description The live ordinary leases of other actors, oldest first. Notices are in `notices`. */
             others_leases: components["schemas"]["Lease"][];
+            /** @description Every live notice of every actor, the caller's own included, oldest first, with the title of its task. They are listed whatever the caller's resources and cursor. */
+            notices: components["schemas"]["NowLease"][];
             /** @description The live leases that hold a resource of one of the caller's live leases, and the live leases of other actors that hold one of the resources asked about, in lease-number order, each once. */
             conflicts: components["schemas"]["LeaseConflict"][];
             /** @description The asks the caller raised that are open, and those answered since its `notes` cursor or in the last 24 hours, oldest first. */
@@ -3632,6 +3634,8 @@ export interface operations {
                 task?: string;
                 /** @description Keep the leases that hold this resource. */
                 resource?: string;
+                /** @description `true` keeps the notices, `false` the ordinary leases. Absent keeps both. */
+                notice?: boolean;
                 /** @description The page size, 1 to 1000. Default 100. */
                 limit?: components["parameters"]["EventLimit"];
                 /** @description A lease ref (`L<n>`) or id. The page starts after it. */

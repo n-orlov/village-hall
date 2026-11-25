@@ -53,6 +53,7 @@ func apiNow(actor string, r checkin.Result) Now {
 	n := r.Leases
 	out := Now{
 		Actor: actor, MyLeases: make([]NowLease, len(n.Mine)), OthersLeases: make([]Lease, len(n.Others)),
+		Notices:   make([]NowLease, len(n.Notices)),
 		Conflicts: make([]LeaseConflict, len(n.Conflicts)), MyAsks: make([]Ask, len(r.MyAsks)),
 		Notes: make([]Note, len(r.Notes)), NotesMore: r.NotesMore, Attention: apiCounts(r.Counts),
 	}
@@ -61,6 +62,9 @@ func apiNow(actor string, r checkin.Result) Now {
 	}
 	for i, l := range n.Others {
 		out.OthersLeases[i] = apiLease(l)
+	}
+	for i, l := range n.Notices {
+		out.Notices[i] = apiNowLease(l)
 	}
 	for i, h := range n.Conflicts {
 		out.Conflicts[i] = apiConflict(h)

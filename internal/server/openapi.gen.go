@@ -2128,7 +2128,7 @@ type Now struct {
 	// MyAsks The asks the caller raised that are open, and those answered since its `notes` cursor or in the last 24 hours, oldest first.
 	MyAsks []Ask `json:"my_asks"`
 
-	// MyLeases The caller's live leases, oldest first.
+	// MyLeases The caller's live ordinary leases, oldest first. Notices are in `notices`.
 	MyLeases []NowLease `json:"my_leases"`
 
 	// Notes The notes after the caller's `notes` cursor that concern it (on a task it holds a live lease on, on a resource of one of its live leases, mentioning it, or a broadcast): at most 20, oldest first, without bodies.
@@ -2137,7 +2137,10 @@ type Now struct {
 	// NotesMore How many more notes concern the caller after the ones listed.
 	NotesMore int `json:"notes_more"`
 
-	// OthersLeases The live leases of other actors, oldest first.
+	// Notices Every live notice of every actor, the caller's own included, oldest first, with the title of its task. They are listed whatever the caller's resources and cursor.
+	Notices []NowLease `json:"notices"`
+
+	// OthersLeases The live ordinary leases of other actors, oldest first. Notices are in `notices`.
 	OthersLeases []Lease `json:"others_leases"`
 }
 
@@ -3111,6 +3114,9 @@ type ListLeasesParams struct {
 
 	// Resource Keep the leases that hold this resource.
 	Resource *string `form:"resource,omitempty" json:"resource,omitempty"`
+
+	// Notice `true` keeps the notices, `false` the ordinary leases. Absent keeps both.
+	Notice *bool `form:"notice,omitempty" json:"notice,omitempty"`
 
 	// Limit The page size, 1 to 1000. Default 100.
 	Limit *EventLimit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -4670,6 +4676,10 @@ func (siw *ServerInterfaceWrapper) ListLeases(w http.ResponseWriter, r *http.Req
 	// ------------- Optional query parameter "resource" -------------
 
 	bind.check("resource", runtime.BindQueryParameterWithOptions("form", true, false, "resource", r.URL.Query(), &params.Resource, runtime.BindQueryParameterOptions{Type: "string", Format: ""}))
+
+	// ------------- Optional query parameter "notice" -------------
+
+	bind.check("notice", runtime.BindQueryParameterWithOptions("form", true, false, "notice", r.URL.Query(), &params.Notice, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""}))
 
 	// ------------- Optional query parameter "limit" -------------
 

@@ -17,10 +17,10 @@ Feature: GET /api/v1/now, the check-in
     And I create a task in "aa" titled "wire the thing" as actor "claude@laptop"
     And I create a task in "aa" titled "test the thing" as actor "claude@laptop"
 
-  Scenario: with nothing on the board every list is empty, the counts are zero and all eight members are there
+  Scenario: with nothing on the board every list is empty, the counts are zero and all nine members are there
     When I check in with "" as actor "claude@laptop"
     Then the response status is 200
-    And the response members are exactly "actor,my_leases,others_leases,conflicts,my_asks,notes,notes_more,attention"
+    And the response members are exactly "actor,my_leases,others_leases,notices,conflicts,my_asks,notes,notes_more,attention"
     And the response path "my_asks" has 0 items
     And the response path "notes" has 0 items
     And the response path "notes_more" is "0"
@@ -28,13 +28,14 @@ Feature: GET /api/v1/now, the check-in
     And the response path "actor" is "claude@laptop"
     And the response path "my_leases" has 0 items
     And the response path "others_leases" has 0 items
+    And the response path "notices" has 0 items
     And the response path "conflicts" has 0 items
 
   Scenario: my live lease is listed with its task ref, title and expiry
     Given I start a lease with body "{'task':'aa-1','intent':'wiring','resources':['repo:x']}" as actor "claude@laptop"
     When I check in with "" as actor "claude@laptop"
     Then the response status is 200
-    And the response members are exactly "actor,my_leases,others_leases,conflicts,my_asks,notes,notes_more,attention"
+    And the response members are exactly "actor,my_leases,others_leases,notices,conflicts,my_asks,notes,notes_more,attention"
     And the response path "my_leases" lists the refs "L1"
     And the response path "my_leases.0.task" is "aa-1"
     And the response path "my_leases.0.title" is "wire the thing"

@@ -9,10 +9,13 @@ import (
 )
 
 // Now is the lease and conflict parts of an actor's check-in (SPEC 6.5): the
-// actor's live leases, those of the others, and the conflicts.
+// actor's live leases, those of the others, the live notices of everyone, and
+// the conflicts. Mine and Others hold ordinary leases only; every live notice,
+// the actor's own included, is in Notices.
 type Now struct {
 	Mine      []Lease
 	Others    []Lease
+	Notices   []Lease
 	Conflicts []domain.Holding
 }
 
@@ -40,12 +43,14 @@ func (s Store) CheckIn(ctx context.Context, me string, queried []string) (Now, e
 	if err != nil {
 		return Now{}, err
 	}
-	out := Now{Mine: []Lease{}, Others: []Lease{}}
+	out := Now{Mine: []Lease{}, Others: []Lease{}, Notices: []Lease{}}
 	holdings := make([]domain.Holding, 0, len(live))
 	for _, l := range live {
-		if !l.Notice {
-			holdings = append(holdings, l.Holding())
+		if l.Notice {
+			out.Notices = append(out.Notices, l)
+			continue
 		}
+		holdings = append(holdings, l.Holding())
 		if l.Actor == me {
 			out.Mine = append(out.Mine, l)
 		} else {

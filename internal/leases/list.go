@@ -27,8 +27,10 @@ type Query struct {
 	Actor    string
 	Task     string
 	Resource string
-	After    string
-	Limit    int
+	// Notice keeps the notices (true) or the ordinary leases (false); nil keeps both.
+	Notice *bool
+	After  string
+	Limit  int
 }
 
 // Page is one page of leases, oldest first. NextAfter is the ULID to send as
@@ -105,6 +107,9 @@ func (s Store) conditions(ctx context.Context, q Query) (*filter, error) {
 	}
 	if q.Resource != "" {
 		f.add(`EXISTS (SELECT 1 FROM lease_resources r WHERE r.lease_id = l.id AND r.resource = ?)`, q.Resource)
+	}
+	if q.Notice != nil {
+		f.add(`l.notice = ?`, *q.Notice)
 	}
 	if err := s.taskFilter(ctx, f, q.Task); err != nil {
 		return nil, err

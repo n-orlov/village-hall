@@ -71,11 +71,23 @@ func (s Store) Check(ctx context.Context, me string, queried []string) (Result, 
 	if r.MyAsks, err = s.myAsks(ctx, me, cursor); err != nil {
 		return Result{}, err
 	}
-	if r.Notes, r.NotesMore, err = s.Notes.Concerning(ctx, concern(me, cursor, r.Leases.Mine), NotesLimit); err != nil {
+	if r.Notes, r.NotesMore, err = s.Notes.Concerning(ctx, concern(me, cursor, held(me, r.Leases)), NotesLimit); err != nil {
 		return Result{}, err
 	}
 	r.Counts, err = s.Attention.Counts(ctx, attention.Query{})
 	return r, err
+}
+
+// held is the live leases of the actor me, notices included: a note on the task
+// of a notice the actor holds concerns it like one on any other lease it holds.
+func held(me string, n leases.Now) []leases.Lease {
+	out := append([]leases.Lease{}, n.Mine...)
+	for _, l := range n.Notices {
+		if l.Actor == me {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // concern is what the notes of a check-in must concern: the tasks and resources

@@ -1093,7 +1093,7 @@ ref without being one, so they carry no tags of their own; `task_marks` covers t
 
 | method | path | purpose |
 |---|---|---|
-| GET | `/now` | the agent check-in bundle: my live leases, live leases by others, conflicts touching my resources, open asks I raised (and answers), notes since my cursor that concern me (my tasks, my resources, mentions, broadcasts), attention counts. `?resources=` to check before starting. The complete shape is in §6.5. |
+| GET | `/now` | the agent check-in bundle: my live leases, live leases by others, live notices of everyone, conflicts touching my resources, open asks I raised (and answers), notes since my cursor that concern me (my tasks, my resources, mentions, broadcasts), attention counts. `?resources=` to check before starting. The complete shape is in §6.5. |
 | GET | `/attention` | §5.3, §6.8 |
 | GET/POST | `/initiatives` | list (filters: tag, status, closed_within) / create |
 | GET/PATCH | `/initiatives/{slug}` | read / update (title, description, tags, targets) |
@@ -1417,7 +1417,8 @@ first, so none shows a lease live past its expiry, with the sweeper off too.
 - **`GET /api/v1/leases`** answers `{items, next_after?}`, items ordered by lease number (oldest first). Filters
   combine with AND: `state` is `live` (the default, also when empty), `ended`, `expired` or `all` (anything else is
   **400** with a `next`); `actor` keeps one holder's handle; `task` (ref or ULID) one task's leases, **404** for a task that
-  names nothing; `resource` the leases that hold that resource. A filter that matches nothing is **200** with
+  names nothing; `resource` the leases that hold that resource; `notice` (a boolean) keeps only the notices when `true` and only the
+  ordinary leases when `false`, both when absent. A filter that matches nothing is **200** with
   `items: []`. `limit` is 1 to 1000 (default 100; 0 is **400**). `after` is an `L<n>` ref or a lease ULID: the page
   starts after that lease; any other text is **400**. `next_after`, the ULID of the last item, is present exactly when
   more leases follow, so a `limit` equal to the number left is the last page and has none.
@@ -1485,12 +1486,15 @@ first, so none shows a lease live past its expiry, with the sweeper off too.
   catch-up. Withdrawn asks and other actors' asks are never listed.
 
 - **`GET /api/v1/now`**, `?resources=r1,r2` (optional), is the check-in of the caller. It answers exactly `{actor, my_leases,
-  others_leases, conflicts, my_asks, notes, notes_more, attention}`, every list `[]` when empty. Like every lease read it
+  others_leases, notices, conflicts, my_asks, notes, notes_more, attention}`, every list `[]` when empty. Like every lease read it
   expires the due leases first, so a lease past its expiry is left out and its one `lease_expired` event is written, with the
   sweeper off too; it writes nothing else, does not upsert the actor and **moves no cursor** (the `notes` cursor stays where
   it was, set or not). `actor` is the caller's handle. `my_leases` are the caller's live leases (`Lease` documents, oldest
   first) with the task's `title` added beside the task `ref` and `expires_at`; `others_leases` are the live leases of other
-  actors, oldest first. `conflicts` are `{lease, holder, task, intent, expires_at, resources}` (§5.2), each other live lease
+  actors, oldest first. Neither holds a notice: `notices` are every live notice of every actor, the caller's own included,
+  oldest first, as `Lease` documents with the task's `title` added like `my_leases`. They are listed whatever the caller's
+  `resources` query and cursor (a notice is read by everyone, §4.4), and a notice of the caller still counts as its live
+  lease for the notes that concern it. `POST /api/v1/start` embeds the same `now`. `conflicts` are `{lease, holder, task, intent, expires_at, resources}` (§5.2), each other live lease
   once in lease-number order, carrying only its shared resources: those that hold a resource of one of the caller's live
   leases (another of the caller's own leases on a different task included, a lease never conflicting with itself), and those
   of other actors that hold one of the `resources` asked about. The caller's own leases never conflict with the resources

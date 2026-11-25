@@ -194,7 +194,7 @@ func (o leaseOps) ListLeases(ctx context.Context, req ListLeasesRequestObject) (
 	}
 	p := req.Params
 	page, err := o.leases.List(ctx, leases.Query{
-		State: text(p.State), Actor: text(p.Actor), Task: text(p.Task), Resource: text(p.Resource),
+		State: text(p.State), Actor: text(p.Actor), Task: text(p.Task), Resource: text(p.Resource), Notice: p.Notice,
 		After: text(p.After), Limit: pageLimit(p.Limit),
 	})
 	if err != nil {

@@ -212,8 +212,8 @@ func TestNowRoundTripThroughTheHandler(t *testing.T) {
 	s.send(http.MethodPost, "/api/v1/leases", `{"task":"aa-2","intent":"also","resources":["db:x","db:y"]}`, "codex@host")
 	rec := s.send(http.MethodGet, "/api/v1/now?resources=db:y,db:z", "", "claude@host")
 	doc := decode(t, rec)
-	if rec.Code != http.StatusOK || len(doc) != 8 {
-		t.Fatalf("now = %d %s, want exactly eight members", rec.Code, rec.Body)
+	if rec.Code != http.StatusOK || len(doc) != 9 {
+		t.Fatalf("now = %d %s, want exactly nine members (notices joined the eight, R9)", rec.Code, rec.Body)
 	}
 	for _, k := range []string{"actor", "my_leases", "others_leases", "conflicts", "my_asks", "notes", "notes_more", "attention"} {
 		if doc[k] == nil {

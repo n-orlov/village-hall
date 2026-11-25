@@ -155,7 +155,7 @@ Feature: GET /api/v1/attention/now, the data behind the Now view
     When I start a lease with body "{'task':'aa-1','intent':'wire the thing'}" as actor "claude@laptop"
     And I check in with "" as actor "claude@laptop"
     Then the response status is 200
-    And the response members are exactly "actor,my_leases,others_leases,conflicts,my_asks,notes,notes_more,attention"
+    And the response members are exactly "actor,my_leases,others_leases,notices,conflicts,my_asks,notes,notes_more,attention"
 
   Scenario: every task the board names carries its own, initiative and actor-kind tags, and task_marks gives them by ref
     When I add the tag "mine" to the task "aa-1" as actor "claude@laptop"
