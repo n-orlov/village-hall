@@ -348,3 +348,42 @@ func TestAnExpiredKeyIsNotJudgedOnTheReadersAndIsClaimedAfresh(t *testing.T) {
 		t.Errorf("claim of an expired key with another request = %v with %d rows, want Claimed over the old row", o, e.rows(t))
 	}
 }
+
+func TestABoundKeyIsInFlightUntilCompleteStoresItsAnswerAndIsNeverReleased(t *testing.T) {
+	e := newEnv(t)
+	claim(t, e, req)
+	if err := e.Bind(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if o, _ := claim(t, e, req); o != InFlight {
+		t.Errorf("claim of a bound key without its answer = %v, want InFlight", o)
+	}
+	if err := e.Release(ctx, req); err != nil || e.rows(t) != 1 {
+		t.Errorf("release of a bound key = %v, %d rows, want it kept", err, e.rows(t))
+	}
+	if err := e.Bind(ctx, req); !errors.Is(err, ErrNotHeld) {
+		t.Errorf("a second bind = %v, want ErrNotHeld", err)
+	}
+	want := Answer{Status: 201, ContentType: "application/json", Body: []byte(`{"n":1}`)}
+	if err := e.Complete(ctx, req, want); err != nil {
+		t.Fatal(err)
+	}
+	if o, got := claim(t, e, req); o != Replay || got.Status != want.Status || !bytes.Equal(got.Body, want.Body) {
+		t.Errorf("claim after the answer = %v %+v, want Replay of %+v", o, got, want)
+	}
+	if err := e.Complete(ctx, req, Answer{Status: 200}); !errors.Is(err, ErrNotHeld) {
+		t.Errorf("a second complete = %v, want ErrNotHeld", err)
+	}
+}
+
+func TestBindOfAnUnclaimedKeyWritesNothingAndAFailedBindIsAnError(t *testing.T) {
+	e := newEnv(t)
+	if err := e.Bind(ctx, req); !errors.Is(err, ErrNotHeld) || e.rows(t) != 0 {
+		t.Errorf("bind of an unclaimed key = %v, %d rows, want ErrNotHeld and none", err, e.rows(t))
+	}
+	claim(t, e, req)
+	e.exec(t, `CREATE TRIGGER no_bind BEFORE UPDATE ON idempotency_keys BEGIN SELECT RAISE(ABORT, 'no bind'); END`)
+	if err := e.Bind(ctx, req); err == nil || errors.Is(err, ErrNotHeld) {
+		t.Errorf("bind whose statement fails = %v, want the statement's error", err)
+	}
+}

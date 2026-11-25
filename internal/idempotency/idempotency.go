@@ -20,8 +20,8 @@ type Outcome int
 
 // The four things a key can be.
 const (
-	// Claimed: the key is new, now held by the caller, who must Complete or
-	// Release it.
+	// Claimed: the key is new, now held by the caller, who must Complete it
+	// (after a Bind, when it has writes to commit) or Release it.
 	Claimed Outcome = iota
 	// Replay: the same request already has its answer; Claim returned it.
 	Replay
@@ -133,7 +133,9 @@ func (s Store) judge(ctx context.Context, q store.Querier, r Request, id string)
 		return 0, Answer{}, false, err
 	case fingerprint != r.Fingerprint:
 		return Mismatch, Answer{}, true, nil
-	case state != "done":
+	case state != "done" || !status.Valid:
+		// Running, or bound with its writes committed and its answer not yet
+		// stored: not answered yet.
 		return InFlight, Answer{}, true, nil
 	}
 	plain, err := open(r, body.String)
@@ -143,12 +145,27 @@ func (s Store) judge(ctx context.Context, q store.Querier, r Request, id string)
 	return Replay, Answer{Status: int(status.Int64), ContentType: contentType.String, Body: plain}, true, nil
 }
 
-// ErrNotHeld is what Complete returns for a key the caller does not hold: its
-// row is gone or already answered, so no answer was stored.
+// ErrNotHeld is what Bind and Complete return for a key the caller does not
+// hold: its row is gone or already answered, so nothing was stored.
 var ErrNotHeld = errors.New("the idempotency key is not held")
 
-// Complete stores the answer to the request that holds the key. It returns
-// ErrNotHeld when there is no running row to store it in.
+// Bind marks the running key done, with its answer still to come, in the unit
+// of work that holds the request's writes (SPEC 6.1): it is the statement that
+// commits with them, so the writes never commit while the key can still be
+// released and run again, and a key whose answer cannot be stored fails here,
+// before anything commits. A bound key is in flight to Claim until Complete
+// stores its answer, and Release leaves it alone. It returns ErrNotHeld when
+// there is no running row to bind.
+func (s Store) Bind(ctx context.Context, r Request) error {
+	res, err := s.Store.WriterFor(ctx).ExecContext(ctx, s.Store.Dialect().Rebind(
+		`UPDATE idempotency_keys SET state = 'done' WHERE principal = ? AND key_hash = ? AND state = 'running'`),
+		r.Principal, hash(r.Principal, r.Key))
+	return held(res, err)
+}
+
+// Complete stores the answer to the request that holds the key, running or
+// bound, and seals it: the key then replays a. It returns ErrNotHeld when there
+// is no row without an answer to store it in.
 func (s Store) Complete(ctx context.Context, r Request, a Answer) error {
 	sealed, err := seal(r, a.Body)
 	if err != nil {
@@ -156,8 +173,14 @@ func (s Store) Complete(ctx context.Context, r Request, a Answer) error {
 	}
 	res, err := s.Store.WriterFor(ctx).ExecContext(ctx, s.Store.Dialect().Rebind(
 		`UPDATE idempotency_keys SET state = 'done', status = ?, content_type = ?, body = ?
-		 WHERE principal = ? AND key_hash = ? AND state = 'running'`),
+		 WHERE principal = ? AND key_hash = ? AND status IS NULL`),
 		a.Status, a.ContentType, sealed, r.Principal, hash(r.Principal, r.Key))
+	return held(res, err)
+}
+
+// held is the error of an update of one key's row: ErrNotHeld when it changed
+// no row.
+func held(res sql.Result, err error) error {
 	if err != nil {
 		return err
 	}

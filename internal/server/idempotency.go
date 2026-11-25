@@ -59,10 +59,10 @@ func writesUnderAPI(r *http.Request) bool {
 // when the same request (method, target, actor and body) came with the key
 // before and was answered within 24 hours; the key of a different request is
 // 422, the key of a request still running is 409, and an invalid key is 400.
-// A new key runs the request and stores its answer in the same transaction as
-// its writes, unless the server failed (5xx) or the answer could not be stored,
-// when nothing is written and the key is released so the retry runs the
-// request again.
+// A new key runs the request, commits its writes with the key bound to it, and
+// then stores its answer (runClaimed), unless the server failed (5xx) or the key
+// could not be bound, when nothing is written and the key is released so the
+// retry runs the request again.
 func idempotent(next http.Handler, st *idempotency.Store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		values, present := r.Header[IdempotencyKeyHeader]
@@ -117,13 +117,20 @@ func serveIdempotent(next http.Handler, st *idempotency.Store, principal, actor,
 }
 
 // runClaimed runs the request that holds the key inside a unit of work (SPEC
-// 6.1): everything the request writes and the answer stored for its key commit
-// in one transaction, so a write is never committed without its answer. The
+// 6.1): everything the request writes commits in one transaction with the
+// statement that binds the key to it (Bind), so a write is never committed
+// while its key can be released and run again. The unit commits as soon as the
+// operation has its result and before that result is encoded (bindBeforeEncoding),
+// so the writer is not held while the answer is marshalled; the encoded answer
+// is then stored for the key by one statement of its own (Complete). The
 // response is held back until then, so a retry sent on receiving it finds the
-// answer and not a running request. When the answer cannot be stored the unit
-// rolls back, the request has written nothing, and the key is released: a
-// success is then answered 503, so the client sends the same request again and
-// it runs once. A 5xx or a panic rolls back and releases as well.
+// answer and not a running request. When the key cannot be bound the unit rolls
+// back, the request has written nothing, and the key is released: a success is
+// then answered 503, so the client sends the same request again and it runs
+// once. A 5xx or a panic before the unit commits rolls back and releases as
+// well. Once the unit has committed the key is never released: if its answer
+// cannot be stored, the request is still answered, and the key stays in flight
+// until it expires.
 func runClaimed(next http.Handler, st *idempotency.Store, req idempotency.Request, w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithoutCancel(r.Context())
 	unitCtx, unit, err := st.Store.BeginUnit(r.Context())
@@ -134,15 +141,36 @@ func runClaimed(next http.Handler, st *idempotency.Store, req idempotency.Reques
 	}
 	defer func() {
 		if err := unit.Rollback(); !errors.Is(err, sql.ErrTxDone) {
-			// Still open: the handler panicked before the answer was settled.
+			// Still open: the handler panicked before the key was bound.
 			_ = st.Release(ctx, req)
 		}
 	}()
+	c := &claim{st: st, req: req, unit: unit, ctx: unitCtx}
 	held := &heldResponse{header: http.Header{}}
-	next.ServeHTTP(held, r.WithContext(unitCtx))
+	next.ServeHTTP(held, r.WithContext(context.WithValue(unitCtx, claimKey{}, c)))
 	answer := idempotency.Answer{Status: held.code(), ContentType: held.header.Get("Content-Type"), Body: held.body.Bytes()}
-	if answer.Status >= http.StatusInternalServerError || !settle(unitCtx, ctx, st, unit, req, answer) {
-		_ = unit.Rollback()
+	if !c.tried && answer.Status < http.StatusInternalServerError {
+		// A handler outside the generated operations answered without binding.
+		c.bind()
+	}
+	if c.bound {
+		if err := st.Complete(ctx, req, answer); err != nil {
+			noteOpError(r, err)
+		}
+		deliver(w, answer.Status, answer.ContentType, answer.Body)
+		return
+	}
+	_ = unit.Rollback()
+	answerUnbound(ctx, w, st, req, answer)
+}
+
+// answerUnbound answers a request whose unit rolled back without its key bound,
+// so it wrote nothing. A refusal (on Postgres a refused statement can leave the
+// unit unable to commit) has its answer stored on its own instead; anything else
+// releases the key, and a success is answered 503 so that it is sent again.
+func answerUnbound(ctx context.Context, w http.ResponseWriter, st *idempotency.Store, req idempotency.Request, answer idempotency.Answer) {
+	refusal := answer.Status >= http.StatusBadRequest && answer.Status < http.StatusInternalServerError
+	if !refusal || st.Complete(ctx, req, answer) != nil {
 		_ = st.Release(ctx, req)
 		if answer.Status < http.StatusBadRequest {
 			writeProblemNext(w, http.StatusServiceUnavailable, "the request was not carried out: its answer could not be stored",
@@ -153,20 +181,56 @@ func runClaimed(next http.Handler, st *idempotency.Store, req idempotency.Reques
 	deliver(w, answer.Status, answer.ContentType, answer.Body)
 }
 
-// settle stores the answer in the unit and commits the unit with it, and
-// reports whether the answer is stored. A refusal writes nothing, so when it
-// cannot commit with the unit (on Postgres a refused statement can leave the
-// unit unable to commit) its answer is stored on its own instead.
-func settle(unitCtx, ctx context.Context, st *idempotency.Store, unit *store.Unit, req idempotency.Request, answer idempotency.Answer) bool {
-	err := st.Complete(unitCtx, req, answer)
-	if err == nil {
-		err = unit.Commit()
+// claim is the key a request holds and the unit of work its writes run in.
+type claim struct {
+	st   *idempotency.Store
+	req  idempotency.Request
+	unit *store.Unit
+	ctx  context.Context
+	// tried is set once the key was bound or failed to bind; bound once the unit
+	// committed with the key bound.
+	tried, bound bool
+}
+
+type claimKey struct{}
+
+// bind binds the key in the unit and commits it, once; a failure rolls the unit
+// back.
+func (c *claim) bind() {
+	if c.tried {
+		return
 	}
+	c.tried = true
+	err := c.st.Bind(c.ctx, c.req)
 	if err == nil {
-		return true
+		err = c.unit.Commit()
 	}
-	_ = unit.Rollback()
-	return answer.Status >= http.StatusBadRequest && st.Complete(ctx, req, answer) == nil
+	if err != nil {
+		_ = c.unit.Rollback()
+		return
+	}
+	c.bound = true
+}
+
+// bindBeforeEncoding commits the unit of a request that holds an Idempotency-Key
+// as soon as its operation returns a result that is not a server failure, before
+// the generated code encodes that result: the answer is marshalled with the
+// writer free, and only then stored for the key (runClaimed).
+func bindBeforeEncoding(next StrictHandlerFunc, _ string) StrictHandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+		response, err := next(ctx, w, r, request)
+		if c, ok := ctx.Value(claimKey{}).(*claim); ok && err == nil && !serverFailure(response) {
+			c.bind()
+		}
+		return response, err
+	}
+}
+
+// serverFailure reports whether response is a 5xx problem, which writes nothing
+// and releases the key.
+func serverFailure(response any) bool {
+	p, ok := response.(problemResponse)
+	return ok && p.status >= http.StatusInternalServerError
 }
 
 // deliver writes a response of the status, content type and body.
