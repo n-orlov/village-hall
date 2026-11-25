@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/n-orlov/village-hall/internal/store"
@@ -18,8 +19,10 @@ import (
 // failure of the fifth retry, ends the row `failed`.
 var Backoff = []time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute, time.Hour}
 
-// TickInterval is how often serve looks for due rows.
-const TickInterval = 2 * time.Second
+// TickInterval is how often Run looks for due rows when nothing woke it: a
+// backstop that finds the retries whose backoff has run out. A write that
+// enqueues a row wakes the worker at once (Wake), so it does not set the latency.
+const TickInterval = 10 * time.Second
 
 // claimBatch is how many due rows one tick looks at.
 const claimBatch = 20
@@ -39,6 +42,58 @@ type Worker struct {
 	Now func() time.Time
 	// Client sends the POST; nil means a client that follows no redirect.
 	Client *http.Client
+	// Interval is the backstop tick of Run; zero means TickInterval.
+	Interval time.Duration
+	// NewTicker makes the backstop ticker of Run; nil means a time.Ticker. Tests inject it.
+	NewTicker func(d time.Duration) (ticks <-chan time.Time, stop func())
+
+	wakeOnce sync.Once
+	wake     chan struct{}
+}
+
+func (w *Worker) wakeCh() chan struct{} {
+	w.wakeOnce.Do(func() { w.wake = make(chan struct{}, 1) })
+	return w.wake
+}
+
+// Wake asks Run for a pass at once. It never blocks and wakes are coalesced.
+func (w *Worker) Wake() {
+	select {
+	case w.wakeCh() <- struct{}{}:
+	default:
+	}
+}
+
+// Run delivers the outbox until ctx ends: one pass when it starts and after each
+// Wake, and one every Interval as the backstop. While it runs, Enqueue wakes it
+// once its write has committed. A pass's error goes to report (when set) and never
+// stops Run.
+func (w *Worker) Run(ctx context.Context, report func(error)) {
+	interval, newTicker := w.Interval, w.NewTicker
+	if interval <= 0 {
+		interval = TickInterval
+	}
+	if newTicker == nil {
+		newTicker = func(d time.Duration) (<-chan time.Time, func()) {
+			t := time.NewTicker(d)
+			return t.C, t.Stop
+		}
+	}
+	ticks, stop := newTicker(interval)
+	defer stop()
+	w.Store.SetNotifyWake(w.Wake)
+	defer w.Store.SetNotifyWake(nil)
+	for {
+		if err := w.Tick(ctx); err != nil && report != nil && ctx.Err() == nil {
+			report(err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+		case <-w.wakeCh():
+		}
+	}
 }
 
 func (w *Worker) now() time.Time {

@@ -420,8 +420,8 @@ func runSweeper(ctx context.Context, stderr io.Writer, env Env, st *store.Store)
 		func(ctx context.Context) error { _, err := idem.DeleteExpired(ctx); return err })
 }
 
-// startNotifier delivers the notifications outbox to VH_NOTIFY_URL every
-// notify.TickInterval until ctx ends, and returns the function that stops it and
+// startNotifier delivers the notifications outbox to VH_NOTIFY_URL until ctx
+// ends, at once after a write enqueues a row and every notify.TickInterval as a backstop, and returns the function that stops it and
 // waits for it. With the URL unset it runs nothing. serve has already checked
 // the timeout and the header parse.
 func startNotifier(ctx context.Context, stderr io.Writer, env Env, st *store.Store) func() {
@@ -435,6 +435,6 @@ func startNotifier(ctx context.Context, stderr io.Writer, env Env, st *store.Sto
 	report := func(err error) { _, _ = fmt.Fprintf(stderr, "vh: notify: %v\n", err) }
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() { defer close(done); sweep.Run(ctx, notify.TickInterval, report, w.Tick) }()
+	go func() { defer close(done); w.Run(ctx, report) }()
 	return func() { cancel(); <-done }
 }

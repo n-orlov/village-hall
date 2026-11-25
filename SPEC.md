@@ -885,9 +885,9 @@ whether or not the URL is set. `GET /api/v1/notifications` lists the outbox (§6
 #### Delivery
 
 When `VH_NOTIFY_URL` is set, `serve` runs one background worker (`notify.Worker`, started after the sweeper and
-stopped before the store closes) that looks for due rows every 2 s. A row is due when it is `pending`, its
+stopped before the store closes) that looks for due rows once when it starts, at once after a write that enqueued a row has committed (`Enqueue` wakes it from the unit's commit, or from the `Commit` of its transaction, never from a rolled-back one), and every 10 s as a backstop that finds the retries whose backoff has run out (`notify.TickInterval`, never below 10 s; wakes are coalesced). A row is due when it is `pending`, its
 `next_attempt_at` is not after the clock's now and its `claimed_until` is empty or not after now. The worker takes up to
-20 due rows per tick, oldest first, and for each one:
+20 due rows per pass, oldest first, and for each one:
 
 1. **Claims it** with one conditional `UPDATE` that sets `claimed_until` to now plus `VH_NOTIFY_TIMEOUT` plus 30 s and
    holds only while the row is still `pending`, due and unclaimed, so of several servers on one database exactly one wins

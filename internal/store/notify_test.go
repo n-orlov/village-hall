@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"reflect"
 	"testing"
 )
@@ -62,5 +63,66 @@ func TestPublicURLIsEmptyUntilSet(t *testing.T) {
 	s.SetPublicURL("https://board.example")
 	if s.PublicURL() != "https://board.example" {
 		t.Fatalf("PublicURL = %q", s.PublicURL())
+	}
+}
+
+func TestAfterTxCommitRunsOnCommitAndNeverOnRollback(t *testing.T) {
+	s := unitStore(t)
+	ctx := context.Background()
+	for _, commit := range []bool{true, false} {
+		tx, err := s.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ran := 0
+		s.AfterTxCommit(ctx, tx.Tx, func() { ran++ })
+		s.AfterTxCommit(ctx, tx.Tx, func() { ran++ })
+		if ran != 0 {
+			t.Fatalf("hooks ran before the end of the transaction: %d", ran)
+		}
+		if commit {
+			err = tx.Commit()
+		} else {
+			err = tx.Rollback()
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := map[bool]int{true: 2, false: 0}[commit]; ran != want {
+			t.Errorf("commit=%v: hooks ran %d times, want %d", commit, ran, want)
+		}
+		if _, left := s.txAfter.Load(tx.Tx); left {
+			t.Errorf("commit=%v: the hooks of the ended transaction are still held", commit)
+		}
+	}
+}
+
+func TestAfterTxCommitUnderAUnitWaitsForTheUnit(t *testing.T) {
+	s := unitStore(t)
+	ctx, u := beginUnit(t, s)
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := 0
+	s.AfterTxCommit(ctx, tx.Tx, func() { ran++ })
+	if err := tx.Commit(); err != nil || ran != 0 {
+		t.Fatalf("after the savepoint's release: err %v, ran %d, want nil and 0", err, ran)
+	}
+	if err := u.Commit(); err != nil || ran != 1 {
+		t.Fatalf("after the unit's commit: err %v, ran %d, want nil and 1", err, ran)
+	}
+}
+
+func TestWakeNotifyCallsWhatWasRegisteredAndNothingAfterItIsCleared(t *testing.T) {
+	s := unitStore(t)
+	s.WakeNotify() // nothing registered: no panic
+	n := 0
+	s.SetNotifyWake(func() { n++ })
+	s.WakeNotify()
+	s.SetNotifyWake(nil)
+	s.WakeNotify()
+	if n != 1 {
+		t.Fatalf("the wake ran %d times, want 1", n)
 	}
 }

@@ -71,3 +71,21 @@ func (s *Store) PublicURL() string {
 	}
 	return ""
 }
+
+// SetNotifyWake registers what wakes the notification worker once a write that
+// enqueued an alert has committed; nil clears it. The worker registers itself
+// while it runs.
+func (s *Store) SetNotifyWake(f func()) {
+	if f == nil {
+		s.notifyWake.Store(nil)
+		return
+	}
+	s.notifyWake.Store(&f)
+}
+
+// WakeNotify calls what SetNotifyWake registered, if anything.
+func (s *Store) WakeNotify() {
+	if f := s.notifyWake.Load(); f != nil {
+		(*f)()
+	}
+}

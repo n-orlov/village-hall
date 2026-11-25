@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -62,6 +63,10 @@ type Store struct {
 	notify atomic.Pointer[map[string]bool]
 	// publicURL is VH_PUBLIC_URL as alerts link to it; empty when unset.
 	publicURL atomic.Pointer[string]
+	// notifyWake wakes the notification worker; nil while none runs.
+	notifyWake atomic.Pointer[func()]
+	// txAfter holds, per open writer transaction, what runs once it commits.
+	txAfter sync.Map
 }
 
 // Open opens the database named by a VH_DB_URL value. It does not migrate.

@@ -17,6 +17,9 @@ var columns = []string{"id", "kind", "event_id", "payload", "state", "attempts",
 // Enqueue adds a pending notification of kind for the event eventID, with the payload of BuildPayload, in tx, when
 // alerts are on and VH_NOTIFY_ON names the kind. It writes nothing otherwise.
 // The outbox is unique on (event, kind), so an event never enqueues a kind twice.
+// Once the write has committed (the unit's commit under ctx's unit of work,
+// else the Commit of tx, which must come from Store.Begin) the delivery worker is
+// woken, so the row is not left for the backstop tick.
 func Enqueue(ctx context.Context, tx *sql.Tx, st *store.Store, eventID, kind string, now time.Time) error {
 	if !st.Notifies(kind) {
 		return nil
@@ -35,6 +38,7 @@ func Enqueue(ctx context.Context, tx *sql.Tx, st *store.Store, eventID, kind str
 	if err != nil {
 		return fmt.Errorf("enqueue %s notification: %w", kind, err)
 	}
+	st.AfterTxCommit(ctx, tx, st.WakeNotify)
 	return nil
 }
 
@@ -93,6 +97,9 @@ func EnqueueStrandedBatch(ctx context.Context, tx *sql.Tx, st *store.Store, list
 	}
 	if err := store.InsertMany(ctx, tx, st.Dialect(), "notifications", columns, args); err != nil {
 		return fmt.Errorf("enqueue %s notifications: %w", store.NotifyStranded, err)
+	}
+	if len(args) > 0 {
+		st.AfterTxCommit(ctx, tx, st.WakeNotify)
 	}
 	return nil
 }

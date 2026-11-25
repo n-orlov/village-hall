@@ -562,3 +562,151 @@ func TestParseHeader(t *testing.T) {
 		t.Errorf("a tab inside a value = %+v, %v", h, err)
 	}
 }
+
+// fakeTicks is the backstop ticker of a Run under test: nothing fires until the test sends, and an
+// unbuffered send returns only once Run is back in its select, that is after the pass the last event started.
+type fakeTicks struct {
+	c chan time.Time
+	d chan time.Duration
+}
+
+func newFakeTicks() *fakeTicks {
+	return &fakeTicks{c: make(chan time.Time), d: make(chan time.Duration, 1)}
+}
+
+func (f *fakeTicks) New(d time.Duration) (<-chan time.Time, func()) {
+	f.d <- d
+	return f.c, func() {}
+}
+
+func (f *fakeTicks) fire() { f.c <- time.Time{} }
+
+// postsOn is a receiver that reports each POST on a channel, with the next status of its script.
+func postsOn(t *testing.T, script ...int) (string, chan struct{}) {
+	t.Helper()
+	got := make(chan struct{}, 8)
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		status := script[min(n, len(script)-1)]
+		n++
+		mu.Unlock()
+		w.WriteHeader(status)
+		got <- struct{}{}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, got
+}
+
+func awaitPost(t *testing.T, got chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-got:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("no POST: %s", what)
+	}
+}
+
+func TestTheBackstopTickIsAtLeastTenSeconds(t *testing.T) {
+	if notify.TickInterval < 10*time.Second {
+		t.Fatalf("TickInterval = %s, want at least 10s", notify.TickInterval)
+	}
+	e := newEnv(t, nil)
+	ft := newFakeTicks()
+	rctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	w := &notify.Worker{Store: e.st, URL: "http://127.0.0.1:1", Timeout: time.Second, NewTicker: ft.New}
+	go func() { defer close(done); w.Run(rctx, nil) }()
+	if d := <-ft.d; d != notify.TickInterval {
+		t.Errorf("Run asked its ticker for %s, want TickInterval %s", d, notify.TickInterval)
+	}
+	cancel()
+	<-done
+}
+
+func TestAnEnqueueIsDeliveredWithoutTheClockAdvancing(t *testing.T) {
+	url, got := postsOn(t, 204)
+	e := newEnv(t, []string{store.NotifyDone})
+	ft := newFakeTicks()
+	w := &notify.Worker{Store: e.st, URL: url, Timeout: 5 * time.Second, Now: func() time.Time { return t0.Add(time.Hour) }, NewTicker: ft.New}
+	rctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); w.Run(rctx, nil) }()
+	t.Cleanup(func() { cancel(); <-done })
+	<-ft.d
+	// The first pass, at start, finds nothing; the next send returns once it has ended.
+	ft.fire()
+	id := e.event(t, "task_done")
+	tx, err := e.st.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := notify.Enqueue(ctx, tx.Tx, e.st, id, store.NotifyDone, t0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-got:
+		t.Fatal("the row was delivered before its transaction committed")
+	default:
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPost(t, got, "the enqueue did not wake the worker and the backstop never fired")
+}
+
+func TestARolledBackEnqueueWakesNothingAndAFailedDeliveryIsRetriedOnTheBackstop(t *testing.T) {
+	url, got := postsOn(t, 500, 204)
+	e := newEnv(t, []string{store.NotifyDone})
+	ft := newFakeTicks()
+	now := t0.Add(time.Hour)
+	var mu sync.Mutex
+	w := &notify.Worker{Store: e.st, URL: url, Timeout: 5 * time.Second, NewTicker: ft.New,
+		Now: func() time.Time { mu.Lock(); defer mu.Unlock(); return now }}
+	rctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); w.Run(rctx, nil) }()
+	t.Cleanup(func() { cancel(); <-done })
+	<-ft.d
+	ft.fire()
+	id := e.event(t, "task_done")
+	enqueue := func(commit bool) {
+		tx, err := e.st.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := notify.Enqueue(ctx, tx.Tx, e.st, id, store.NotifyDone, t0.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if !commit {
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	enqueue(false)
+	ft.fire() // returns once the pass the rollback might have woken has ended
+	select {
+	case <-got:
+		t.Fatal("a rolled back enqueue was delivered")
+	default:
+	}
+	enqueue(true)
+	awaitPost(t, got, "the committed enqueue was not delivered")
+	ft.fire() // the failed delivery's pass has ended; the retry is 30 s away
+	select {
+	case <-got:
+		t.Fatal("the failed delivery was retried before its backoff")
+	default:
+	}
+	mu.Lock()
+	now = now.Add(notify.Backoff[0])
+	mu.Unlock()
+	ft.fire()
+	awaitPost(t, got, "the backstop tick did not retry the failed delivery")
+}

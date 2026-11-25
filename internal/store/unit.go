@@ -123,7 +123,7 @@ func (s *Store) Begin(ctx context.Context) (*Tx, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Tx{Tx: tx}, nil
+		return &Tx{Tx: tx, owner: s}, nil
 	}
 	name, err := u.savepoint(ctx)
 	if err != nil {
@@ -181,6 +181,7 @@ func (q unitQuerier) QueryRowContext(ctx context.Context, query string, args ...
 // it. Once either has run, both return sql.ErrTxDone.
 type Tx struct {
 	*sql.Tx
+	owner     *Store
 	savepoint string
 	done      bool
 }
@@ -188,7 +189,12 @@ type Tx struct {
 // Commit commits the transaction, or releases its savepoint inside a unit.
 func (t *Tx) Commit() error {
 	if t.savepoint == "" {
-		return t.Tx.Commit()
+		if err := t.Tx.Commit(); err != nil {
+			t.owner.dropTxHooks(t.Tx)
+			return err
+		}
+		t.owner.runTxHooks(t.Tx)
+		return nil
 	}
 	if t.done {
 		return sql.ErrTxDone
@@ -202,6 +208,7 @@ func (t *Tx) Commit() error {
 // unit.
 func (t *Tx) Rollback() error {
 	if t.savepoint == "" {
+		t.owner.dropTxHooks(t.Tx)
 		return t.Tx.Rollback()
 	}
 	if t.done {
@@ -214,3 +221,26 @@ func (t *Tx) Rollback() error {
 	_, err := t.Exec("RELEASE SAVEPOINT " + t.savepoint)
 	return err
 }
+
+// AfterTxCommit runs f once what tx wrote has committed. Under ctx's unit of work
+// that is the unit's commit (AfterCommit); otherwise tx must come from Begin,
+// and f runs when its Commit succeeds and never when it rolls back. It is how a
+// write that enqueues work wakes the worker only after the row is visible.
+func (s *Store) AfterTxCommit(ctx context.Context, tx *sql.Tx, f func()) {
+	if s.unitOf(ctx) != nil {
+		s.AfterCommit(ctx, func(context.Context) { f() })
+		return
+	}
+	hooks, _ := s.txAfter.LoadOrStore(tx, new([]func()))
+	*hooks.(*[]func()) = append(*hooks.(*[]func()), f)
+}
+
+func (s *Store) runTxHooks(tx *sql.Tx) {
+	if hooks, ok := s.txAfter.LoadAndDelete(tx); ok {
+		for _, f := range *hooks.(*[]func()) {
+			f()
+		}
+	}
+}
+
+func (s *Store) dropTxHooks(tx *sql.Tx) { s.txAfter.Delete(tx) }
