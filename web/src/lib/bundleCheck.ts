@@ -59,33 +59,50 @@ function fromPackage(source: string, pkg: string): boolean {
   return source.includes(`node_modules/${pkg}/`);
 }
 
-/** Every way this build breaks the R7 rules, one sentence each; empty when it holds. */
-export function bundleViolations(manifest: Manifest, html: string, files: BuildFiles): string[] {
+function entryProblems(entries: ManifestChunk[], files: BuildFiles): string[] {
   const problems: string[] = [];
-  const entries = Object.values(manifest).filter((c) => c.isEntry);
-  if (entries.length === 0) return ['the manifest names no entry chunk'];
-  const eager = eagerChunks(manifest);
-
   for (const entry of entries) {
     const size = files.size(entry.file);
     if (size > ENTRY_CHUNK_MAX_BYTES) problems.push(`entry chunk ${entry.file} is ${size} bytes raw, over ${ENTRY_CHUNK_MAX_BYTES}`);
   }
+  return problems;
+}
 
+function eagerPackageProblems(eager: ManifestChunk[], files: BuildFiles): string[] {
+  const problems: string[] = [];
   for (const chunk of eager) {
     const sources = files.sources(chunk.file);
     for (const pkg of EAGER_FORBIDDEN_PACKAGES) {
       if (sources.some((s) => fromPackage(s, pkg))) problems.push(`eagerly loaded chunk ${chunk.file} contains ${pkg}`);
     }
   }
+  return problems;
+}
 
+function timelineProblems(manifest: Manifest, eager: ManifestChunk[]): string[] {
   const timeline = manifest[TIMELINE_SOURCE];
   if (timeline === undefined || !timeline.isDynamicEntry || eager.some((c) => c.file === timeline.file)) {
-    problems.push('the Timeline is not a separate, dynamically imported chunk');
+    return ['the Timeline is not a separate, dynamically imported chunk'];
   }
+  return [];
+}
 
+function stylesheetProblems(eager: ManifestChunk[], html: string, files: BuildFiles): string[] {
   const sheets = new Set<string>([...eager.flatMap((c) => c.css ?? []), ...stylesheetLinks(html)]);
-  for (const sheet of sheets) {
-    if (hasVisTimelineStyles(files.text(sheet))) problems.push(`stylesheet ${sheet}, loaded eagerly, holds the vis-timeline rules`);
-  }
-  return problems;
+  return [...sheets]
+    .filter((sheet) => hasVisTimelineStyles(files.text(sheet)))
+    .map((sheet) => `stylesheet ${sheet}, loaded eagerly, holds the vis-timeline rules`);
+}
+
+/** Every way this build breaks the R7 rules, one sentence each; empty when it holds. */
+export function bundleViolations(manifest: Manifest, html: string, files: BuildFiles): string[] {
+  const entries = Object.values(manifest).filter((c) => c.isEntry);
+  if (entries.length === 0) return ['the manifest names no entry chunk'];
+  const eager = eagerChunks(manifest);
+  return [
+    ...entryProblems(entries, files),
+    ...eagerPackageProblems(eager, files),
+    ...timelineProblems(manifest, eager),
+    ...stylesheetProblems(eager, html, files),
+  ];
 }
