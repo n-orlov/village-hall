@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"errors"
 	"fmt"
@@ -65,16 +66,34 @@ type Store struct {
 
 // Open opens the database named by a VH_DB_URL value. It does not migrate.
 // Supported: sqlite:///data/board.db and postgres://... (or postgresql://...).
-func Open(rawURL string) (*Store, error) {
+func Open(rawURL string) (*Store, error) { return OpenWrapped(rawURL, nil) }
+
+// The pools a ConnectorWrapper is asked to wrap. On SQLite the writer and the
+// reader are two pools; on Postgres they are one, named PoolShared.
+const (
+	PoolWriter = "writer"
+	PoolReader = "reader"
+	PoolShared = "shared"
+)
+
+// ConnectorWrapper is the test-only hook of OpenWrapped: it receives the
+// connector of one pool, named by a Pool* constant, and returns the connector
+// that pool is opened on instead.
+type ConnectorWrapper func(pool string, inner driver.Connector) driver.Connector
+
+// OpenWrapped is Open with every pool opened on the connector wrap returns for
+// it. A nil wrap is Open itself. It exists so a test can observe the statements
+// a store issues (internal/store/storetest); production code calls Open.
+func OpenWrapped(rawURL string, wrap ConnectorWrapper) (*Store, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse VH_DB_URL: %w", err)
 	}
 	switch u.Scheme {
 	case "sqlite":
-		return openSQLite(u)
+		return openSQLite(u, wrap)
 	case "postgres", "postgresql":
-		return openPostgres(rawURL)
+		return openPostgres(rawURL, wrap)
 	default:
 		return nil, fmt.Errorf("VH_DB_URL scheme %q is not supported (want sqlite://<path> or postgres://...)", u.Scheme)
 	}
@@ -121,8 +140,8 @@ func sqliteFilePath(u *url.URL) (string, error) {
 // openSQLiteWriter opens the single writer connection. Opening the writer
 // first creates the file and switches it to WAL before any reader
 // connection looks at it.
-func openSQLiteWriter(path string) (*sql.DB, error) {
-	writer, err := sql.Open("sqlite", sqliteDSN(path, false))
+func openSQLiteWriter(path string, wrap ConnectorWrapper) (*sql.DB, error) {
+	writer, err := openPool("sqlite", sqliteDSN(path, false), PoolWriter, wrap)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -134,16 +153,38 @@ func openSQLiteWriter(path string) (*sql.DB, error) {
 	return writer, nil
 }
 
-func openSQLite(u *url.URL) (*Store, error) {
+// openPool is sql.Open of the named driver, on the connector wrap returns for
+// pool when wrap is not nil.
+func openPool(driverName, dsn, pool string, wrap ConnectorWrapper) (*sql.DB, error) {
+	db, err := sql.Open(driverName, dsn)
+	if err != nil || wrap == nil {
+		return db, err
+	}
+	drv := db.Driver()
+	_ = db.Close()
+	return sql.OpenDB(wrap(pool, dsnConnector{dsn: dsn, drv: drv})), nil
+}
+
+// dsnConnector opens connections of a driver on one fixed DSN, as sql.Open does.
+type dsnConnector struct {
+	dsn string
+	drv driver.Driver
+}
+
+func (c dsnConnector) Connect(context.Context) (driver.Conn, error) { return c.drv.Open(c.dsn) }
+
+func (c dsnConnector) Driver() driver.Driver { return c.drv }
+
+func openSQLite(u *url.URL, wrap ConnectorWrapper) (*Store, error) {
 	path, err := sqliteFilePath(u)
 	if err != nil {
 		return nil, err
 	}
-	writer, err := openSQLiteWriter(path)
+	writer, err := openSQLiteWriter(path, wrap)
 	if err != nil {
 		return nil, err
 	}
-	reader, err := sql.Open("sqlite", sqliteDSN(path, true))
+	reader, err := openPool("sqlite", sqliteDSN(path, true), PoolReader, wrap)
 	if err != nil {
 		_ = writer.Close()
 		return nil, fmt.Errorf("open database: %w", err)
@@ -158,8 +199,8 @@ func openSQLite(u *url.URL) (*Store, error) {
 	return &Store{dialect: SQLite{}, writer: writer, reader: reader, migrations: mig}, nil
 }
 
-func openPostgres(rawURL string) (*Store, error) {
-	db, err := sql.Open("pgx", rawURL)
+func openPostgres(rawURL string, wrap ConnectorWrapper) (*Store, error) {
+	db, err := openPool("pgx", rawURL, PoolShared, wrap)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
