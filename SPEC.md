@@ -1677,7 +1677,10 @@ their `lease_expired` events, then reads; it writes nothing else.
 - **Active.** `active=true` keeps only the active tasks, and it adds to every other filter. **A task is active when it has a
   live lease, or has any attention reason (stranded, asking, or done and not closed: a non-empty `attention` list), or has an
   event in the last `window`.** This is the one definition of active: the Timeline's Only active filter and Active first
-  sort (§11) both use it, by asking the server. `window` is `8h`, `24h` (the default) or `3d`, counted back from now (the
+  sort (§11) both use it, by asking the server. The server builds the active tasks as one id list from the leases that are live
+  and the events inside the window (index range reads on `leases(state, expires_at)` and `events(at, n)`) and the attention refs
+  (looked up by slug and number; only the exact short ref of a task names one), so the read of the tasks never scans `tasks` or
+  `events` to find them and the tasks are put in initiative and number order in Go, with no temporary B-tree. `window` is `8h`, `24h` (the default) or `3d`, counted back from now (the
   Now view's window, §6.8.1; it is not the `from` and `to` of the chart), and it only matters with `active=true`. `active=false` or
   leaving it out keeps every task; a `window` that is none of the three, or an `active` that is neither `true` nor `false`, is
   **400** (decided before the expiry, like every refusal here). A live lease is a lease of state `live` that has not run

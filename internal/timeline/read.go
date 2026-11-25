@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/n-orlov/village-hall/internal/domain"
@@ -42,24 +43,41 @@ func instantOf(v sql.NullInt64) *time.Time {
 // tasks reads the tasks the filter keeps, with the refs of the tasks each is
 // blocked by.
 func (s Store) tasks(ctx context.Context, f *filter) ([]Task, error) {
-	out := []Task{}
-	byID := map[string]int{}
-	err := s.each(ctx, "tasks", `SELECT t.id, i.slug, t.seq, t.title, t.status, t.kind, t.planned_start, t.planned_end, t.created_at, t.closed_at
-		FROM tasks t JOIN initiatives i ON i.id = t.initiative_id`+f.where()+` ORDER BY i.n, t.seq`, f.args, func(r *sql.Rows) error {
+	type row struct {
+		task Task
+		ini  int64
+		seq  int
+	}
+	var rows []row
+	err := s.each(ctx, "tasks", `SELECT t.id, i.slug, t.seq, t.title, t.status, t.kind, t.planned_start, t.planned_end, t.created_at, t.closed_at, i.n
+		FROM tasks t JOIN initiatives i ON i.id = t.initiative_id`+f.where(), f.args, func(r *sql.Rows) error {
 		var t Task
 		var seq int
 		var ps, pe, created, closed sql.NullInt64
-		if err := r.Scan(&t.ID, &t.Initiative, &seq, &t.Title, &t.Status, &t.Kind, &ps, &pe, &created, &closed); err != nil {
+		var ini int64
+		if err := r.Scan(&t.ID, &t.Initiative, &seq, &t.Title, &t.Status, &t.Kind, &ps, &pe, &created, &closed, &ini); err != nil {
 			return err
 		}
 		t.Ref, t.PlannedStart, t.PlannedEnd, t.CreatedAt, t.ClosedAt = domain.FormatTaskRef(t.Initiative, seq), instantOf(ps), instantOf(pe), store.DecodeTime(created.Int64), instantOf(closed)
 		t.Deps, t.Tags, t.TagMarks = []string{}, []string{}, []tasks.TagMark{}
-		byID[t.ID] = len(out)
-		out = append(out, t)
+		rows = append(rows, row{task: t, ini: ini, seq: seq})
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	// The tasks come in initiative order, then number: sorted here rather than by
+	// the statement, whose ORDER BY would otherwise sort every task it reads.
+	sort.Slice(rows, func(a, b int) bool {
+		if rows[a].ini != rows[b].ini {
+			return rows[a].ini < rows[b].ini
+		}
+		return rows[a].seq < rows[b].seq
+	})
+	out := make([]Task, len(rows))
+	byID := make(map[string]int, len(rows))
+	for i, r := range rows {
+		out[i], byID[r.task.ID] = r.task, i
 	}
 	if err := s.deps(ctx, f, out, byID); err != nil {
 		return nil, err
