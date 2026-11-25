@@ -65,6 +65,22 @@ func webBuildOnceProblems(jf string) []string {
 	if !strings.Contains(quality, "'web-dist'") {
 		problems = append(problems, "Quality does not unstash web-dist")
 	}
+	// internal/server's UI tests fail without the real build, so the extended
+	// lane's units (Stability's three clones, every Mutation unit) get it too.
+	stability, _ := jenkinsStage(jf, "Stability")
+	if !strings.Contains(stability, "def u = [name: 'Stability runs', minutes: 40,\n                       needs: ['web-dist'],") {
+		problems = append(problems, "Stability runs does not unstash web-dist")
+	}
+	if !strings.Contains(stability, `cp -a internal/webui/dist "stability-$i/internal/webui/dist"`) {
+		problems = append(problems, "Stability's clones do not each get the web build")
+	}
+	mutation, _ := jenkinsStage(jf, "Mutation")
+	if !strings.Contains(functionBody(jf, "def runFullMutation(Map plan) {"), "maxAttempts: 1,\n             needs: ['web-dist'],") {
+		problems = append(problems, "the full mutation units do not unstash web-dist")
+	}
+	if !strings.Contains(mutation, "name: 'Mutation diff', minutes: 45,\n                         needs: ['web-dist'],") {
+		problems = append(problems, "Mutation diff does not unstash web-dist")
+	}
 	branch := functionBody(jf, "def unitBranch(Map u) {")
 	if !strings.Contains(branch, "waitUntil(initialRecurrencePeriod: 5000) { signals[u.after] == true }") ||
 		!strings.Contains(branch, "if (results[u.after] != 'pass') {") {
@@ -105,6 +121,14 @@ func TestWebUIIsBuiltOnceAndStashedForSuiteE2EAndQuality(t *testing.T) {
 			"signal: 'Image', after: 'Web UI', needs: ['web-dist'],", "signal: 'Image', needs: ['web-dist'],"),
 		"a Quality that does not unstash the web build": replaceOnce(t, jf,
 			"'res-image', 'image', 'web-dist'],", "'res-image', 'image'],"),
+		"a Stability that does not unstash the web build": replaceOnce(t, jf,
+			"minutes: 40,\n                       needs: ['web-dist'],", "minutes: 40,"),
+		"a Stability clone without the web build": replaceOnce(t, jf,
+			`cp -a internal/webui/dist "stability-$i/internal/webui/dist"`, "true"),
+		"a full mutation unit that does not unstash the web build": replaceOnce(t, jf,
+			"maxAttempts: 1,\n             needs: ['web-dist'],", "maxAttempts: 1,"),
+		"a Mutation diff that does not unstash the web build": replaceOnce(t, jf,
+			"minutes: 45,\n                         needs: ['web-dist'],", "minutes: 45,"),
 		"a Web UI unit that stashes nothing": replaceOnce(t, jf,
 			"stash name: 'web-dist', includes: 'internal/webui/dist/**'", "stash name: 'web-dist', includes: 'nothing/**'"),
 		"a second build in Suite": replaceOnce(t, jf,

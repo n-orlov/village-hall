@@ -372,7 +372,10 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   identity.
   Suite, E2E, Image and Quality unstash it (`needs: ['web-dist']`); Suite, E2E and Image also
   wait for the unit's signal without holding an executor, and do not run when it
-  did not pass (Quality then reports their missing results). With the marker and
+  did not pass (Quality then reports their missing results). The extended lane's units
+  (Stability runs, which copies it into each of its three clones, Mutation diff and every full
+  mutation unit) unstash it too, because `internal/server`'s UI tests fail without the real
+  build; they run after Core, so no signal is needed. With the marker and
   an `index.html` present, `ci/suite.sh` and the release dry run in the Image unit
   (`ci/release-build.sh`, whose release binaries embed the unstashed build) run no `npm run build`: Suite still
   runs `npm ci` in `web/` because Vitest needs `web/node_modules`, E2E runs no

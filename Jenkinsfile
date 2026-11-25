@@ -76,6 +76,8 @@
 // file beside it) and stashes dist as web-dist. Suite, E2E, Image and Quality
 // unstash it (`needs`); Suite, E2E and Image also wait for the unit's signal
 // without holding an executor (`after`) and do not run when it failed.
+// The extended lane's units (Stability runs, Mutation diff, the full mutation
+// units) unstash it as well, after Core: internal/server's UI tests need it.
 // ci/suite.sh and the release dry run (ci/release-build.sh) find the marker and
 // run no `npm run build`. Suite still runs `npm ci` in web/ for Vitest, and
 // Quality runs `npm ci` only because crap-ts and the openapi gates read
@@ -745,6 +747,7 @@ def runFullMutation(Map plan) {
   selected.each { m ->
     String lanes = plan == null ? m.lanes : plan['group.' + m.dir]
     def u = [name: m.name, minutes: 110, maxAttempts: 1,
+             needs: ['web-dist'],
              body: { unitSh(script: fullTune + " ci/run.sh ci/mutation.sh ci-results/mutation-units/${m.dir} ci/quality.json '${lanes}'") }]
     // 4 executors: Stability holds one, the three units the rest.
     branches[u.name] = unitBranch(u)
@@ -997,6 +1000,7 @@ pipeline {
               // unit fails when any run fails, with no rerun of the three runs;
               // stability.sh prints only at the end (11 min each).
               def u = [name: 'Stability runs', minutes: 40,
+                       needs: ['web-dist'],
                        body: {
                          sh '''
                            set -e
@@ -1007,6 +1011,11 @@ pipeline {
                              # As the checkout: its remote URL and origin/* refs.
                              git -C "stability-$i" fetch -q --no-tags .. '+refs/remotes/*:refs/remotes/*'
                              git -C "stability-$i" remote set-url origin "$(git remote get-url origin)"
+                             # The web build the Web UI unit stashed (unstashed into this
+                             # workspace by `needs`): internal/server's UI tests read it, and
+                             # a clone carries only tracked files.
+                             mkdir -p "stability-$i/internal/webui"
+                             cp -a internal/webui/dist "stability-$i/internal/webui/dist"
                              mkdir -p "$BOARD_CI_OUT/stability/run-$i"
                            done
                          '''
@@ -1065,6 +1074,7 @@ pipeline {
                 runFullMutation(null)
               } else {
                 def u = [name: 'Mutation diff', minutes: 45,
+                         needs: ['web-dist'],
                          body: {
                            mutationBase = mutationDiffBase()
                            currentBuild.description = currentBuild.description.replaceAll('mutation\\(diff[^)]*\\)', "mutation(diff ${mutationBase.take(7)})")
