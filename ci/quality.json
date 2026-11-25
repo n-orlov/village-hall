@@ -140,7 +140,8 @@
                 "login.go",
                 "loginops.go",
                 "keyops.go",
-                "logging.go"
+                "logging.go",
+                "ui.go"
             ],
             "internal/cli": [
                 "adminkeys.go",
@@ -247,7 +248,8 @@
                     "server.go",
                     "taskattention.go",
                     "tasklist.go",
-                    "taskops.go"
+                    "taskops.go",
+                    "ui.go"
                 ]
             },
             "internal/cli": {

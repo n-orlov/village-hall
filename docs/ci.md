@@ -363,6 +363,13 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   `ci/web-build.sh` (`npm ci` and `npm run build` in `web/`, which write
   `internal/webui/dist`, then a marker file `dist/.ci-stashed-build`, written only
   after a successful build) and stashes `internal/webui/dist` as `web-dist`.
+  `npm run build` is `vite build` followed by `node scripts/precompress/cli.ts`
+  (`web/scripts/precompress`, tested by Vitest), which writes a `<name>.gz` beside every
+  `.js`, `.css`, `.html`, `.svg` and `.json` file of `dist` (gzip level 9, no timestamp, so
+  the bytes are reproducible). The `.gz` files are embedded and stashed with the rest of
+  `dist`; the server answers a gzip client with them as they are (SPEC §12.3), so no step
+  of CI compresses at request time. A tree built without that step still serves, as
+  identity.
   Suite, E2E, Image and Quality unstash it (`needs: ['web-dist']`); Suite, E2E and Image also
   wait for the unit's signal without holding an executor, and do not run when it
   did not pass (Quality then reports their missing results). With the marker and

@@ -3892,6 +3892,19 @@ network requests (all assets embedded).
   quoted SHA-256 prefix of the page) and `Content-Type: text/html; charset=utf-8`; an
   `If-None-Match` that matches gets `304` with no body, any other value `200`. API answers
   never carry `immutable`. `internal/server/ui_test.go` covers each against the real build.
+- **Compression (PRD R6).** `npm run build` ends with `node scripts/precompress/cli.ts`, which
+  writes a gzip twin (`<name>.gz`, level 9, no timestamp) beside every `.js`, `.css`, `.html`,
+  `.svg` and `.json` file of the build, and `internal/webui` embeds them. For those files
+  (`/assets/*.js`, `/assets/*.css`, `/`, `/index.html`, `/favicon.svg`, `/icon.svg`,
+  `/manifest.json`) the server answers `Vary: Accept-Encoding`, always, and to a request whose
+  `Accept-Encoding` allows gzip (the token `gzip` or `x-gzip` with a `q` other than 0, or `*`
+  when gzip is not named) the twin's bytes as they are, with `Content-Encoding: gzip` and the
+  original `Content-Type`; any other request gets the file as it is, with no `Content-Encoding`.
+  Nothing is compressed per request; a file with no twin (a tree built without the step) is
+  served as identity. The page's `ETag` differs per encoding (`"<hash>"`, `"<hash>-gzip"`), so
+  a 304 names the bytes that would be sent. The `.gz` files are not routes (404), PNG icons are
+  never encoded, and API answers are never compressed. `internal/server/uigzip_test.go` requests
+  the seven paths with and without gzip against the real build, and `/api/v1/meta` with gzip.
 - Asset URLs are relative, and the API base comes from the page's own path
   (`web/src/lib/apibase.ts`): the mount prefix of the page plus `/api`, always a
   path, never an absolute or protocol-relative URL, so the UI works behind a
