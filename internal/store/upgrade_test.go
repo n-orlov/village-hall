@@ -88,7 +88,7 @@ func TestMigratingPhase0RowsToHeadKeepsThemUnchanged(t *testing.T) {
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if latest, _ := s.latest(); latest < 4 {
+	if latest := s.newest; latest < 4 {
 		t.Fatalf("head = %d, want at least 4", latest)
 	}
 	if err := s.Ready(ctx); err != nil {

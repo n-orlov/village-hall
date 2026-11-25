@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/n-orlov/village-hall/internal/audit"
+	"github.com/n-orlov/village-hall/internal/auth"
 	"github.com/n-orlov/village-hall/internal/leases"
 	"github.com/n-orlov/village-hall/internal/store"
 	"github.com/n-orlov/village-hall/internal/store/storetest"
@@ -189,5 +191,41 @@ func TestGetTimelineStatementCountIsPinned(t *testing.T) {
 		if want := strings.Count(c.path, "initiative="); lookups != want {
 			t.Errorf("GET %s looked up %d initiative rows, want %d", c.path, lookups, want)
 		}
+	}
+}
+
+// TestGetReadyzIsTwoReaderStatements pins the statements of one GET /readyz over
+// a migrated store: the key lookup and the applied version, nothing else.
+func TestGetReadyzIsTwoReaderStatements(t *testing.T) {
+	t.Parallel()
+	st, rec := storetest.OpenMigrated(t)
+	keys := &auth.Keys{Store: st}
+	token, _, err := keys.Create(context.Background(), "caller", "admin-cli", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(st.Ready, (&auth.Verifier{Store: st}).Verify, nil, keys)
+	r := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set(ActorHeader, "claude@host")
+	h.ServeHTTP(httptest.NewRecorder(), r) // the key's first use stamps last_used_at
+	rec.Reset()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /readyz = %d %s", w.Code, w.Body)
+	}
+	// The key lookup and the applied version, both reads; nothing else.
+	if reads := rec.Statements(store.PoolReader); reads != 2 || rec.Statements(store.PoolWriter) != 0 {
+		t.Errorf("GET /readyz: %+v", rec.All())
+	}
+	versions := 0
+	for _, s := range rec.All() {
+		if strings.Contains(s.SQL, "goose_db_version") {
+			versions++
+		}
+	}
+	if versions != 1 {
+		t.Errorf("GET /readyz read the applied version %d times, want 1", versions)
 	}
 }

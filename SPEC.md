@@ -1106,7 +1106,7 @@ ref without being one, so they carry no tags of their own; `task_marks` covers t
 | GET | `/meta` | server version, agent protocol version (§8.6), the caller's principal and actor |
 | PUT | `/actors/me/protocol-seen` | record that the calling actor has read protocol version N (§8.6) |
 | GET | `/healthz` | liveness, **unauthenticated** |
-| GET | `/readyz` | 200 when the DB is reachable and migrated, 503 otherwise |
+| GET | `/readyz` | 200 when the DB is reachable and migrated, 503 otherwise. The binary's newest embedded migration is computed once when the store is opened, so a probe reads only the applied version (one reader statement, no writer, no goose provider) |
 | GET/POST | `/keys`, POST `/keys/{name}/revoke` | API keys (§3.3) |
 | GET | `/auth/login`, `/auth/oidc/callback`; GET `/auth/session`; POST `/auth/logout` | OIDC (§3.2); outside `/api/v1` |
 | GET | `/metrics` | Prometheus text. **Not yet served**: the route does not exist today and answers 401 without a credential or 404 with one, like any unknown path |

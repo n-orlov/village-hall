@@ -33,7 +33,7 @@ func OpenCounting(path string, n *atomic.Int64) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{dialect: SQLite{}, writer: writer, reader: reader, migrations: mig}, nil
+	return newStore(SQLite{}, writer, reader, mig)
 }
 
 // OpenCountingPostgres opens the Postgres database at rawURL like Open does,
@@ -51,7 +51,7 @@ func OpenCountingPostgres(rawURL string, n *atomic.Int64) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{dialect: Postgres{}, writer: db, reader: db, migrations: mig}, nil
+	return newStore(Postgres{}, db, db, mig)
 }
 
 type countingConnector struct {

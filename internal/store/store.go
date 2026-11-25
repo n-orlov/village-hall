@@ -59,6 +59,9 @@ type Store struct {
 	writer     *sql.DB
 	reader     *sql.DB
 	migrations fs.FS
+	// newest is the highest migration version this binary embeds, computed once
+	// when the store is opened.
+	newest int64
 	// notify holds the kinds of alert a write enqueues; nil means alerts are off.
 	notify atomic.Pointer[map[string]bool]
 	// publicURL is VH_PUBLIC_URL as alerts link to it; empty when unset.
@@ -201,7 +204,7 @@ func openSQLite(u *url.URL, wrap ConnectorWrapper) (*Store, error) {
 		_ = reader.Close()
 		return nil, err
 	}
-	return &Store{dialect: SQLite{}, writer: writer, reader: reader, migrations: mig}, nil
+	return newStore(SQLite{}, writer, reader, mig)
 }
 
 func openPostgres(rawURL string, wrap ConnectorWrapper) (*Store, error) {
@@ -214,7 +217,21 @@ func openPostgres(rawURL string, wrap ConnectorWrapper) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{dialect: Postgres{}, writer: db, reader: db, migrations: mig}, nil
+	return newStore(Postgres{}, db, db, mig)
+}
+
+// newStore assembles a Store and computes the newest embedded migration, the
+// one value Ready and CheckSchema compare the applied version with. On failure
+// it closes the pools it was given.
+func newStore(d Dialect, writer, reader *sql.DB, mig fs.FS) (*Store, error) {
+	s := &Store{dialect: d, writer: writer, reader: reader, migrations: mig}
+	newest, err := s.embeddedLatest()
+	if err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	s.newest = newest
+	return s, nil
 }
 
 // Dialect returns the database's SQL dialect.
@@ -239,8 +256,9 @@ func (s *Store) provider() (*goose.Provider, error) {
 	return goose.NewProvider(s.dialect.GooseDialect(), s.writer, s.migrations)
 }
 
-// latest is the highest migration version this binary embeds.
-func (s *Store) latest() (int64, error) {
+// embeddedLatest builds a goose provider over the embedded migrations and reads
+// the highest version off it. Open calls it once.
+func (s *Store) embeddedLatest() (int64, error) {
 	p, err := s.provider()
 	if err != nil {
 		return 0, fmt.Errorf("prepare migrations: %w", err)
@@ -275,10 +293,7 @@ func (s *Store) SchemaVersion(ctx context.Context) (int64, error) { return s.app
 // records a goose version above the highest one this binary embeds. It never
 // writes, and a database with no migrations at all passes.
 func (s *Store) CheckSchema(ctx context.Context) error {
-	latest, err := s.latest()
-	if err != nil {
-		return err
-	}
+	latest := s.newest
 	applied, err := s.applied(ctx)
 	if err != nil {
 		return err
@@ -349,10 +364,7 @@ func (s *Store) Ready(ctx context.Context) error {
 	if err := s.reader.PingContext(ctx); err != nil {
 		return fmt.Errorf("database unreachable: %w", err)
 	}
-	latest, err := s.latest()
-	if err != nil {
-		return err
-	}
+	latest := s.newest
 	applied, err := s.applied(ctx)
 	if err != nil {
 		return err
