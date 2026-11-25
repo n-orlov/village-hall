@@ -153,47 +153,74 @@ func (s Store) startChecked(ctx context.Context, tx *sql.Tx, actor audit.Actor, 
 }
 
 func (s Store) start(ctx context.Context, tx *sql.Tx, actor audit.Actor, principal string, in Start, resources []string) (Result, error) {
-	task, err := s.lockTask(ctx, tx, in.Task)
+	task, err := s.lockStartable(ctx, tx, in.Task)
 	if err != nil {
 		return Result{}, err
-	}
-	if task.Status == "closed" {
-		return Result{}, ConflictError{Msg: "cannot start a lease on task " + task.Ref + ": it is closed",
-			Next: "Reopen the task first, or start the lease on an open task."}
-	}
-	if task.Status == "done" {
-		return Result{}, ConflictError{Msg: "cannot start a lease on task " + task.Ref + ": it is done",
-			Next: "Run vh task reopen " + task.Ref + " first, or start the lease on an open task."}
 	}
 	now := s.now()
 	actorID, err := audit.UpsertActor(ctx, tx, s.Store.Dialect(), actor, now)
 	if err != nil {
 		return Result{}, err
 	}
-	held, renewing, err := s.liveOf(ctx, tx, task.ID, actorID, now)
+	held, renewing, err := s.liveOfKind(ctx, tx, task, actorID, in.Notice, now)
 	if err != nil {
 		return Result{}, err
 	}
-	if renewing && held.Notice != in.Notice {
-		return Result{}, otherKindHeld(held, task)
+	l, err := s.startOrRenew(ctx, tx, actorID, principal, held, renewing, task, in, resources, now)
+	if err != nil {
+		return Result{}, err
 	}
-	var l Lease
+	return s.result(ctx, tx, l, now, renewing)
+}
+
+// lockStartable locks the task and refuses it when it is closed or done.
+func (s Store) lockStartable(ctx context.Context, tx *sql.Tx, ref string) (taskRow, error) {
+	task, err := s.lockTask(ctx, tx, ref)
+	if err != nil {
+		return taskRow{}, err
+	}
+	return task, startRefusal(task)
+}
+
+// liveOfKind is liveOf, refused when the live lease held is of the other kind than the one asked for.
+func (s Store) liveOfKind(ctx context.Context, tx *sql.Tx, task taskRow, actorID string, notice bool, now time.Time) (Lease, bool, error) {
+	held, renewing, err := s.liveOf(ctx, tx, task.ID, actorID, now)
+	if err != nil {
+		return Lease{}, false, err
+	}
+	if renewing && held.Notice != notice {
+		return Lease{}, false, otherKindHeld(held, task)
+	}
+	return held, renewing, nil
+}
+
+// startRefusal is the conflict a start on a closed or done task is refused with; nil for an open one.
+func startRefusal(task taskRow) error {
+	switch task.Status {
+	case "closed":
+		return ConflictError{Msg: "cannot start a lease on task " + task.Ref + ": it is closed",
+			Next: "Reopen the task first, or start the lease on an open task."}
+	case "done":
+		return ConflictError{Msg: "cannot start a lease on task " + task.Ref + ": it is done",
+			Next: "Run vh task reopen " + task.Ref + " first, or start the lease on an open task."}
+	}
+	return nil
+}
+
+// startOrRenew renews the live lease the actor holds on the task, or inserts a new one.
+func (s Store) startOrRenew(ctx context.Context, tx *sql.Tx, actorID, principal string, held Lease, renewing bool, task taskRow, in Start, resources []string, now time.Time) (Lease, error) {
 	if renewing {
 		r := Renew{TTL: ttlOf(in.TTL), Intent: &in.Intent}
 		if in.Resources != nil {
 			r.Resources = &resources
 		}
-		l, err = s.renew(ctx, tx, actorID, principal, held, r, task, now)
-	} else {
-		var id string
-		if id, err = s.insert(ctx, tx, actorID, principal, task, in, resources, now); err == nil {
-			l, err = s.find(ctx, tx, id)
-		}
+		return s.renew(ctx, tx, actorID, principal, held, r, task, now)
 	}
+	id, err := s.insert(ctx, tx, actorID, principal, task, in, resources, now)
 	if err != nil {
-		return Result{}, err
+		return Lease{}, err
 	}
-	return s.result(ctx, tx, l, now, renewing)
+	return s.find(ctx, tx, id)
 }
 
 // otherKindHeld is the refusal of a start whose kind differs from the live

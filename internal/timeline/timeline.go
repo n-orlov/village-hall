@@ -199,16 +199,23 @@ func (p Prepared) Read(ctx context.Context) (Result, error) {
 	if len(ids.list) == 0 {
 		return out, nil
 	}
-	if out.Initiatives, err = s.initiatives(ctx, ids); err != nil {
-		return Result{}, err
-	}
-	if out.Leases, err = s.leases(ctx, ids, from, to); err != nil {
-		return Result{}, err
-	}
-	if out.Markers, err = s.markers(ctx, ids, from, to); err != nil {
+	if err := s.fill(ctx, &out, ids, from, to); err != nil {
 		return Result{}, err
 	}
 	return out, nil
+}
+
+// fill reads the initiatives, leases and markers of the kept tasks into out.
+func (s Store) fill(ctx context.Context, out *Result, ids idSet, from, to time.Time) error {
+	var err error
+	if out.Initiatives, err = s.initiatives(ctx, ids); err != nil {
+		return err
+	}
+	if out.Leases, err = s.leases(ctx, ids, from, to); err != nil {
+		return err
+	}
+	out.Markers, err = s.markers(ctx, ids, from, to)
+	return err
 }
 
 // filter is the WHERE conditions that pick the tasks of a window, over the

@@ -20,56 +20,77 @@ func (s Store) TagSources(ctx context.Context, status string, tags []string) (ma
 		return nil, err
 	}
 	where := f.where()
-	want := map[string]bool{}
-	for _, tag := range tags {
-		want[strings.ToLower(strings.TrimSpace(tag))] = true
-	}
-	has := map[string]map[string]bool{}
-	note := func(tag, source string) {
-		if len(want) > 0 && !want[tag] {
-			return
-		}
-		if has[tag] == nil {
-			has[tag] = map[string]bool{}
-		}
-		has[tag][source] = true
-	}
-	q := s.Store.ReaderFor(ctx)
+	has := newTagSourceSet(tags)
 	for _, part := range []struct{ source, query string }{
 		{domain.TagSourceTask, `SELECT DISTINCT g.tag FROM task_tags g JOIN tasks t ON t.id = g.task_id` + where},
 		{domain.TagSourceInitiative, `SELECT DISTINCT g.tag FROM initiative_tags g JOIN tasks t ON t.initiative_id = g.initiative_id` + where},
 		{domain.TagSourceActor, `SELECT DISTINCT a.handle FROM leases l JOIN actors a ON a.id = l.actor_id JOIN tasks t ON t.id = l.task_id` + where},
 	} {
-		rows, err := q.QueryContext(ctx, s.Store.Dialect().Rebind(part.query), f.args...)
-		if err != nil {
-			return nil, fmt.Errorf("read tag sources: %w", err)
-		}
-		for rows.Next() {
-			var v string
-			if err := rows.Scan(&v); err != nil {
-				_ = rows.Close()
-				return nil, fmt.Errorf("read tag sources: %w", err)
-			}
-			if part.source == domain.TagSourceActor {
-				if v = domain.ActorKind(v); v == "" {
-					continue
-				}
-			}
-			note(v, part.source)
-		}
-		err = rows.Err()
-		_ = rows.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read tag sources: %w", err)
+		if err := s.readTagSource(ctx, has, part.source, s.Store.Dialect().Rebind(part.query), f.args); err != nil {
+			return nil, err
 		}
 	}
-	out := make(map[string][]string, len(has))
-	for tag, sources := range has {
+	return has.ordered(), nil
+}
+
+// tagSourceSet collects which sources each tag has, keeping only the wanted tags (all when none are given).
+type tagSourceSet struct {
+	want map[string]bool
+	has  map[string]map[string]bool
+}
+
+func newTagSourceSet(tags []string) *tagSourceSet {
+	want := map[string]bool{}
+	for _, tag := range tags {
+		want[strings.ToLower(strings.TrimSpace(tag))] = true
+	}
+	return &tagSourceSet{want: want, has: map[string]map[string]bool{}}
+}
+
+func (t *tagSourceSet) note(tag, source string) {
+	if len(t.want) > 0 && !t.want[tag] {
+		return
+	}
+	if t.has[tag] == nil {
+		t.has[tag] = map[string]bool{}
+	}
+	t.has[tag][source] = true
+}
+
+// ordered lists each tag's sources in domain order (task, initiative, actor).
+func (t *tagSourceSet) ordered() map[string][]string {
+	out := make(map[string][]string, len(t.has))
+	for tag, sources := range t.has {
 		for _, source := range []string{domain.TagSourceTask, domain.TagSourceInitiative, domain.TagSourceActor} {
 			if sources[source] {
 				out[tag] = append(out[tag], source)
 			}
 		}
 	}
-	return out, nil
+	return out
+}
+
+// readTagSource runs one of the three statements and notes each value it returns as a tag with the source.
+func (s Store) readTagSource(ctx context.Context, into *tagSourceSet, source, query string, args []any) error {
+	rows, err := s.Store.ReaderFor(ctx).QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("read tag sources: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return fmt.Errorf("read tag sources: %w", err)
+		}
+		if source == domain.TagSourceActor {
+			if v = domain.ActorKind(v); v == "" {
+				continue
+			}
+		}
+		into.note(v, source)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read tag sources: %w", err)
+	}
+	return nil
 }

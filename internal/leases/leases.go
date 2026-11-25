@@ -272,6 +272,16 @@ func (s Store) conflictsOf(ctx context.Context, q queryer, l Lease, now time.Tim
 		return nil, fmt.Errorf("read conflicts: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
+	live, err := foldConflictRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	return domain.Conflicts(l.Ref, l.Resources, live), nil
+}
+
+// foldConflictRows folds the rows of conflictsOf (one per lease and shared resource, ordered by lease) into one
+// holding per lease with its shared resources.
+func foldConflictRows(rows *sql.Rows) ([]domain.Holding, error) {
 	var live []domain.Holding
 	var last string
 	for rows.Next() {
@@ -290,5 +300,5 @@ func (s Store) conflictsOf(ctx context.Context, q queryer, l Lease, now time.Tim
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read conflicts: %w", err)
 	}
-	return domain.Conflicts(l.Ref, l.Resources, live), nil
+	return live, nil
 }

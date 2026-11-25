@@ -69,16 +69,9 @@ func leaseStart(args []string, stdout, stderr io.Writer, env Env) int {
 	if !ok || len(p.pos) != 2 {
 		return usageLine(stderr, LeaseUsage)
 	}
-	body, err := leaseBody(p)
+	body, err := leaseStartBody(p)
 	if err != nil {
 		return badFlagValue(stderr, err)
-	}
-	body["task"], body["intent"] = p.pos[0], p.pos[1]
-	if p.has("--notice") {
-		body["notice"] = true
-	}
-	if res := p.values["--res"]; len(res) > 0 {
-		body["resources"] = res
 	}
 	c, err := newClient(env)
 	if err != nil {
@@ -91,6 +84,22 @@ func leaseStart(args []string, stdout, stderr io.Writer, env Env) int {
 		return report(stderr, startFailure(err, p.pos[0]))
 	}
 	return printLeaseResults(p, []json.RawMessage{raw}, false, stdout, stderr)
+}
+
+// leaseStartBody is the POST body of `vh lease start`: the task and intent, --ttl, --notice and --res.
+func leaseStartBody(p parsedArgs) (map[string]any, error) {
+	body, err := leaseBody(p)
+	if err != nil {
+		return nil, err
+	}
+	body["task"], body["intent"] = p.pos[0], p.pos[1]
+	if p.has("--notice") {
+		body["notice"] = true
+	}
+	if res := p.values["--res"]; len(res) > 0 {
+		body["resources"] = res
+	}
+	return body, nil
 }
 
 // leaseBody reads --ttl into ttl_seconds.

@@ -79,21 +79,9 @@ func EnqueueStrandedBatch(ctx context.Context, tx *sql.Tx, st *store.Store, list
 	if !st.Notifies(store.NotifyStranded) {
 		return nil
 	}
-	var args []any
-	at := store.EncodeTime(now)
-	for _, s := range list {
-		if !s.Newest {
-			continue
-		}
-		id, err := domain.NewULID(now)
-		if err != nil {
-			return err
-		}
-		payload, err := StrandedPayload(s, st.PublicURL())
-		if err != nil {
-			return err
-		}
-		args = append(args, id, store.NotifyStranded, s.EventID, string(payload), "pending", 0, at, at)
+	args, err := strandedArgs(st, list, now)
+	if err != nil {
+		return err
 	}
 	if err := store.InsertMany(ctx, tx, st.Dialect(), "notifications", columns, args); err != nil {
 		return fmt.Errorf("enqueue %s notifications: %w", store.NotifyStranded, err)
@@ -102,4 +90,26 @@ func EnqueueStrandedBatch(ctx context.Context, tx *sql.Tx, st *store.Store, list
 		st.AfterTxCommit(ctx, tx, st.WakeNotify)
 	}
 	return nil
+}
+
+// strandedArgs is the INSERT arguments of the stranded notification of each event in list whose lease is the
+// newest on its task.
+func strandedArgs(st *store.Store, list []Stranded, now time.Time) ([]any, error) {
+	var args []any
+	at := store.EncodeTime(now)
+	for _, s := range list {
+		if !s.Newest {
+			continue
+		}
+		id, err := domain.NewULID(now)
+		if err != nil {
+			return nil, err
+		}
+		payload, err := StrandedPayload(s, st.PublicURL())
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, id, store.NotifyStranded, s.EventID, string(payload), "pending", 0, at, at)
+	}
+	return args, nil
 }

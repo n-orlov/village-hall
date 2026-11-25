@@ -69,24 +69,12 @@ func (w *Worker) Wake() {
 // once its write has committed. A pass's error goes to report (when set) and never
 // stops Run.
 func (w *Worker) Run(ctx context.Context, report func(error)) {
-	interval, newTicker := w.Interval, w.NewTicker
-	if interval <= 0 {
-		interval = TickInterval
-	}
-	if newTicker == nil {
-		newTicker = func(d time.Duration) (<-chan time.Time, func()) {
-			t := time.NewTicker(d)
-			return t.C, t.Stop
-		}
-	}
-	ticks, stop := newTicker(interval)
+	ticks, stop := w.backstop()
 	defer stop()
 	w.Store.SetNotifyWake(w.Wake)
 	defer w.Store.SetNotifyWake(nil)
 	for {
-		if err := w.Tick(ctx); err != nil && report != nil && ctx.Err() == nil {
-			report(err)
-		}
+		w.pass(ctx, report)
 		select {
 		case <-ctx.Done():
 			return
@@ -94,6 +82,27 @@ func (w *Worker) Run(ctx context.Context, report func(error)) {
 		case <-w.wakeCh():
 		}
 	}
+}
+
+// pass is one delivery pass; its error goes to report (when set) unless the server is shutting down.
+func (w *Worker) pass(ctx context.Context, report func(error)) {
+	if err := w.Tick(ctx); err != nil && report != nil && ctx.Err() == nil {
+		report(err)
+	}
+}
+
+// backstop is the clock of Run's periodic pass: NewTicker (a real ticker when unset) every Interval
+// (TickInterval when unset).
+func (w *Worker) backstop() (<-chan time.Time, func()) {
+	interval := w.Interval
+	if interval <= 0 {
+		interval = TickInterval
+	}
+	if w.NewTicker != nil {
+		return w.NewTicker(interval)
+	}
+	t := time.NewTicker(interval)
+	return t.C, t.Stop
 }
 
 func (w *Worker) now() time.Time {

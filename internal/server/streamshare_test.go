@@ -287,3 +287,25 @@ func sendTick(t *testing.T, r *shareRig) {
 		t.Fatal("the recheck loop did not take the tick")
 	}
 }
+
+func TestAScopedAttentionStreamRechecksItsOwnCountsWhenOnlyTheClockMovesAWatchOverdue(t *testing.T) {
+	t.Parallel()
+	forEachLeg(t, func(t *testing.T, _ string, dbs databases) {
+		r := newShareRig(t, dbs)
+		r.hub.heartbeat = 50 * time.Millisecond // a scoped stream rechecks on its own ticker, which follows the heartbeat
+		r.initiative("aa")
+		cadence := int64(3600)
+		if _, err := r.tasks.Create(context.Background(), shareActorA, "key:watch", tasks.New{Initiative: "aa", Title: "watch the build", Kind: "watch", CadenceSeconds: &cadence}); err != nil {
+			t.Fatal(err)
+		}
+		r.settle()
+		s, connect := r.open(attention.Query{Initiatives: []string{"aa"}})
+		if connect.OverdueWatches != 0 {
+			t.Fatalf("counts on connect = %+v, want no overdue watch yet", connect)
+		}
+		r.clock.Advance(90 * time.Minute)
+		if got, want := counts(t, s.nextMessage()), (AttentionCounts{OverdueWatches: 1, Total: 1}); got != want {
+			t.Errorf("counts of the scoped stream after the clock moved = %+v, want %+v", got, want)
+		}
+	})
+}

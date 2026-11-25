@@ -283,7 +283,7 @@ func (s *liveStream) step() bool {
 	case <-s.r.hub.stop:
 		return false
 	case e, ok := <-s.events:
-		return ok && s.onEvent(e)
+		return s.onFeed(e, ok)
 	case <-s.beat:
 		return s.out.comment("ping")
 	case <-s.recheck:
@@ -291,6 +291,11 @@ func (s *liveStream) step() bool {
 	case counts := <-s.shared:
 		return s.sendRechecked(counts)
 	}
+}
+
+// onFeed handles what the feed subscription yielded: an event, or its end (false).
+func (s *liveStream) onFeed(e events.Event, ok bool) bool {
+	return ok && s.onEvent(e)
 }
 
 // onEvent sends a live event to a stream that asked for events (unless the

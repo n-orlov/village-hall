@@ -147,44 +147,61 @@ func (h *streamHub) recheckLoop() {
 	c := &h.shared
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() {
-		select {
-		case <-h.stop:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
+	go h.cancelOnClose(ctx, cancel)
 	ticks, stopTicks := h.recheckTicks()
 	defer stopTicks()
 	for {
 		select {
 		case <-ctx.Done():
-			c.tickMu.Lock()
-			c.running = false
-			c.tickMu.Unlock()
+			c.stopRunning()
 			return
 		case <-ticks:
 		}
-		c.tickMu.Lock()
-		if len(c.tickers) == 0 {
-			c.running = false
-			c.tickMu.Unlock()
+		if !c.anyTicker() {
+			c.stopRunning()
 			return
 		}
-		c.tickMu.Unlock()
 		counts, err := h.countsFor(ctx, attention.Query{})
 		if err != nil { // the next tick tries again
 			continue
 		}
-		c.tickMu.Lock()
-		for ch := range c.tickers {
-			select {
-			case <-ch:
-			default:
-			}
-			ch <- counts
+		c.deliver(counts)
+	}
+}
+
+// cancelOnClose calls cancel when the hub closes, or returns when ctx ends first.
+func (h *streamHub) cancelOnClose(ctx context.Context, cancel context.CancelFunc) {
+	select {
+	case <-h.stop:
+		cancel()
+	case <-ctx.Done():
+	}
+}
+
+// stopRunning records that the recheck loop has ended, so the next stream to join starts one.
+func (c *countsShare) stopRunning() {
+	c.tickMu.Lock()
+	c.running = false
+	c.tickMu.Unlock()
+}
+
+// anyTicker reports whether a stream is waiting for the recheck.
+func (c *countsShare) anyTicker() bool {
+	c.tickMu.Lock()
+	defer c.tickMu.Unlock()
+	return len(c.tickers) > 0
+}
+
+// deliver hands counts to every stream waiting for the recheck, replacing a pair it has not read yet.
+func (c *countsShare) deliver(counts attention.Counts) {
+	c.tickMu.Lock()
+	defer c.tickMu.Unlock()
+	for ch := range c.tickers {
+		select {
+		case <-ch:
+		default:
 		}
-		c.tickMu.Unlock()
+		ch <- counts
 	}
 }
 
