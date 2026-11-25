@@ -149,10 +149,11 @@ func (s Store) renewEach(ctx context.Context, tx *sql.Tx, actorID string, princi
 		if err != nil {
 			return nil, err
 		}
-		if err := s.renew(ctx, tx, actorID, principal, l.ID, Renew{}, task, now); err != nil {
+		cur, err := s.find(ctx, tx, l.ID)
+		if err != nil {
 			return nil, err
 		}
-		if out[i], err = s.find(ctx, tx, l.ID); err != nil {
+		if out[i], err = s.renew(ctx, tx, actorID, principal, cur, Renew{}, task, now); err != nil {
 			return nil, err
 		}
 	}

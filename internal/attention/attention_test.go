@@ -413,7 +413,8 @@ func hold(n int64, task, resource string) leases.Lease {
 
 func TestConflictsAreOrderedByTheirNewestLeaseThenByResource(t *testing.T) {
 	live := []leases.Lease{hold(1, "t1", "b"), hold(2, "t2", "b"), hold(3, "t3", "a"), hold(4, "t4", "a"), hold(5, "t5", "c"), hold(6, "t6", "c"), hold(7, "t7", "z")}
-	got := contested(live, nil, map[string]string{"ht1": "back"})
+	live[0].WayBack = "back"
+	got := contested(live, nil)
 	var order []string
 	for _, c := range got {
 		order = append(order, c.Resource)
@@ -424,7 +425,7 @@ func TestConflictsAreOrderedByTheirNewestLeaseThenByResource(t *testing.T) {
 	if got[2].Holders[0].Actor != (Actor{Handle: "ht1", WayBack: "back"}) {
 		t.Errorf("holder = %+v, want the way back from the map", got[2].Holders[0])
 	}
-	tie := contested([]leases.Lease{hold(1, "t1", "b"), hold(1, "t2", "b"), hold(1, "t3", "a"), hold(1, "t4", "a")}, nil, nil)
+	tie := contested([]leases.Lease{hold(1, "t1", "b"), hold(1, "t2", "b"), hold(1, "t3", "a"), hold(1, "t4", "a")}, nil)
 	if tie[0].Resource != "a" || tie[1].Resource != "b" {
 		t.Errorf("equal newest leases: %v, %v, want the resource name to break the tie", tie[0].Resource, tie[1].Resource)
 	}

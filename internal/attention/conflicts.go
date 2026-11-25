@@ -22,11 +22,7 @@ func (s Store) conflicts(ctx context.Context, sc scope) ([]Conflict, error) {
 	if err != nil {
 		return nil, err
 	}
-	wayBacks, err := s.wayBacks(ctx, live)
-	if err != nil {
-		return nil, err
-	}
-	return contested(live, kept, wayBacks), nil
+	return contested(live, kept), nil
 }
 
 // conflictCount is how many conflicts the scope keeps, in one statement: the
@@ -54,7 +50,7 @@ func (s Store) conflictCount(ctx context.Context, sc scope, now time.Time) (int,
 
 // contested groups the leases by resource and returns the resources with two or
 // more of them. kept is nil for no scope.
-func contested(live []leases.Lease, kept map[string]bool, wayBacks map[string]string) []Conflict {
+func contested(live []leases.Lease, kept map[string]bool) []Conflict {
 	byResource := map[string][]leases.Lease{}
 	for _, l := range live {
 		for _, r := range l.Resources {
@@ -64,7 +60,7 @@ func contested(live []leases.Lease, kept map[string]bool, wayBacks map[string]st
 	out := []Conflict{}
 	for resource, held := range byResource {
 		if len(held) > 1 && inScope(held, kept) {
-			out = append(out, conflictOf(resource, held, wayBacks))
+			out = append(out, conflictOf(resource, held))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -98,11 +94,11 @@ func newest(held []leases.Lease) int64 {
 }
 
 // conflictOf is the conflict on resource that the leases held hold, in lease-number order.
-func conflictOf(resource string, held []leases.Lease, wayBacks map[string]string) Conflict {
+func conflictOf(resource string, held []leases.Lease) Conflict {
 	c := Conflict{Resource: resource, Holders: []Holder{}, Tasks: []string{}}
 	seen := map[string]bool{}
 	for _, l := range held {
-		c.Holders = append(c.Holders, Holder{Lease: l.Ref, Actor: Actor{Handle: l.Actor, WayBack: wayBacks[l.Actor]},
+		c.Holders = append(c.Holders, Holder{Lease: l.Ref, Actor: Actor{Handle: l.Actor, WayBack: l.WayBack},
 			Task: l.Task, Intent: l.Intent, ExpiresAt: l.ExpiresAt})
 		if l.StartedAt.After(c.Since) {
 			c.Since = l.StartedAt
@@ -135,28 +131,4 @@ func (s Store) keptTasks(ctx context.Context, sc scope) (map[string]bool, error)
 		kept[id] = true
 	}
 	return kept, rows.Err()
-}
-
-// wayBacks maps the handle of each holder of live to the way back on record, in
-// one query however many leases there are, none included.
-func (s Store) wayBacks(ctx context.Context, live []leases.Lease) (map[string]string, error) {
-	out := map[string]string{}
-	ids := make([]string, 0, len(live))
-	for _, l := range live {
-		ids = append(ids, l.ActorID)
-	}
-	rows, err := s.Store.ReaderFor(ctx).QueryContext(ctx, s.Store.Dialect().Rebind(
-		`SELECT handle, COALESCE(way_back, '') FROM actors WHERE id IN (`+s.Store.Dialect().InSet()+`)`), store.TextSet(ids))
-	if err != nil {
-		return nil, fmt.Errorf("read attention actors: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var handle, wayBack string
-		if err := rows.Scan(&handle, &wayBack); err != nil {
-			return nil, fmt.Errorf("read attention actors: %w", err)
-		}
-		out[handle] = wayBack
-	}
-	return out, rows.Err()
 }

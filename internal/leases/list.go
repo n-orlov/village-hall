@@ -168,7 +168,7 @@ func (s Store) readLeases(ctx context.Context, query string, args []any) ([]Leas
 		return nil, err
 	}
 	// Resources are read after the cursor is closed: the reader may be one connection.
-	if err := s.attachResources(ctx, out); err != nil {
+	if err := s.attachResources(ctx, s.Store.ReaderFor(ctx), out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -176,8 +176,8 @@ func (s Store) readLeases(ctx context.Context, query string, args []any) ([]Leas
 
 // attachResources sets the Resources of every lease in list, each sorted, in one
 // query however many leases there are, none included.
-func (s Store) attachResources(ctx context.Context, list []Lease) error {
-	by, err := s.resourcesOfAll(ctx, list)
+func (s Store) attachResources(ctx context.Context, q queryer, list []Lease) error {
+	by, err := s.resourcesOfAll(ctx, q, list)
 	if err != nil {
 		return err
 	}
@@ -191,12 +191,12 @@ func (s Store) attachResources(ctx context.Context, list []Lease) error {
 }
 
 // resourcesOfAll reads the resources of the leases in one query, by lease id.
-func (s Store) resourcesOfAll(ctx context.Context, list []Lease) (map[string][]string, error) {
+func (s Store) resourcesOfAll(ctx context.Context, q queryer, list []Lease) (map[string][]string, error) {
 	ids := make([]string, len(list))
 	for i, l := range list {
 		ids[i] = l.ID
 	}
-	rows, err := s.Store.ReaderFor(ctx).QueryContext(ctx, s.Store.Dialect().Rebind(
+	rows, err := q.QueryContext(ctx, s.Store.Dialect().Rebind(
 		`SELECT lease_id, resource FROM lease_resources WHERE lease_id IN (`+s.Store.Dialect().InSet()+`) ORDER BY lease_id, resource`), store.TextSet(ids))
 	if err != nil {
 		return nil, fmt.Errorf("read lease resources: %w", err)

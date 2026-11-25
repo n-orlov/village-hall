@@ -1174,3 +1174,55 @@ func TestExpiryOfManyLeasesWritesOneEventEachInOrderAsTheirHoldersWithTheirOrigi
 		t.Errorf("a lease not due is %s", got.State)
 	}
 }
+
+func TestStartListsEachContestingLeaseOnceWithOnlyTheResourcesItSharesInOrder(t *testing.T) {
+	e := newEnv(t)
+	cy := audit.Actor{Handle: "cy@host"}
+	e.start(t, bob, "aa-2", nil, "d", "c", "b", "x")
+	e.start(t, cy, "aa-2", nil, "z", "b", "a")
+	r := e.start(t, me, "aa-1", nil, "a", "b", "c", "q")
+	got := map[string][]string{}
+	for _, c := range r.Conflicts {
+		got[c.Holder] = append(got[c.Holder], c.Resources...)
+	}
+	want := map[string][]string{"codex@host": {"b", "c"}, "cy@host": {"a", "b"}}
+	if len(r.Conflicts) != 2 || !reflect.DeepEqual(got, want) {
+		t.Errorf("conflicts = %+v, want one per holder carrying %v", r.Conflicts, want)
+	}
+}
+
+func TestALeaseReadCarriesTheHoldersWayBack(t *testing.T) {
+	e := newEnv(t)
+	holder := audit.Actor{Handle: "codex@host", WayBack: "tmux 7"}
+	l := e.start(t, holder, "aa-2", nil, "r").Lease
+	for name, got := range map[string]leases.Lease{"start": l, "Get": mustGet(t, e, l.Ref)} {
+		if got.WayBack != "tmux 7" {
+			t.Errorf("%s: WayBack = %q, want the holder's", name, got.WayBack)
+		}
+	}
+	live, err := e.S.Live(ctx)
+	if err != nil || len(live) != 1 || live[0].WayBack != "tmux 7" {
+		t.Errorf("Live = %+v, %v, want the holder's way back", live, err)
+	}
+	if got := e.start(t, me, "aa-1", nil).Lease; got.WayBack != "" {
+		t.Errorf("a holder with no way back reads %q", got.WayBack)
+	}
+}
+
+func TestARenewalAnswersTheLeaseAsAFreshReadShowsIt(t *testing.T) {
+	e := newEnv(t)
+	l := e.start(t, me, "aa-1", nil, "b", "a").Lease
+	e.Clock.add(time.Minute)
+	res := []string{"z", "y"}
+	r, err := e.S.Renew(ctx, me, "key:x", l.Ref, leases.Renew{TTL: secs(900), Intent: new("new intent"), Resources: &res})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh := mustGet(t, e, l.Ref); !reflect.DeepEqual(r.Lease, fresh) {
+		t.Errorf("renewal answered %+v, a fresh read shows %+v", r.Lease, fresh)
+	}
+	kept, err := e.S.Renew(ctx, me, "key:x", l.Ref, leases.Renew{})
+	if err != nil || !reflect.DeepEqual(kept.Lease.Resources, []string{"y", "z"}) || !reflect.DeepEqual(kept.Lease, mustGet(t, e, l.Ref)) {
+		t.Errorf("renewal keeping the resources answered %+v, %v", kept.Lease, err)
+	}
+}

@@ -166,28 +166,27 @@ func (s Store) start(ctx context.Context, tx *sql.Tx, actor audit.Actor, princip
 	if err != nil {
 		return Result{}, err
 	}
-	held, err := s.liveOf(ctx, tx, task.ID, actorID, now)
+	held, renewing, err := s.liveOf(ctx, tx, task.ID, actorID, now)
 	if err != nil {
 		return Result{}, err
 	}
-	id, err := s.startOrRenew(ctx, tx, actorID, principal, held, task, in, resources, now)
+	var l Lease
+	if renewing {
+		r := Renew{TTL: ttlOf(in.TTL), Intent: &in.Intent}
+		if in.Resources != nil {
+			r.Resources = &resources
+		}
+		l, err = s.renew(ctx, tx, actorID, principal, held, r, task, now)
+	} else {
+		var id string
+		if id, err = s.insert(ctx, tx, actorID, principal, task, in, resources, now); err == nil {
+			l, err = s.find(ctx, tx, id)
+		}
+	}
 	if err != nil {
 		return Result{}, err
 	}
-	return s.result(ctx, tx, id, now, held != "")
-}
-
-// startOrRenew renews the lease held (when it names one) with the request, or
-// inserts a new lease, and returns the lease's id.
-func (s Store) startOrRenew(ctx context.Context, tx *sql.Tx, actorID, principal, held string, task taskRow, in Start, resources []string, now time.Time) (string, error) {
-	if held == "" {
-		return s.insert(ctx, tx, actorID, principal, task, in, resources, now)
-	}
-	r := Renew{TTL: ttlOf(in.TTL), Intent: &in.Intent}
-	if in.Resources != nil {
-		r.Resources = &resources
-	}
-	return held, s.renew(ctx, tx, actorID, principal, held, r, task, now)
+	return s.result(ctx, tx, l, now, renewing)
 }
 
 // ttlOf is the ttl a start asks for: the default when none was sent.
@@ -196,27 +195,25 @@ func ttlOf(requested *int64) *int64 {
 	return &v
 }
 
-// liveOf returns the id of the live, unexpired lease the actor holds on the
-// task, or "".
-func (s Store) liveOf(ctx context.Context, tx *sql.Tx, taskID, actorID string, now time.Time) (string, error) {
-	var id string
-	err := tx.QueryRowContext(ctx, s.Store.Dialect().Rebind(`SELECT id FROM leases WHERE task_id = ? AND actor_id = ?
-		AND state = 'live' AND expires_at >= ?`), taskID, actorID, store.EncodeBound(now)).Scan(&id)
+// liveOf returns the live, unexpired lease the actor holds on the task, with its
+// resources, and whether there is one.
+func (s Store) liveOf(ctx context.Context, tx *sql.Tx, taskID, actorID string, now time.Time) (Lease, bool, error) {
+	l, err := scan(tx.QueryRowContext(ctx, s.Store.Dialect().Rebind(selectLease+` WHERE l.task_id = ? AND l.actor_id = ?
+		AND l.state = 'live' AND l.expires_at >= ?`), taskID, actorID, store.EncodeBound(now)))
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return Lease{}, false, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("read lease: %w", err)
+		return Lease{}, false, fmt.Errorf("read lease: %w", err)
 	}
-	return id, nil
+	if l.Resources, err = s.resourcesOf(ctx, tx, l.ID); err != nil {
+		return Lease{}, false, err
+	}
+	return l, true, nil
 }
 
-// result reads the lease id with its conflicts.
-func (s Store) result(ctx context.Context, tx *sql.Tx, id string, now time.Time, renewed bool) (Result, error) {
-	l, err := s.find(ctx, tx, id)
-	if err != nil {
-		return Result{}, err
-	}
+// result is the lease l, as the write left it, with its conflicts.
+func (s Store) result(ctx context.Context, tx *sql.Tx, l Lease, now time.Time, renewed bool) (Result, error) {
 	c, err := s.conflictsOf(ctx, tx, l, now)
 	return Result{Lease: l, Conflicts: c, Renewed: renewed}, err
 }
@@ -237,7 +234,7 @@ func (s Store) insert(ctx context.Context, tx *sql.Tx, actorID, principal string
 	if err != nil {
 		return "", fmt.Errorf("start lease: %w", err)
 	}
-	if err := s.setResources(ctx, tx, id, resources); err != nil {
+	if err := s.insertResources(ctx, tx, id, resources); err != nil {
 		return "", err
 	}
 	ref := domain.FormatLeaseRef(n)
@@ -251,14 +248,24 @@ func (s Store) insert(ctx context.Context, tx *sql.Tx, actorID, principal string
 
 // setResources replaces the resources the lease holds.
 func (s Store) setResources(ctx context.Context, tx *sql.Tx, id string, resources []string) error {
-	d := s.Store.Dialect()
-	if _, err := tx.ExecContext(ctx, d.Rebind(`DELETE FROM lease_resources WHERE lease_id = ?`), id); err != nil {
+	if _, err := tx.ExecContext(ctx, s.Store.Dialect().Rebind(`DELETE FROM lease_resources WHERE lease_id = ?`), id); err != nil {
 		return fmt.Errorf("set lease resources: %w", err)
 	}
+	return s.insertResources(ctx, tx, id, resources)
+}
+
+// insertResources adds the resources to the lease id in one statement, however
+// many there are; a lease with none writes no statement.
+func (s Store) insertResources(ctx context.Context, tx *sql.Tx, id string, resources []string) error {
+	if len(resources) == 0 {
+		return nil
+	}
+	args := make([]any, 0, 2*len(resources))
 	for _, r := range resources {
-		if _, err := tx.ExecContext(ctx, d.Rebind(d.Insert("lease_resources", []string{"lease_id", "resource"})), id, r); err != nil {
-			return fmt.Errorf("set lease resources: %w", err)
-		}
+		args = append(args, id, r)
+	}
+	if err := store.InsertMany(ctx, tx, s.Store.Dialect(), "lease_resources", []string{"lease_id", "resource"}, args); err != nil {
+		return fmt.Errorf("set lease resources: %w", err)
 	}
 	return nil
 }
@@ -309,17 +316,18 @@ func normalizeRenew(in Renew) (Renew, error) {
 }
 
 func (s Store) renewRef(ctx context.Context, tx *sql.Tx, actor audit.Actor, principal, ref string, in Renew) (Result, error) {
-	cur, err := s.find(ctx, tx, ref)
+	first, err := s.findRow(ctx, tx, ref)
 	if err != nil {
 		return Result{}, err
 	}
 	// the task is locked before the lease is judged, so a done or close that
 	// ends the lease first is seen, not renewed over
-	task, err := s.lockTask(ctx, tx, cur.TaskID)
+	task, err := s.lockTask(ctx, tx, first.TaskID)
 	if err != nil {
 		return Result{}, err
 	}
-	if cur, err = s.find(ctx, tx, ref); err != nil {
+	cur, err := s.find(ctx, tx, ref)
+	if err != nil {
 		return Result{}, err
 	}
 	now := s.now()
@@ -330,10 +338,11 @@ func (s Store) renewRef(ctx context.Context, tx *sql.Tx, actor audit.Actor, prin
 	if err != nil {
 		return Result{}, err
 	}
-	if err := s.renew(ctx, tx, actorID, principal, cur.ID, in, task, now); err != nil {
+	renewed, err := s.renew(ctx, tx, actorID, principal, cur, in, task, now)
+	if err != nil {
 		return Result{}, err
 	}
-	return s.result(ctx, tx, cur.ID, now, false)
+	return s.result(ctx, tx, renewed, now, false)
 }
 
 // renewable returns nil for a live lease, a GoneError for an expired one and a
@@ -349,12 +358,9 @@ func renewable(l Lease, now time.Time) error {
 }
 
 // renew writes the new expiry (and the optional intent and resources) of the
-// lease id and its lease_renewed event.
-func (s Store) renew(ctx context.Context, tx *sql.Tx, actorID, principal, id string, in Renew, task taskRow, now time.Time) error {
-	cur, err := s.find(ctx, tx, id)
-	if err != nil {
-		return err
-	}
+// lease cur, which the caller has just read with its resources, and its
+// lease_renewed event. It returns cur as the write leaves it, so no read follows.
+func (s Store) renew(ctx context.Context, tx *sql.Tx, actorID, principal string, cur Lease, in Renew, task taskRow, now time.Time) (Lease, error) {
 	ttl := cur.TTLSeconds
 	if in.TTL != nil {
 		ttl = *in.TTL
@@ -363,24 +369,30 @@ func (s Store) renew(ctx context.Context, tx *sql.Tx, actorID, principal, id str
 	if in.Intent != nil {
 		intent = *in.Intent
 	}
-	expires := now.Add(time.Duration(ttl) * time.Second)
-	d := s.Store.Dialect()
-	_, err = tx.ExecContext(ctx, d.Rebind(`UPDATE leases SET ttl_seconds = ?, intent = ?, renewed_at = ?, expires_at = ? WHERE id = ?`),
-		ttl, intent, store.EncodeTime(now), store.EncodeTime(expires), id)
-	if err != nil {
-		return fmt.Errorf("renew lease: %w", err)
-	}
 	resources := cur.Resources
+	renewedAt, expiresAt := store.EncodeTime(now), store.EncodeTime(now.Add(time.Duration(ttl)*time.Second))
+	d := s.Store.Dialect()
+	_, err := tx.ExecContext(ctx, d.Rebind(`UPDATE leases SET ttl_seconds = ?, intent = ?, renewed_at = ?, expires_at = ? WHERE id = ?`),
+		ttl, intent, renewedAt, expiresAt, cur.ID)
+	if err != nil {
+		return Lease{}, fmt.Errorf("renew lease: %w", err)
+	}
 	if in.Resources != nil {
+		if err := s.setResources(ctx, tx, cur.ID, *in.Resources); err != nil {
+			return Lease{}, err
+		}
 		resources = *in.Resources
-		if err := s.setResources(ctx, tx, id, resources); err != nil {
-			return err
+		// the database's order is the one a read shows, so ask it
+		if cur.Resources, err = s.resourcesOf(ctx, tx, cur.ID); err != nil {
+			return Lease{}, err
 		}
 	}
-	return audit.AppendAs(ctx, tx, d, actorID, now, audit.Event{
-		Principal: principal, Type: EventRenewed, InitiativeID: task.InitiativeID, TaskID: task.ID, RefID: id,
+	cur.TTLSeconds, cur.Intent = ttl, intent
+	cur.RenewedAt, cur.ExpiresAt = store.DecodeTime(renewedAt), store.DecodeTime(expiresAt)
+	return cur, audit.AppendAs(ctx, tx, d, actorID, now, audit.Event{
+		Principal: principal, Type: EventRenewed, InitiativeID: task.InitiativeID, TaskID: task.ID, RefID: cur.ID,
 		Summary: cur.Ref + " renewed on " + task.Ref,
 		Data: map[string]any{"ref": cur.Ref, "task": task.Ref, "intent": intent, "ttl_seconds": ttl,
-			"expires_at": store.DecodeTime(store.EncodeTime(expires)).Format(time.RFC3339Nano), "resources": resources},
+			"expires_at": cur.ExpiresAt.Format(time.RFC3339Nano), "resources": resources},
 	})
 }

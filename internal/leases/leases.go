@@ -89,6 +89,9 @@ type Lease struct {
 	AckedAt    *time.Time
 	AckedBy    string
 	Resources  []string
+	// WayBack is the way back on record for the holder when the lease was read,
+	// empty for none.
+	WayBack string
 }
 
 // Holding is the lease as the conflict computation sees it.
@@ -116,10 +119,16 @@ func (s Store) now() time.Time {
 	return time.Now().UTC()
 }
 
-const selectLease = `SELECT l.n, l.id, l.task_id, i.slug, t.seq, a.handle, l.actor_id, l.intent, l.ttl_seconds,
-	l.started_at, l.renewed_at, l.expires_at, l.state, l.ended_at, eb.handle, l.outcome, l.acked_at, ab.handle, t.title
-	FROM leases l JOIN tasks t ON t.id = l.task_id JOIN initiatives i ON i.id = t.initiative_id
+// leaseColumns are the columns of a lease read, in the order scan takes them.
+const leaseColumns = `l.n, l.id, l.task_id, i.slug, t.seq, a.handle, l.actor_id, l.intent, l.ttl_seconds,
+	l.started_at, l.renewed_at, l.expires_at, l.state, l.ended_at, eb.handle, l.outcome, l.acked_at, ab.handle, t.title,
+	COALESCE(a.way_back, '')`
+
+// leaseFrom is what leaseColumns read from.
+const leaseFrom = ` FROM leases l JOIN tasks t ON t.id = l.task_id JOIN initiatives i ON i.id = t.initiative_id
 	JOIN actors a ON a.id = l.actor_id LEFT JOIN actors eb ON eb.id = l.ended_by LEFT JOIN actors ab ON ab.id = l.acked_by`
+
+const selectLease = `SELECT ` + leaseColumns + leaseFrom
 
 // rowScanner is the part of *sql.Row and *sql.Rows that scans.
 type rowScanner interface{ Scan(dest ...any) error }
@@ -130,7 +139,10 @@ type queryer interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
-func scan(r rowScanner) (Lease, error) {
+func scan(r rowScanner) (Lease, error) { return scanWith(r) }
+
+// scanWith scans a lease read and then the extra columns the query adds after it.
+func scanWith(r rowScanner, extra ...any) (Lease, error) {
 	var (
 		l                       Lease
 		slug                    string
@@ -139,8 +151,8 @@ func scan(r rowScanner) (Lease, error) {
 		ended, acked            sql.NullInt64
 		endedBy, outcome, ackBy sql.NullString
 	)
-	err := r.Scan(&l.N, &l.ID, &l.TaskID, &slug, &seq, &l.Actor, &l.ActorID, &l.Intent, &l.TTLSeconds,
-		&started, &renewed, &exp, &l.State, &ended, &endedBy, &outcome, &acked, &ackBy, &l.Title)
+	err := r.Scan(append([]any{&l.N, &l.ID, &l.TaskID, &slug, &seq, &l.Actor, &l.ActorID, &l.Intent, &l.TTLSeconds,
+		&started, &renewed, &exp, &l.State, &ended, &endedBy, &outcome, &acked, &ackBy, &l.Title, &l.WayBack}, extra...)...)
 	if err != nil {
 		return Lease{}, err
 	}
@@ -177,8 +189,9 @@ func (s Store) resourcesOf(ctx context.Context, q queryer, id string) ([]string,
 	return out, rows.Err()
 }
 
-// find reads the lease a ref (L<n>, either case, or its ULID) names through q.
-func (s Store) find(ctx context.Context, q queryer, ref string) (Lease, error) {
+// findRow reads the lease a ref (L<n>, either case, or its ULID) names through q,
+// without its resources.
+func (s Store) findRow(ctx context.Context, q queryer, ref string) (Lease, error) {
 	where, arg := ` WHERE l.n = ?`, any(nil)
 	if n, ok := domain.ParseLeaseRef(ref); ok {
 		arg = n
@@ -193,6 +206,16 @@ func (s Store) find(ctx context.Context, q queryer, ref string) (Lease, error) {
 		return Lease{}, fmt.Errorf("%w: lease %s", ErrNotFound, ref)
 	case err != nil:
 		return Lease{}, fmt.Errorf("read lease: %w", err)
+	}
+	return l, nil
+}
+
+// find reads the lease a ref (L<n>, either case, or its ULID) names through q,
+// with its resources.
+func (s Store) find(ctx context.Context, q queryer, ref string) (Lease, error) {
+	l, err := s.findRow(ctx, q, ref)
+	if err != nil {
+		return Lease{}, err
 	}
 	l.Resources, err = s.resourcesOf(ctx, q, l.ID)
 	return l, err
@@ -230,47 +253,38 @@ func (s Store) inTx(ctx context.Context, f func(*sql.Tx) error) error {
 }
 
 // conflictsOf lists the live leases of others that share a resource with l, each
-// with only the shared resources. An expired lease never conflicts.
+// with only the shared resources. An expired lease never conflicts. It is one
+// statement however many leases contest l: the leases and the shared resources
+// come back together, one row per lease and shared resource.
 func (s Store) conflictsOf(ctx context.Context, q queryer, l Lease, now time.Time) ([]domain.Holding, error) {
-	ids, err := s.sharing(ctx, q, l, now)
-	if err != nil {
-		return nil, err
-	}
-	live := make([]domain.Holding, 0, len(ids))
-	for _, id := range ids {
-		other, err := s.find(ctx, q, id)
-		if err != nil {
-			return nil, err
-		}
-		live = append(live, other.Holding())
-	}
-	return domain.Conflicts(l.Ref, l.Resources, live), nil
-}
-
-// sharing lists the ids of the live, unexpired leases other than l that hold
-// one of l's resources.
-func (s Store) sharing(ctx context.Context, q queryer, l Lease, now time.Time) ([]string, error) {
 	if len(l.Resources) == 0 {
-		return nil, nil
+		return []domain.Holding{}, nil
 	}
-	marks := strings.TrimSuffix(strings.Repeat("?, ", len(l.Resources)), ", ")
-	args := []any{store.EncodeBound(now), l.ID}
-	for _, r := range l.Resources {
-		args = append(args, r)
-	}
-	rows, err := q.QueryContext(ctx, s.Store.Dialect().Rebind(`SELECT DISTINCT r.lease_id FROM lease_resources r JOIN leases l ON l.id = r.lease_id
-		WHERE l.state = 'live' AND l.expires_at >= ? AND l.id <> ? AND r.resource IN (`+marks+`) ORDER BY r.lease_id`), args...)
+	d := s.Store.Dialect()
+	rows, err := q.QueryContext(ctx, d.Rebind(`SELECT `+leaseColumns+`, r.resource`+leaseFrom+` JOIN lease_resources r ON r.lease_id = l.id
+		WHERE l.state = 'live' AND l.expires_at >= ? AND l.id <> ? AND r.resource IN (`+d.InSet()+`) ORDER BY l.id, r.resource`),
+		store.EncodeBound(now), l.ID, store.TextSet(l.Resources))
 	if err != nil {
 		return nil, fmt.Errorf("read conflicts: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var ids []string
+	var live []domain.Holding
+	var last string
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var resource string
+		other, err := scanWith(rows, &resource)
+		if err != nil {
 			return nil, fmt.Errorf("read conflicts: %w", err)
 		}
-		ids = append(ids, id)
+		if other.ID == last {
+			live[len(live)-1].Resources = append(live[len(live)-1].Resources, resource)
+			continue
+		}
+		other.Resources, last = []string{resource}, other.ID
+		live = append(live, other.Holding())
 	}
-	return ids, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read conflicts: %w", err)
+	}
+	return domain.Conflicts(l.Ref, l.Resources, live), nil
 }
