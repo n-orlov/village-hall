@@ -1894,8 +1894,11 @@ type Lease struct {
 	ExpiresAt time.Time `json:"expires_at"`
 
 	// Id The lease's ULID.
-	Id      string  `json:"id"`
-	Intent  string  `json:"intent"`
+	Id     string `json:"id"`
+	Intent string `json:"intent"`
+
+	// Notice True for a notice lease, a broadcast that every agent and view sees until it ends or expires; false for an ordinary lease.
+	Notice  bool    `json:"notice"`
 	Outcome *string `json:"outcome,omitempty"`
 
 	// Ref The short ref, `L<n>`.
@@ -1968,6 +1971,9 @@ type LeaseResult struct {
 type LeaseStart struct {
 	// Intent One line on what the actor is doing, 1 to 200 characters.
 	Intent string `json:"intent"`
+
+	// Notice True to start a notice lease, a broadcast every agent and view sees, instead of an ordinary one. When the caller already holds a live lease of the same kind on the task it is renewed; a live lease of the other kind is 409 naming it, with a `next` to end it first.
+	Notice *bool `json:"notice,omitempty"`
 
 	// Resources At most 20 strings of 1 to 100 characters, repeats dropped.
 	Resources *[]string `json:"resources,omitempty"`
@@ -2187,8 +2193,11 @@ type NowLease struct {
 	ExpiresAt time.Time `json:"expires_at"`
 
 	// Id The lease's ULID.
-	Id      string  `json:"id"`
-	Intent  string  `json:"intent"`
+	Id     string `json:"id"`
+	Intent string `json:"intent"`
+
+	// Notice True for a notice lease, a broadcast that every agent and view sees until it ends or expires; false for an ordinary lease.
+	Notice  bool    `json:"notice"`
 	Outcome *string `json:"outcome,omitempty"`
 
 	// Ref The short ref, `L<n>`.
@@ -2335,6 +2344,9 @@ type StartRequest struct {
 
 	// NewTask The task a start creates and starts on.
 	NewTask *StartNewTask `json:"new_task,omitempty"`
+
+	// Notice True to start a notice lease, a broadcast every agent and view sees, instead of an ordinary one. When the caller already holds a live lease of the same kind on the task it is renewed; a live lease of the other kind is 409 naming it, with a `next` to end it first.
+	Notice *bool `json:"notice,omitempty"`
 
 	// Resources At most 20 strings of 1 to 100 characters, repeats dropped.
 	Resources *[]string `json:"resources,omitempty"`

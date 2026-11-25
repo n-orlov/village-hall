@@ -110,7 +110,7 @@ func apiLease(l leases.Lease) Lease {
 		Id: l.ID, Ref: l.Ref, Task: l.Task, Actor: l.Actor, Intent: l.Intent, TtlSeconds: l.TTLSeconds,
 		StartedAt: l.StartedAt, RenewedAt: l.RenewedAt, ExpiresAt: l.ExpiresAt, State: LeaseState(l.State),
 		Resources: l.Resources, EndedAt: l.EndedAt, EndedBy: optionalText(l.EndedBy), Outcome: optionalText(l.Outcome),
-		AckedAt: l.AckedAt, AckedBy: optionalText(l.AckedBy),
+		AckedAt: l.AckedAt, AckedBy: optionalText(l.AckedBy), Notice: l.Notice,
 	}
 	if out.Resources == nil {
 		out.Resources = []string{}

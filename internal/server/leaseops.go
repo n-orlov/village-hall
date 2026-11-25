@@ -95,6 +95,11 @@ func apiConflict(h domain.Holding) LeaseConflict {
 	return LeaseConflict{Lease: h.Lease, Holder: h.Holder, Task: h.Task, Intent: h.Intent, ExpiresAt: h.ExpiresAt, Resources: res}
 }
 
+// isSet is an optional boolean, false when it was not sent.
+func isSet(b *bool) bool {
+	return b != nil && *b
+}
+
 func resourcesOf(r *[]string) []string {
 	if r == nil {
 		return nil
@@ -113,7 +118,7 @@ func (o leaseOps) StartLease(ctx context.Context, req StartLeaseRequestObject) (
 	}
 	b := req.Body
 	res, err := o.leases.Start(ctx, who.AuditActor(), who.Principal,
-		leases.Start{Task: b.Task, Intent: b.Intent, TTL: b.TtlSeconds, Resources: resourcesOf(b.Resources)})
+		leases.Start{Task: b.Task, Intent: b.Intent, TTL: b.TtlSeconds, Resources: resourcesOf(b.Resources), Notice: isSet(b.Notice)})
 	if err != nil {
 		return leaseResult[StartLeaseResponseObject](err)
 	}

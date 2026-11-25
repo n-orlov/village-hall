@@ -45,7 +45,7 @@ var (
 		{"--since", true}, {"--task", true}, {"--initiative", true}, {"--type", true}, {"--actor", true},
 		{"--limit", true}, {"--all", false}, {"--json", false},
 	}
-	leaseStartFlags = []flagSpec{{"--ttl", true}, {"--res", true}, {"--json", false}}
+	leaseStartFlags = []flagSpec{{"--ttl", true}, {"--res", true}, {"--notice", false}, {"--json", false}}
 	leaseRenewFlags = []flagSpec{{"--ttl", true}, {"--intent", true}, {"--json", false}}
 	leaseEndFlags   = []flagSpec{{"--json", false}}
 	leaseLsFlags    = []flagSpec{

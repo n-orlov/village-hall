@@ -28,6 +28,7 @@ function lease(ref: string, task: string, actor: string, resources: string[], ex
     renewed_at: at(-60),
     expires_at: at(2460),
     state: 'live',
+    notice: false,
     resources,
     ...extra,
   };

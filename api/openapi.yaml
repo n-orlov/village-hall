@@ -1600,7 +1600,9 @@ paths:
         1 to 100 characters, repeats dropped. A closed task is 409 and an unknown task 404. When the caller already
         holds a live lease on the task, that lease is renewed instead (same lease, 200, `lease_renewed`); otherwise the
         answer is 201 and the event `lease_started`. `conflicts` lists the live leases of others that hold one of the
-        same resources, each with only the shared resources.
+        same resources, each with only the shared resources. `notice` (default false) starts a notice lease instead of an
+        ordinary one; the caller already holding a live lease of the other kind on the task is 409 naming that lease
+        and saying to `end L<n> first`.
       security:
         - bearerAuth: []
         - cookieAuth: []
@@ -2348,7 +2350,9 @@ paths:
         already held a live lease on the task and it was renewed. A live lease of another actor that holds one of the
         resources is not a refusal: the lease is written and `conflicts` lists it. A done or closed task, and a
         `new_task` in a closed initiative, are 409 with nothing written. An unknown task or initiative is 404, and a
-        request with both or neither of `task` and `new_task` is 400.
+        request with both or neither of `task` and `new_task` is 400. `notice` (default false) starts a notice lease, as
+        for `POST /api/v1/leases`; a live lease of the other kind held by the caller on the task is 409 naming it, with
+        nothing written.
       security:
         - bearerAuth: []
         - cookieAuth: []
@@ -3306,7 +3310,7 @@ components:
     Lease:
       type: object
       description: A lease on a task, with its resources.
-      required: [id, ref, task, actor, intent, ttl_seconds, started_at, renewed_at, expires_at, state, resources]
+      required: [id, ref, task, actor, intent, ttl_seconds, started_at, renewed_at, expires_at, state, resources, notice]
       properties:
         id:
           type: string
@@ -3355,6 +3359,11 @@ components:
           format: date-time
         acked_by:
           type: string
+        notice:
+          type: boolean
+          description: >-
+            True for a notice lease, a broadcast that every agent and view sees until it ends or expires; false for
+            an ordinary lease.
     Task:
       type: object
       description: A task. `active`, `blocked` and `overdue` are derived. `tags` are the task's own tags.
@@ -3748,6 +3757,13 @@ components:
           description: At most 20 strings of 1 to 100 characters, repeats dropped.
           items:
             type: string
+        notice:
+          type: boolean
+          default: false
+          description: >-
+            True to start a notice lease, a broadcast every agent and view sees, instead of an ordinary one. When the
+            caller already holds a live lease of the same kind on the task it is renewed; a live lease of the other
+            kind is 409 naming it, with a `next` to end it first.
     LeaseRenew:
       type: object
       description: What to change on a renewal. A field left out keeps its value.
@@ -3844,6 +3860,13 @@ components:
           description: At most 20 strings of 1 to 100 characters, repeats dropped.
           items:
             type: string
+        notice:
+          type: boolean
+          default: false
+          description: >-
+            True to start a notice lease, a broadcast every agent and view sees, instead of an ordinary one. When the
+            caller already holds a live lease of the same kind on the task it is renewed; a live lease of the other
+            kind is 409 naming it, with a `next` to end it first.
     StartResult:
       type: object
       description: >-

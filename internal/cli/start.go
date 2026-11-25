@@ -8,13 +8,13 @@ import (
 )
 
 // StartUsage is the single stderr line for a malformed `vh start`.
-const StartUsage = "usage: vh start <task> \"<intent>\" [--res r]... [--ttl D] [--json]"
+const StartUsage = "usage: vh start <task> \"<intent>\" [--res r]... [--ttl D] [--notice] [--json]"
 
 // NewUsage is the single stderr line for a malformed `vh new`.
 const NewUsage = "usage: vh new <initiative> \"<title>\" --start \"<intent>\" [--tag t]... [--res r]... [--ttl D] [--json]"
 
 var (
-	startFlags = []flagSpec{{"--res", true}, {"--ttl", true}, {"--json", false}}
+	startFlags = []flagSpec{{"--res", true}, {"--ttl", true}, {"--notice", false}, {"--json", false}}
 	newFlags   = []flagSpec{{"--start", true}, {"--tag", true}, {"--res", true}, {"--ttl", true}, {"--json", false}}
 )
 
@@ -43,6 +43,9 @@ func startCmd(args []string, stdout, stderr io.Writer, env Env) int {
 		return badFlagValue(stderr, err)
 	}
 	body["task"], body["intent"] = p.pos[0], p.pos[1]
+	if p.has("--notice") {
+		body["notice"] = true
+	}
 	return postStart(p, body, func(err error) error { return startFailure(err, p.pos[0]) }, stdout, stderr, env)
 }
 

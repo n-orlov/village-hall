@@ -88,10 +88,10 @@ Feature: Starting work from the command line, vh start
 
     Examples:
       | command                          | line                                                                                 |
-      | vh start                         | usage: vh start <task> "<intent>" [--res r]... [--ttl D] [--json]                    |
-      | vh start aa-1                    | usage: vh start <task> "<intent>" [--res r]... [--ttl D] [--json]                    |
-      | vh start aa-1 x extra            | usage: vh start <task> "<intent>" [--res r]... [--ttl D] [--json]                    |
-      | vh start aa-1 x --start y        | usage: vh start <task> "<intent>" [--res r]... [--ttl D] [--json]                    |
+      | vh start                         | usage: vh start <task> "<intent>" [--res r]... [--ttl D] [--notice] [--json]          |
+      | vh start aa-1                    | usage: vh start <task> "<intent>" [--res r]... [--ttl D] [--notice] [--json]          |
+      | vh start aa-1 x extra            | usage: vh start <task> "<intent>" [--res r]... [--ttl D] [--notice] [--json]          |
+      | vh start aa-1 x --start y        | usage: vh start <task> "<intent>" [--res r]... [--ttl D] [--notice] [--json]          |
       | vh start aa-1 x --ttl 2          | invalid duration "2": want a whole number and a unit s, m, h or d, such as 90m       |
 
   Scenario: a server with a newer protocol than the binary makes start print the update hint and keeps exit 0

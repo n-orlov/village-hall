@@ -1383,12 +1383,14 @@ it runs without a store. The rules are those of `internal/leases` (§4.4). The s
 background runs every `VH_SWEEP_INTERVAL` (§5.1, §13); every operation here also expires the due leases
 first, so none shows a lease live past its expiry, with the sweeper off too.
 
-- **`POST /api/v1/leases`**, body `{task, intent, ttl_seconds?, resources?}`. `task` is a task ref or ULID, `intent`
+- **`POST /api/v1/leases`**, body `{task, intent, ttl_seconds?, resources?, notice?}`. `task` is a task ref or ULID, `intent`
   1 to 200 characters, `ttl_seconds` an integer clamped to [60, 43200] (7200 when absent), `resources` at most 20
   strings of 1 to 100 characters, repeats dropped, kept sorted. A missing body, a missing `task`, a bad intent or a
   bad resource is **400**, an unknown task **404**, and a **done** or **closed** task **409** (`cannot start a lease on task aa-1: it is
-  done` or `… it is closed`; `next` says to run `vh task reopen aa-1` first). When the caller already holds a live lease on the task, that lease is renewed
-  instead: **200**, the same lease, `lease_renewed`, its intent replaced and its resources replaced only when
+  done` or `… it is closed`; `next` says to run `vh task reopen aa-1` first). `notice` is a boolean, default false: true starts a notice lease (§4.4). When the caller already holds a live lease **of the same kind** on the task, that lease is renewed
+  instead; when it holds a live lease of the other kind (a notice where an ordinary lease was asked, or the reverse) the answer is **409**
+  naming it (`you already hold L5 on task aa-1, an ordinary lease, and cannot start a notice on it as well`) with `next` `Run vh lease end L5 first, then start the new lease.`,
+  and nothing is written. A renewal is **200**, the same lease, `lease_renewed`, its intent replaced and its resources replaced only when
   `resources` was sent. Otherwise it is **201**, a new lease and `lease_started`. The answer is `{lease, conflicts}`
   (§5.2). A refusal changes nothing: no lease, event or actor. In one transaction the server upserts the actor
   and writes the lease with its event, whose `data` is `{ref, task, intent, ttl_seconds, expires_at, resources}`.
@@ -1415,16 +1417,16 @@ first, so none shows a lease live past its expiry, with the sweeper off too.
   starts after that lease; any other text is **400**. `next_after`, the ULID of the last item, is present exactly when
   more leases follow, so a `limit` equal to the number left is the last page and has none.
 - **The lease document** (`Lease`): `{id, ref, task, actor, intent, ttl_seconds, started_at, renewed_at, expires_at,
-  state, resources, ended_at?, ended_by?, outcome?, acked_at?, acked_by?}`. `task` is the task's ref, `actor` the
+  state, resources, notice, ended_at?, ended_by?, outcome?, acked_at?, acked_by?}`. `notice` is true for a notice lease and false otherwise. `task` is the task's ref, `actor` the
   holder's handle, `state` `live`, `ended` or `expired`, and absent optional fields are omitted. The task document
   (§6.4) lists a task's live leases in `live_leases` and is `active` while it has one. Marking the task done or
   closing it ends its live leases (§4.3, §6.4): a done or closed task never holds one, and a lease ends otherwise by
   `/end` or by running out.
 
 - **`POST /api/v1/start`** (§8.4) starts the caller's lease and checks in, in one transaction. The body is `{task | new_task,
-  intent, ttl_seconds?, resources?}`: `task` is the ref or ULID of an existing task, `new_task` is `{initiative, title, tags?}` (`tags` as for `POST /api/v1/tasks`, a bad one **400**) and
-  creates the task first; exactly one of the two, else **400** with a `next`. `intent`, `ttl_seconds` and `resources` are those
-  of `POST /api/v1/leases` and fail the same way. It answers `{lease, conflicts, task_created, now, protocol, protocol_seen}`:
+  intent, ttl_seconds?, resources?, notice?}`: `task` is the ref or ULID of an existing task, `new_task` is `{initiative, title, tags?}` (`tags` as for `POST /api/v1/tasks`, a bad one **400**) and
+  creates the task first; exactly one of the two, else **400** with a `next`. `intent`, `ttl_seconds`, `resources` and `notice` are those
+  of `POST /api/v1/leases` and fail the same way (a live lease of the other kind held by the caller on the task is **409** with nothing written). It answers `{lease, conflicts, task_created, now, protocol, protocol_seen}`:
   `lease` and `conflicts` are the `LeaseResult` of `POST /api/v1/leases`, `task_created` is true when `new_task` created the
   task, `now` is the caller's check-in (`GET /api/v1/now`, read after the commit, so it holds the new lease), `protocol` is the
   agent protocol version the server embeds (§8.6) and `protocol_seen` is the highest version the caller has recorded through
@@ -2210,11 +2212,13 @@ anything else is 1, except a 409 of `init close`, `init reopen`, `init edit`, `t
   aa-1`) and `→ vh task show <ref>`; removing a dependency that does not exist exits 4 with `→ vh task show <ref>`, an
   unknown task exits 4 with `→ vh task ls`, and a task blocked by itself exits 1. A wrong argument count or an unknown
   subcommand is exit 2 with the usage line.
-- `vh lease start <task> "<intent>" [--ttl D] [--res r]... [--json]` calls `POST /api/v1/leases` (the task as a ref in either
+- `vh lease start <task> "<intent>" [--ttl D] [--res r]... [--notice] [--json]` calls `POST /api/v1/leases` (the task as a ref in either
   letter case; `--ttl` a duration such as `90m` or `4h`, clamped by the server to 60 s to 12 h, 2 h without it; `--res` repeatable)
   and prints `ok lease L<n> <task> exp <ttl>` (`exp 2h`, `exp 1h30m`: the time from the lease's last renewal to its expiry),
   then one line per conflict (below). A start on a task where I already hold a live lease renews that lease and prints the same
-  line. An unknown task exits 4 with `→ vh task ls`, a closed task exits 6 with `<detail> → vh task show <task>`, a done task exits 6 with `<detail> → vh task reopen <task> first`, a bad
+  line. `--notice` sends `notice: true`: the lease is a notice (§4.4), and starting one where I hold an ordinary lease on the task, or
+  the reverse, exits 6 with the server's detail (`you already hold L5 on task aa-1 …`) and `→ Run vh lease end L5 first, then start the
+  new lease.`. An unknown task exits 4 with `→ vh task ls`, a closed task exits 6 with `<detail> → vh task show <task>`, a done task exits 6 with `<detail> → vh task reopen <task> first`, a bad
   `--ttl` is exit 2 with `vh: --ttl: invalid duration …` before any request is sent. `--json` prints the server's
   `{lease, conflicts}` object.
 - `vh lease renew [<L…>|<task>] [--ttl D] [--intent text] [--json]` calls `POST /api/v1/leases/<ref>/renew` and prints
@@ -2445,7 +2449,7 @@ calls, the server has a composite endpoint doing it in **one round trip and one 
 
 | shortcut | does | primitives | endpoint |
 |---|---|---|---|
-| `vh start <task> "<intent>" [--res r]… [--ttl D]` | check in and start (or renew) a lease; prints the lease line, conflicts, and the `now` summary | `whoami` + `now --resources` + `lease start` | `POST /api/v1/start` |
+| `vh start <task> "<intent>" [--res r]… [--ttl D] [--notice]` | check in and start (or renew) a lease; prints the lease line, conflicts, and the `now` summary | `whoami` + `now --resources` + `lease start` | `POST /api/v1/start` |
 | `vh finish [<task>] "<outcome>" [--done]` | end my lease on the task (my only live lease if omitted), write the outcome as a note on the task, optionally mark done | `lease end` + `note --task` + `task done` | `POST /api/v1/finish` |
 | `vh new <initiative> "<title>" --start "<intent>" [--tag t]… [--res r]…` | create a task and start a lease on it | `task add` + `start` | `POST /api/v1/start` with `new_task` |
 | `vh ping ["<progress>"]` | renew all my live leases; with text, also a milestone on each leased task | `lease renew` (all) + `milestone` | `POST /api/v1/ping` |
@@ -2458,8 +2462,9 @@ Shortcuts print the same `ok …` lines as the primitives they replace (one per 
 **Built: `vh start` and `vh new`.** Both send one `POST /api/v1/start` (§6.5) and print what the primitives they replace
 print, one line per effect, then the `now` summary of `vh now`:
 
-- `vh start <task> "<intent>" [--res r]… [--ttl D] [--json]` prints the `vh lease start` line `ok lease L<n> <task> exp <ttl>`
-  with a `CONFLICT` line for each live lease of another that holds one of its resources, and then the `now` summary.
+- `vh start <task> "<intent>" [--res r]… [--ttl D] [--notice] [--json]` prints the `vh lease start` line `ok lease L<n> <task> exp <ttl>`
+  with a `CONFLICT` line for each live lease of another that holds one of its resources, and then the `now` summary. `--notice` starts a
+  notice lease as `vh lease start --notice` does, and the other-kind refusal exits 6 the same way.
 - `vh new <initiative> "<title>" --start "<intent>" [--tag t]… [--res r]… [--ttl D] [--json]` prints the `vh task add` line
   `ok task <ref> created`, then the same lease line and `CONFLICT` lines, then the `now` summary. `--start` is required.
   `--tag` (repeatable) gives the new task its own tags, sent as `new_task.tags` (§5.5, as for `vh task add --tag`).

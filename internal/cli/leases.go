@@ -19,7 +19,7 @@ import (
 const ExitWarning = 7
 
 // LeaseUsage is the single stderr line for a malformed `vh lease` command line.
-const LeaseUsage = "usage: vh lease start <task> \"<intent>\" [--ttl D] [--res r]... [--json] | renew [<L…>|<task>] [--ttl D] [--intent text] [--json] | end [<L…>|<task>] [\"<outcome>\"] [--json] | ack <L…> [--json] | ls [--state live|ended|expired|all] [--mine] [--task ref] [--res r] [--limit N|--all] [--json]"
+const LeaseUsage = "usage: vh lease start <task> \"<intent>\" [--ttl D] [--res r]... [--notice] [--json] | renew [<L…>|<task>] [--ttl D] [--intent text] [--json] | end [<L…>|<task>] [\"<outcome>\"] [--json] | ack <L…> [--json] | ls [--state live|ended|expired|all] [--mine] [--task ref] [--res r] [--limit N|--all] [--json]"
 
 // leaseSubcommands are the words after `vh lease` and what runs each.
 var leaseSubcommands = map[string]func([]string, io.Writer, io.Writer, Env) int{
@@ -74,6 +74,9 @@ func leaseStart(args []string, stdout, stderr io.Writer, env Env) int {
 		return badFlagValue(stderr, err)
 	}
 	body["task"], body["intent"] = p.pos[0], p.pos[1]
+	if p.has("--notice") {
+		body["notice"] = true
+	}
 	if res := p.values["--res"]; len(res) > 0 {
 		body["resources"] = res
 	}
@@ -114,6 +117,10 @@ func startFailure(err error, task string) error {
 	case http.StatusNotFound:
 		return withNext(err, ae.Status, "vh task ls")
 	case http.StatusConflict:
+		if strings.HasPrefix(ae.Detail, "you already hold ") {
+			// the other kind of lease is held: the server's next is the end to run first
+			return conflictError(ae, ae.Next)
+		}
 		if strings.HasSuffix(ae.Detail, ": it is done") {
 			return conflictError(ae, "vh task reopen "+strings.ToLower(task)+" first")
 		}

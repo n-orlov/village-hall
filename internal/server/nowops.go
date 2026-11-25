@@ -29,7 +29,7 @@ func apiNowLease(l leases.Lease) NowLease {
 	return NowLease{
 		Id: a.Id, Ref: a.Ref, Task: a.Task, Title: l.Title, Actor: a.Actor, Intent: a.Intent, TtlSeconds: a.TtlSeconds,
 		StartedAt: a.StartedAt, RenewedAt: a.RenewedAt, ExpiresAt: a.ExpiresAt, State: NowLeaseState(a.State),
-		Resources: a.Resources, EndedAt: a.EndedAt, EndedBy: a.EndedBy, Outcome: a.Outcome, AckedAt: a.AckedAt, AckedBy: a.AckedBy,
+		Resources: a.Resources, EndedAt: a.EndedAt, EndedBy: a.EndedBy, Outcome: a.Outcome, AckedAt: a.AckedAt, AckedBy: a.AckedBy, Notice: a.Notice,
 	}
 }
 

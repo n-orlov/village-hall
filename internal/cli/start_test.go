@@ -173,7 +173,7 @@ func TestStartWithAnUnreadableAnswerOrNoServerFails(t *testing.T) {
 
 func TestStartCommandsAreInTheTreeWithTheirFlags(t *testing.T) {
 	tree := Commands()
-	for cmd, want := range map[string]string{"start": "--json,--res,--ttl", "new": "--json,--res,--start,--tag,--ttl"} {
+	for cmd, want := range map[string]string{"start": "--json,--notice,--res,--ttl", "new": "--json,--res,--start,--tag,--ttl"} {
 		got, ok := tree[cmd]
 		if !ok || strings.Join(got, ",") != want {
 			t.Errorf("Commands()[%q] = %v, want %s", cmd, got, want)

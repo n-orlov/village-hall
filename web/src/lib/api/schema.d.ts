@@ -609,7 +609,7 @@ export interface paths {
         put?: never;
         /**
          * Start a lease
-         * @description Starts a lease for the caller on `task` with the `intent` (1 to 200 characters), answering the lease and the conflicts. `ttl_seconds` is clamped to 60 to 43200 and defaults to 7200. `resources` is at most 20 strings of 1 to 100 characters, repeats dropped. A closed task is 409 and an unknown task 404. When the caller already holds a live lease on the task, that lease is renewed instead (same lease, 200, `lease_renewed`); otherwise the answer is 201 and the event `lease_started`. `conflicts` lists the live leases of others that hold one of the same resources, each with only the shared resources.
+         * @description Starts a lease for the caller on `task` with the `intent` (1 to 200 characters), answering the lease and the conflicts. `ttl_seconds` is clamped to 60 to 43200 and defaults to 7200. `resources` is at most 20 strings of 1 to 100 characters, repeats dropped. A closed task is 409 and an unknown task 404. When the caller already holds a live lease on the task, that lease is renewed instead (same lease, 200, `lease_renewed`); otherwise the answer is 201 and the event `lease_started`. `conflicts` lists the live leases of others that hold one of the same resources, each with only the shared resources. `notice` (default false) starts a notice lease instead of an ordinary one; the caller already holding a live lease of the other kind on the task is 409 naming that lease and saying to `end L<n> first`.
          */
         post: operations["startLease"];
         delete?: never;
@@ -877,7 +877,7 @@ export interface paths {
         put?: never;
         /**
          * Start working on a task, or on a new one
-         * @description Starts the caller's lease and answers the lease, its `conflicts`, the caller's check-in as `now`, the server's agent `protocol` version and the caller's `protocol_seen`. Send `task` (a ref or ULID) to start or renew a lease on an existing task, or `new_task` (an `initiative` slug or ULID and a `title`) to create the task and start the lease on it; exactly one of the two. `intent`, `ttl_seconds` and `resources` are those of `POST /api/v1/leases`: the intent is 1 to 200 characters, `ttl_seconds` is clamped to 60 to 43200 and defaults to 7200, and `resources` is at most 20 strings of 1 to 100 characters. The task, the lease and their events (`task_created` with `lease_started`, or `lease_renewed` alone) are written in one transaction, and a request that is refused writes nothing. The answer is 201 for a new lease (and for a new task) and 200 when the caller already held a live lease on the task and it was renewed. A live lease of another actor that holds one of the resources is not a refusal: the lease is written and `conflicts` lists it. A done or closed task, and a `new_task` in a closed initiative, are 409 with nothing written. An unknown task or initiative is 404, and a request with both or neither of `task` and `new_task` is 400.
+         * @description Starts the caller's lease and answers the lease, its `conflicts`, the caller's check-in as `now`, the server's agent `protocol` version and the caller's `protocol_seen`. Send `task` (a ref or ULID) to start or renew a lease on an existing task, or `new_task` (an `initiative` slug or ULID and a `title`) to create the task and start the lease on it; exactly one of the two. `intent`, `ttl_seconds` and `resources` are those of `POST /api/v1/leases`: the intent is 1 to 200 characters, `ttl_seconds` is clamped to 60 to 43200 and defaults to 7200, and `resources` is at most 20 strings of 1 to 100 characters. The task, the lease and their events (`task_created` with `lease_started`, or `lease_renewed` alone) are written in one transaction, and a request that is refused writes nothing. The answer is 201 for a new lease (and for a new task) and 200 when the caller already held a live lease on the task and it was renewed. A live lease of another actor that holds one of the resources is not a refusal: the lease is written and `conflicts` lists it. A done or closed task, and a `new_task` in a closed initiative, are 409 with nothing written. An unknown task or initiative is 404, and a request with both or neither of `task` and `new_task` is 400. `notice` (default false) starts a notice lease, as for `POST /api/v1/leases`; a live lease of the other kind held by the caller on the task is 409 naming it, with nothing written.
          */
         post: operations["start"];
         delete?: never;
@@ -1368,6 +1368,8 @@ export interface components {
             /** Format: date-time */
             acked_at?: string;
             acked_by?: string;
+            /** @description True for a notice lease, a broadcast that every agent and view sees until it ends or expires; false for an ordinary lease. */
+            notice: boolean;
         };
         /** @description A task. `active`, `blocked` and `overdue` are derived. `tags` are the task's own tags. */
         Task: {
@@ -1625,6 +1627,11 @@ export interface components {
             ttl_seconds?: number;
             /** @description At most 20 strings of 1 to 100 characters, repeats dropped. */
             resources?: string[];
+            /**
+             * @description True to start a notice lease, a broadcast every agent and view sees, instead of an ordinary one. When the caller already holds a live lease of the same kind on the task it is renewed; a live lease of the other kind is 409 naming it, with a `next` to end it first.
+             * @default false
+             */
+            notice: boolean;
         };
         /** @description What to change on a renewal. A field left out keeps its value. */
         LeaseRenew: {
@@ -1683,6 +1690,11 @@ export interface components {
             ttl_seconds?: number;
             /** @description At most 20 strings of 1 to 100 characters, repeats dropped. */
             resources?: string[];
+            /**
+             * @description True to start a notice lease, a broadcast every agent and view sees, instead of an ordinary one. When the caller already holds a live lease of the same kind on the task it is renewed; a live lease of the other kind is 409 naming it, with a `next` to end it first.
+             * @default false
+             */
+            notice: boolean;
         };
         /** @description A lease with the live leases of others that conflict with it, the caller's check-in after the write, and the agent protocol versions. */
         StartResult: {

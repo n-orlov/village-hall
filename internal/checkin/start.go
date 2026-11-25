@@ -29,6 +29,8 @@ type StartRequest struct {
 	Intent    string
 	TTL       *int64
 	Resources []string
+	// Notice starts a notice lease (SPEC 4.4) instead of an ordinary one.
+	Notice bool
 }
 
 // StartResult is what a composite start answers: the lease with its conflicts,
@@ -82,7 +84,7 @@ func (s Store) write(ctx context.Context, tx *sql.Tx, actor audit.Actor, princip
 		}
 		in.Task = t.Ref
 	}
-	res, err := s.Leases.StartIn(ctx, tx, actor, principal, leases.Start{Task: in.Task, Intent: in.Intent, TTL: in.TTL, Resources: in.Resources})
+	res, err := s.Leases.StartIn(ctx, tx, actor, principal, leases.Start{Task: in.Task, Intent: in.Intent, TTL: in.TTL, Resources: in.Resources, Notice: in.Notice})
 	return res, created, err
 }
 
