@@ -79,8 +79,12 @@
 // ci/suite.sh and the release dry run (ci/release-build.sh) find the marker and
 // run no `npm run build`. Suite still runs `npm ci` in web/ for Vitest, and
 // Quality runs `npm ci` only because crap-ts and the openapi gates read
-// web/node_modules. Only the Image unit's Dockerfile builds the UI again, inside
-// the image (ci/repocheck webbuildonce_test.go pins the stash reuse).
+// web/node_modules. The Image unit's image embeds that same build, on both
+// architectures: ci/image-build.sh hands dist to the root Dockerfile as the named
+// build context `web`, which replaces the Dockerfile's `web` stage, so the image
+// runs no web build either (a standalone `docker build .` has no marker and builds
+// the UI in the Dockerfile's `webbuild` stage). ci/repocheck webbuildonce_test.go
+// pins the stash reuse and webbuildimage_test.go the image path.
 //
 // Quality waits for Suite (coverage),
 // E2E (Playwright's results) and Image (the image tar; the Image unit builds the
@@ -884,8 +888,9 @@ pipeline {
           // The web UI, built once per build (R9 l): ci/web-build.sh writes
           // internal/webui/dist, which the unit stashes as web-dist. Suite, E2E and
           // Quality (needs, below) wait for it and unstash it, and run no web build
-          // of their own (ci/suite.sh finds the build's marker). The Image unit's
-          // Dockerfile builds its own, inside the image.
+          // of their own (ci/suite.sh finds the build's marker), and the Image unit's
+          // image embeds it too (ci/image-build.sh passes it as the Dockerfile's named
+          // context `web`).
           units << [name: 'Web UI', minutes: 15, cpus: 2, signal: 'Web UI',
                     body: { sh(returnStatus: true, script: 'ci/run.sh ci/web-build.sh') },
                     extraStash: { stash name: 'web-dist', includes: 'internal/webui/dist/**', allowEmpty: true }]
@@ -902,8 +907,9 @@ pipeline {
           // one ci/image-build.sh below: the release dry run (ci/release-check.sh)
           // reuses that build's OCI tar and docker-save tar and builds no image of
           // its own (ci/repocheck imagebuildonce_test.go). It also unstashes the Web UI
-          // unit's build, so the dry run's release binaries embed it and build no UI
-          // (ci/release-build.sh); only the Dockerfile builds the UI again.
+          // unit's build, so the image (ci/image-build.sh's named context `web`) and the dry
+          // run's release binaries embed it and nothing builds the UI again
+          // (ci/release-build.sh).
           units << [name: 'Image', minutes: 30, cpus: 1, signal: 'Image', after: 'Web UI', needs: ['web-dist'],
                     body: {
                       int rc = sh(returnStatus: true, script: 'ci/image-build.sh "$BOARD_CI_OUT/board-image.tar" && ci/image-check.sh "$BOARD_CI_OUT"')

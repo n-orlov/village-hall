@@ -3,7 +3,9 @@
 # `npm run build` in web/, which write internal/webui/dist (the directory the Go
 # binary embeds), then a marker file beside the build. The Jenkins "Web UI" unit
 # runs this and stashes dist; Suite, E2E and Quality unstash it, and
-# ci/suite.sh, finding the marker, runs no `npm run build` of its own.
+# ci/suite.sh, finding the marker, runs no `npm run build` of its own, and the
+# Image unit's ci/image-build.sh embeds dist in the image as the Dockerfile's named
+# build context `web`, so the image builds none either.
 #
 #   ci/run.sh ci/web-build.sh        # from a sandbox without local Node
 #   ci/web-build.sh                  # on a runner with Node on PATH already

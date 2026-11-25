@@ -14,7 +14,8 @@
 # board-image.tar the Image unit's ci/image-build.sh left in <dir> (it stops if
 # they are missing) and hands that directory to ci/release-build.sh as
 # BOARD_RELEASE_IMAGE_DIR, so the image the release check inspects is the one
-# ci/image-check.sh just checked: the root Dockerfile is built once per architecture.
+# ci/image-check.sh just checked: the root Dockerfile is built once per architecture,
+# and (with the Web UI unit's stashed build) without a web build.
 #
 # On the Jenkins agent, outside ci/run.sh for the docker parts, in the Image unit
 # after ci/image-check.sh. The assets are large, so they are removed afterwards

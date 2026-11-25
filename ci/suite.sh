@@ -57,7 +57,9 @@
 # that marker and an index.html present, this script runs no `npm run build`
 # (Suite still runs `npm ci` in web/ for Vitest; E2E runs no web npm at all);
 # with no marker (a local run, a dist built another way) it builds as before.
-# ci/suitecheck pins both cases with a stub npm.
+# ci/suitecheck pins both cases with a stub npm. The Image unit's image embeds the
+# same stashed build (ci/image-build.sh, ci/repocheck webbuildimage_test.go): no
+# unit of a CI build runs a second web build.
 #
 # BOARD_E2E_WORKERS (task 010, R6): how many Playwright workers the step runs,
 # the one place the count reaches the config from. It is defined once, as

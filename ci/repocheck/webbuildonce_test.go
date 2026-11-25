@@ -5,7 +5,9 @@ package repocheck
 // and Quality unstash it, and nothing else in the Jenkinsfile builds web/. These
 // tests pin the Jenkinsfile's wiring (a doctored Jenkinsfile in which Suite, E2E or
 // Quality lacks the stash dependency is caught) and run the real ci/web-build.sh
-// against a stub npm.
+// against a stub npm. The Image unit's image embeds the same build rather than
+// building the UI in the Dockerfile: webbuildimage_test.go pins that path, and
+// TestWebUIIsBuiltOnceAndStashedForSuiteE2EAndQuality below runs it too.
 
 import (
 	"fmt"
@@ -83,6 +85,11 @@ func functionBodyFrom(text, sig string) string {
 
 func TestWebUIIsBuiltOnceAndStashedForSuiteE2EAndQuality(t *testing.T) {
 	jf := readRepoFile(t, "Jenkinsfile")
+	// The image path: with the Web UI unit's output present the Image unit's
+	// ci/image-build.sh gives both builds the output, and neither runs a UI build.
+	for _, p := range imageWebBuildProblems(t, readRepoFile(t, "Dockerfile"), readRepoFile(t, "ci", "image-build.sh")) {
+		t.Error(p)
+	}
 	expectProblems(t, jf, webBuildOnceProblems, map[string]string{
 		"a Suite that does not unstash the web build": replaceOnce(t, jf,
 			"signal: 'Suite', after: 'Web UI', needs: ['web-dist'],", "signal: 'Suite', after: 'Web UI',"),

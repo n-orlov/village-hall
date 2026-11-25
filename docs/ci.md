@@ -374,7 +374,17 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   gates read `web/node_modules` (a comment in the `Jenkinsfile` says so). With no
   marker (a local run, a dist built another way) the script builds as before, so
   a stale local dist is never taken for the stashed one, and a real release
-  builds the UI once. The Image unit's `Dockerfile` still builds the UI inside the image. `ci/repocheck`
+  builds the UI once. The Image unit's image embeds the same build on both architectures:
+  with the marker and an `index.html` in `internal/webui/dist`, `ci/image-build.sh` passes
+  that directory to both of its `docker buildx build` calls as the named build context
+  `web` (`--build-context web=<checkout>/internal/webui/dist`), which BuildKit uses in place of the
+  `Dockerfile`'s `web` stage (a scratch stage that copies `webbuild`'s output), so `webbuild`, the
+  stage that runs `npm ci` and `npm run build`, never runs. A standalone `docker build .` and an
+  `ci/image-build.sh` run with no marker (a stale or missing dist) give no context, and `webbuild`
+  builds the UI in the image. `ci/repocheck` `webbuildimage_test.go` runs the real
+  `ci/image-build.sh` against a stub `docker` with and without the stashed output and models the
+  `Dockerfile`'s stages to assert that neither build runs the UI build, and catches a doctored
+  `Dockerfile` or script that would. `ci/repocheck`
   `webbuildonce_test.go` pins the single build and the stash dependencies of
   Suite, E2E, Image and Quality against doctored Jenkinsfiles and runs `ci/web-build.sh`
   against a stub `npm`; `ci/suitecheck` `webstash_test.go` runs `ci/suite.sh` with

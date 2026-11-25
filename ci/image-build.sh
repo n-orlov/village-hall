@@ -17,6 +17,13 @@
 # Jenkins agent, outside ci/run.sh (it needs the docker CLI), in the Quality
 # stage.
 #
+# The web UI is built once per CI build (ci/web-build.sh, the Jenkins Web UI unit).
+# When internal/webui/dist holds that build (the marker ci/web-build.sh leaves
+# beside it, and an index.html), both builds below pass it to the Dockerfile as the
+# named build context `web`, which replaces the Dockerfile's `web` stage: the image
+# embeds the stashed UI and no web build runs. Without the marker (a standalone
+# run) the Dockerfile builds the UI itself, so a stale dist is never embedded.
+#
 # BOARD_CI_CPUS=<n> (the Jenkinsfile sets it on the Image unit, as it does for
 # ci/run.sh) caps the BuildKit container at n CPUs (cpu-quota over a 100 ms
 # period), so the two cross-compiles of the Dockerfile cannot run the agent's
@@ -74,19 +81,27 @@ fi
 docker buildx create --name "$builder" --driver docker-container \
 	--driver-opt "image=$buildkit_image" $cpu_opts >/dev/null
 
+# web_opts is the named build context (two words), or empty; unquoted below on
+# purpose (SC2086); an absolute path, because the context directory is named to buildx.
+web_opts=""
+if [ -f internal/webui/dist/.ci-stashed-build ] && [ -f internal/webui/dist/index.html ]; then
+	web_opts="--build-context web=$repo_root/internal/webui/dist"
+	echo "ci/image-build.sh: embedding the stashed web UI build (no web build in the image)"
+fi
+
 mkdir -p "$(dirname "$tar_path")"
 rm -f "$tar_path" "$oci_path"
 
 # procs_arg is one word-pair, or empty, by design (SC2086 below).
 # Both platforms in one build: the OCI layout holds an image index with both.
 # shellcheck disable=SC2086
-docker buildx build --builder "$builder" -f Dockerfile $procs_arg \
+docker buildx build --builder "$builder" -f Dockerfile $procs_arg $web_opts \
 	--platform linux/amd64,linux/arm64 --provenance=false --sbom=false \
 	--build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
 	--output "type=oci,dest=$oci_path${oci_name:+,name=$oci_name}" .
 # The amd64 image again, from the builder's cache: loaded and saved.
 # shellcheck disable=SC2086
-docker buildx build --builder "$builder" -f Dockerfile $procs_arg \
+docker buildx build --builder "$builder" -f Dockerfile $procs_arg $web_opts \
 	--platform linux/amd64 --provenance=false --sbom=false \
 	--build-arg "VERSION=$version" --build-arg "REVISION=$revision" \
 	--tag "$tag" --load .

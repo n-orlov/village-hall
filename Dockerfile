@@ -9,14 +9,24 @@
 # on a builder stage without --platform=$BUILDPLATFORM. CI builds both platforms
 # on every build and does not push them (ci/image-build.sh, ci/image-check.sh).
 
-# The Svelte UI, embedded into the binary by the next stage.
-FROM --platform=$BUILDPLATFORM node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS web
+# The Svelte UI, embedded into the binary by the `build` stage. It is built here
+# only when nothing supplies it: a CI build builds the UI once, in its Web UI unit
+# (ci/web-build.sh), and ci/image-build.sh hands that output in as the named build
+# context `web` (--build-context web=internal/webui/dist), which BuildKit uses in
+# place of the `web` stage below, so this stage never runs. A standalone
+# `docker build .` (no named context) builds the UI in it, as before.
+FROM --platform=$BUILDPLATFORM node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS webbuild
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 # npm run build writes ../internal/webui/dist.
 RUN mkdir -p ../internal/webui/dist && npm run build
+
+# The UI the binary embeds, as the root of this stage: the built one above, or the
+# stashed CI build when the named context `web` replaces this stage.
+FROM --platform=$BUILDPLATFORM scratch AS web
+COPY --from=webbuild /src/internal/webui/dist/ /
 
 FROM --platform=$BUILDPLATFORM golang:1.26.11-trixie@sha256:fa340cb59ebeb1d53ac1cccfc334201d938fe5f3458003cccb767096d8e032b8 AS build
 ARG TARGETOS
@@ -33,7 +43,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=web /src/internal/webui/dist/ internal/webui/dist/
+COPY --from=web / internal/webui/dist/
 # timetzdata embeds the time zone database, so the scratch image needs no
 # /usr/share/zoneinfo; there is no .git in the build context, hence -buildvcs=false.
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
