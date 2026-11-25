@@ -99,7 +99,7 @@ Feature: Starting work from the command line, vh start
     Given a stub board answers vh start with protocol 99 and protocol_seen 4
     When I run the client 'vh start aa-1 "x"' as actor "claude@laptop" against the stub board
     Then the exit code is 0
-    And stdout has the line "hint: vh protocol v99 on the server, you have v5 → vh update, then vh help agent"
+    And stdout has the line "hint: vh protocol v99 on the server, you have v6 → vh update, then vh help agent"
     And the last stdout line starts with "hint: "
     And stdout has 1 line starting with "hint: "
     And stderr is empty
@@ -107,13 +107,13 @@ Feature: Starting work from the command line, vh start
   Scenario: a protocol_seen older than the binary's makes start and new print the read-again hint and keep their exit codes
     When I run the client 'vh start aa-1 "x"' as actor "claude@laptop"
     Then the exit code is 0
-    And stdout has the line "hint: vh protocol v5 changed since you last read it → vh help agent"
+    And stdout has the line "hint: vh protocol v6 changed since you last read it → vh help agent"
     And the last stdout line starts with "hint: "
     And stdout has 1 line starting with "hint: "
     And stderr is empty
     When I run the client 'vh new aa "Fourth" --start "y" --res db:x' as actor "claude@laptop"
     Then the exit code is 0
-    And stdout has the line "hint: vh protocol v5 changed since you last read it → vh help agent"
+    And stdout has the line "hint: vh protocol v6 changed since you last read it → vh help agent"
     And stdout has 1 line starting with "hint: "
     When I run the client 'vh start aa-2 "z" --res db:x' as actor "codex@laptop"
     Then the exit code is 7

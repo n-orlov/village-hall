@@ -14,7 +14,7 @@ Feature: What the server says about itself and the caller, GET /api/v1/meta
     And I request GET "/api/v1/meta" with the remembered key as actor "claude@laptop"
     Then the response status is 200
     And the response version is the version the last command printed
-    And the response field "protocol" is "5"
+    And the response field "protocol" is "6"
     And the response field "principal" is "key:workstation"
     And the response field "actor" is "claude@laptop"
     When I request GET "/api/v1/meta" with the remembered key and no Board-Actor header

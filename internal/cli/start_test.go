@@ -15,7 +15,7 @@ func startAnswer(created bool, conflicts string) string {
 	}
 	now := strings.Replace(nowAnswer, "%s", "", 1)
 	return `{"lease":{"ref":"L1","task":"aa-1","actor":"me","intent":"i","state":"live","resources":[],"renewed_at":"2026-03-04T12:00:00Z","expires_at":"2026-03-04T14:00:00Z"},"conflicts":[` +
-		conflicts + `],"task_created":` + made + `,"now":` + now + `,"protocol":5,"protocol_seen":5}`
+		conflicts + `],"task_created":` + made + `,"now":` + now + `,"protocol":6,"protocol_seen":6}`
 }
 
 const startNowText = "you: me\nnotices: none\nmy leases:\n  L1  aa-1  Wire it  \"wiring\"  res repo:x,host:y  exp 1h52m\nothers:\n" +
@@ -183,21 +183,21 @@ func TestStartCommandsAreInTheTreeWithTheirFlags(t *testing.T) {
 
 func TestProtocolHintPicksTheServerHintBeforeTheStaleReadingHint(t *testing.T) {
 	const (
-		serverNewer = "hint: vh protocol v6 on the server, you have v5 → vh update, then vh help agent\n"
-		seenOlder   = "hint: vh protocol v5 changed since you last read it → vh help agent\n"
+		serverNewer = "hint: vh protocol v7 on the server, you have v6 → vh update, then vh help agent\n"
+		seenOlder   = "hint: vh protocol v6 changed since you last read it → vh help agent\n"
 	)
 	for name, c := range map[string]struct {
 		server, seen, client int
 		want                 string
 	}{
-		"server newer":                {6, 5, 5, serverNewer},
-		"server newer, never read":    {6, 0, 5, serverNewer},
-		"read an older text":          {5, 4, 5, seenOlder},
-		"never read it":               {5, 0, 5, seenOlder},
-		"server older, read an older": {4, 3, 5, seenOlder},
-		"all current":                 {5, 5, 5, ""},
-		"server older, all read":      {4, 5, 5, ""},
-		"read a newer text":           {5, 6, 5, ""},
+		"server newer":                {7, 6, 6, serverNewer},
+		"server newer, never read":    {7, 0, 6, serverNewer},
+		"read an older text":          {6, 5, 6, seenOlder},
+		"never read it":               {6, 0, 6, seenOlder},
+		"server older, read an older": {5, 4, 6, seenOlder},
+		"all current":                 {6, 6, 6, ""},
+		"server older, all read":      {5, 6, 6, ""},
+		"read a newer text":           {6, 7, 6, ""},
 	} {
 		if got := protocolHint(c.server, c.seen, c.client); got != c.want {
 			t.Errorf("%s: got %q, want %q", name, got, c.want)
@@ -209,12 +209,12 @@ func TestStartAndNewPrintTheHintAfterTheSummaryAndKeepTheExitCode(t *testing.T) 
 	atTwelve(t)
 	conflict := `{"lease":"L5","holder":"h","task":"bb-1","intent":"go","expires_at":"2026-03-04T12:41:00Z","resources":["a:b"]}`
 	for name, args := range map[string][]string{"start": {"start", "aa-1", "x"}, "new": {"new", "aa", "T", "--start", "x"}} {
-		answer := strings.Replace(startAnswer(name == "new", conflict), `"protocol_seen":5`, `"protocol_seen":0`, 1)
+		answer := strings.Replace(startAnswer(name == "new", conflict), `"protocol_seen":6`, `"protocol_seen":0`, 1)
 		f := answering(201, answer)
 		srv := httptest.NewServer(f)
 		code, out, errs := runEnv(f.env(srv), args...)
 		srv.Close()
-		hint := "hint: vh protocol v5 changed since you last read it → vh help agent\n"
+		hint := "hint: vh protocol v6 changed since you last read it → vh help agent\n"
 		if code != ExitWarning || !strings.HasSuffix(out, startNowText+hint) || errs != "" {
 			t.Errorf("%s: got %d %q %q", name, code, out, errs)
 		}
@@ -222,7 +222,7 @@ func TestStartAndNewPrintTheHintAfterTheSummaryAndKeepTheExitCode(t *testing.T) 
 }
 
 func TestStartJSONCarriesNoHintLine(t *testing.T) {
-	answer := strings.Replace(startAnswer(false, ""), `"protocol_seen":5`, `"protocol_seen":0`, 1)
+	answer := strings.Replace(startAnswer(false, ""), `"protocol_seen":6`, `"protocol_seen":0`, 1)
 	f := answering(200, answer)
 	srv := httptest.NewServer(f)
 	defer srv.Close()
@@ -231,14 +231,14 @@ func TestStartJSONCarriesNoHintLine(t *testing.T) {
 	}
 }
 
-func TestTheHintWorksAcrossTheV4ToV5Bump(t *testing.T) {
-	if ProtocolVersion() != 5 {
-		t.Fatalf("this test is about the bump to v5, the binary embeds v%d", ProtocolVersion())
+func TestTheHintWorksAcrossTheV5ToV6Bump(t *testing.T) {
+	if ProtocolVersion() != 6 {
+		t.Fatalf("this test is about the bump to v6, the binary embeds v%d", ProtocolVersion())
 	}
-	if got := protocolHint(5, 4, ProtocolVersion()); got != "hint: vh protocol v5 changed since you last read it \u2192 vh help agent\n" {
-		t.Errorf("an actor whose protocol-seen is 4 got %q, want the read-again hint", got)
+	if got := protocolHint(6, 5, ProtocolVersion()); got != "hint: vh protocol v6 changed since you last read it \u2192 vh help agent\n" {
+		t.Errorf("an actor whose protocol-seen is 5 got %q, want the read-again hint", got)
 	}
-	if got := protocolHint(5, 5, ProtocolVersion()); got != "" {
-		t.Errorf("an actor whose protocol-seen is 5 got %q, want no hint", got)
+	if got := protocolHint(6, 6, ProtocolVersion()); got != "" {
+		t.Errorf("an actor whose protocol-seen is 6 got %q, want no hint", got)
 	}
 }

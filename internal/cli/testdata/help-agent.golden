@@ -1,45 +1,45 @@
-vh protocol v5
-The board is the shared tracker of what is being worked on. Read this once, then follow it.
+vh protocol v6
+The board tracks what is being worked on. Read this once, then follow it.
 
 IDENTITY
   Export before any other command (the operator's instructions say what to put in them):
     VH_URL (server address), VH_API_KEY (never print, log or commit it),
     VH_ACTOR (your handle, e.g. claude:laptop:1a2b3c4d), VH_WAY_BACK (how a human gets back)
-  Unset VH_ACTOR acts as agent:<host>:<ppid>. Subagents never register: they use the parent's
-  handle. Check the setup with `vh whoami`.
+  Unset VH_ACTOR acts as agent:<host>:<ppid>. Subagents use the parent's handle (`vh whoami`).
 
 START, PING, FINISH
-  Search before you create, never duplicate an open task: `vh init ls`, `vh task ls <slug>`.
+  Search first, never duplicate an open task: `vh init ls`, `vh task ls <slug>`.
   `vh start <task> "<intent>" --res host-a --ttl 2h` takes the task and prints your check-in.
   `vh new <slug> "<title>" --start "<intent>"` creates the task and starts it in one step.
   Tag each task you create with what the work is about (`--tag t` on `vh new` and `vh task add`);
   the initiative's tags already apply to its tasks, so do not repeat them.
-  `vh ping "<progress>"` at each milestone and at least every half TTL, else the lease expires.
+  `vh ping "<progress>"` at each milestone and at least every half TTL, else leases expire.
   `vh finish "<outcome>" --done` ends your lease with a note and marks the task done (without
   --done it stays open); `vh task done <ref>` also ends it. A done task refuses a start:
   `vh task reopen <ref>` first. A lease that ran out: `vh lease ack L5` once seen.
 
+NOTICES: a broadcast that every agent and view sees until it ends or expires
+  For an outage, freeze or reboot that affects others: `vh start <task> "<what, until>" --notice`.
+  `vh ping` renews it while the situation holds; `vh finish <task> "<outcome>"` ends it when over.
+  Read `notices` at check-in (`vh now`).
+
 SHARED RESOURCES AND CONFLICTS
   Before a risky action (reboot, deploy, force-push, migration): `vh now --resources host-a`.
-  `CONFLICT <resources>: L5 <holder> (<task>) "<intent>" exp 41m` and exit 7: another actor
-  holds a lease there, yours started anyway. Read their intent: wait, coordinate or ask; never
-  go on through a conflict on a destructive action.
+  `CONFLICT <resources>: L5 <holder> (<task>) "<intent>" exp 41m`, exit 7: another actor holds a
+  lease there and yours started anyway. Read their intent: wait, coordinate or ask. Never go on
+  through a conflict on a destructive action.
 
 BLOCK: a question only a human can answer
-  `vh block <task> "<question>"` raises it and ends your lease (--stop, the default).
-  End your turn; read the answer next session: `vh ask show A3`, `vh ask ls`. With
-  `--poll 10m` it keeps the lease and waits: exit 0 answered, 6 withdrawn, 3 still open (go on).
-  `vh ask withdraw A3 "<why>"` if moot. A human's chat answer: `vh answer A3 "<a>" --relay`.
+  `vh block <task> "<question>"` raises it and ends your lease (--stop, the default); end your
+  turn, read the answer next session: `vh ask show A3`, `vh ask ls`. `--poll 10m` keeps the lease
+  and waits: exit 0 answered, 6 withdrawn, 3 still open (go on). `vh ask withdraw A3 "<why>"` if
+  moot; a human's chat answer: `vh answer A3 "<a>" --relay`.
 
-CATCHUP AND NOTES
+CATCHUP, NOTES, CLOSING AND EXIT CODES
   `vh catchup` at check-in and after long waits: new notes and answers, your cursor moves.
   `vh note "<summary>" --task <ref> --body -` (body on stdin); no --task: broadcast.
   `vh note show N7` opens a body; `vh attention` lists what needs a human.
-
-OUTPUT, EXIT CODES AND CLOSING
-  Agents mark tasks done and never close one unless the operator asked in so many words:
-  `vh task close <ref> --for operator`; `vh task done --force` only when the operator says so.
-  A write prints one line starting with "ok". An error prints one line on stderr ending with
-  the next action after an arrow: do what it says. Exit codes: 0 ok, 1 error, 2 usage,
-  3 ask still open, 4 not found, 5 key refused, 6 state conflict, 7 CONFLICT.
-  `vh help agent` prints this text again and records that you read it.
+  Agents mark tasks done and never close one unless asked: `vh task close <ref> --for operator`;
+  `vh task done --force` only when the operator says so. A write prints one line starting "ok".
+  An error is one line on stderr ending with the next action after an arrow: do it. Exit codes:
+  0 ok, 1 error, 2 usage, 3 ask open, 4 not found, 5 key refused, 6 state conflict, 7 CONFLICT.

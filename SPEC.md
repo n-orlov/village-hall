@@ -2737,17 +2737,24 @@ shortcuts of §8.4, and replaced v3's lease and ask commands rather than adding 
   `vh attention`;
 - closing only when asked (`vh task close <ref> --for operator`) and the exit codes 0 to 7.
 
-**Protocol v5** is the current text, headed `vh protocol v5`. It is v4 plus one request, which is the whole reason for the bump: an agent tags each
+**Protocol v5** was the text before v6, headed `vh protocol v5`. It was v4 plus one request: an agent tags each
 task it creates with what the work is about (`--tag t` on `vh new` and `vh task add`, §5.5), and
-does not repeat the initiative's tags, which already apply to its tasks. It makes room for the two
-lines by tightening wording, so the 45-line budget still holds. Because v5 is higher than the `4`
-that an actor which read v4 has recorded, `vh start` and `vh new` print the read-again hint of
-"Staleness hint" below for those actors until they run `vh help agent` again, and not for an actor
-at 5.
+does not repeat the initiative's tags, which already apply to its tasks.
 
-`features/help_agent.feature` asserts the version line `vh protocol v5`, the version number 5,
-each of those commands and the tagging request in the printed text; `internal/cli/helpagent_test.go`
-and the golden file hold the same version.
+**Protocol v6** is the current text, headed `vh protocol v6`. It is v5 plus notices (§4.4), which is the whole reason for
+the bump, because an agent now has something new to do: for an outage, freeze or reboot that affects others it posts a
+notice with `vh start <task> "<what, until>" --notice`, renews it with `vh ping` while the situation holds, ends it with an
+outcome with `vh finish <task> "<outcome>"` when it is over, and reads `notices` (the first section of `vh now` and of the
+`vh start` check-in, §8.3) at check-in. The text has a `NOTICES` section for this and makes room by tightening wording
+elsewhere, so the 45-line budget of 100 columns still holds. Because v6 is higher than the `5` that an actor which read v5
+has recorded, `vh start` and `vh new` print the read-again hint of "Staleness hint" below for those actors until they run
+`vh help agent` again, and not for an actor at 6.
+
+`features/help_agent.feature` asserts the version line `vh protocol v6`, the version number 6, each of the commands and
+the tagging request in the printed text, and a scenario for the notices section (its heading and the three commands, each
+checked against the command tree); `internal/cli/helpagent_test.go` holds the same version, the notices wording and the
+golden file, and `internal/cli/start_test.go` the hint across the v5 to v6 bump (an actor at 5 is told to re-read, an
+actor at 6 is not).
 
 **Server side.** `GET /meta` answers `{version, revision, protocol, principal, actor}`: the server binary's
 version (as `vh version` prints it first), the commit it was built from (`revision`, omitted when the
@@ -4128,7 +4135,7 @@ name appears only where a user sees it:
 |---|---|
 | HTTP headers `Board-Actor`, `Board-Actor-Way-Back`, `Board-Actor-Meta`, `Board-On-Behalf-Of` (no `VH-*` aliases) | binary `vh`; image entrypoint `/vh` |
 | every path under `/api/v1`, every event type and SSE event name, every response field | `usage: vh …`, `→ vh …` hints, `vh version` |
-| database schema, table and column names; the default database file `/data/board.db` | protocol header `vh protocol v5` |
+| database schema, table and column names; the default database file `/data/board.db` | protocol header `vh protocol v6` |
 | cookies `board_session`, `board_login`; API key prefix `brd_` | OpenAPI `info.title` "Village Hall API" |
 | notification payload field `board_url` | page title "Village Hall", manifest `name` "Village Hall", `short_name` "Hall" |
 | CI-internal names: `BOARD_CI_*`, `BOARD_GODOG_*`, `BOARD_DB_LEG`, `BOARD_MUTATION_*`, `BOARD_IMAGE_*`, `BOARD_ALLURE_*`, `BOARD_FEATURES_*`; `board-ci:local`, `board:ci`, `board-image*.tar`; Jenkins labels `board`, `board-test`; job paths; credential IDs | Go module `github.com/n-orlov/village-hall`; `cmd/vh` |
