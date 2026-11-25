@@ -11,7 +11,6 @@
   import Shell from './Shell.svelte';
   import TaskPage from './TaskPage.svelte';
   import Tasks from './Tasks.svelte';
-  import Timeline from './Timeline.svelte';
   import { live } from './lib/live';
   import { affectsLiveTasks, countLiveTasks } from './lib/liveTasks';
   import { TasksApi } from './lib/tasks';
@@ -20,18 +19,24 @@
   import { ROUTES, navEntries, redirectHash, resolveRoute, routeParam, type RouteId } from './lib/routes';
 
   // The component of each view; the table in lib/routes.ts decides which one is on screen.
-  const VIEWS: Record<RouteId, Component<{ csrf: string; param: string }>> = {
+  type ViewComponent = Component<{ csrf: string; param: string }>;
+  const VIEWS: Record<Exclude<RouteId, 'timeline'>, ViewComponent> = {
     now: Now,
     initiatives: Initiatives,
     initiative: InitiativePage,
     tasks: Tasks,
     task: TaskPage,
-    timeline: Timeline,
     actors: Actors,
     archive: Archive,
     notes: Notes,
     keys: ApiKeys,
   };
+
+  // The Timeline is the one view loaded on demand: vis-timeline, vis-data and moment (and the vis stylesheet) stay out of the entry chunk.
+  let timelineView: ViewComponent | undefined = $state();
+  function loadTimeline() {
+    void import('./Timeline.svelte').then((m) => (timelineView = m.default));
+  }
 
   // The root and `#/attention` land on `#/now`, in place (no history entry), keeping the query of the fragment.
   function land() {
@@ -85,7 +90,11 @@
     void session.hashChanged(window.location.hash);
   }
 
-  const View = $derived(VIEWS[route.id]);
+  $effect(() => {
+    if (route.id === 'timeline' && timelineView === undefined) loadTimeline();
+  });
+
+  const View = $derived(route.id === 'timeline' ? timelineView : VIEWS[route.id]);
 </script>
 
 <svelte:window onhashchange={hashChanged} />
@@ -122,7 +131,9 @@
       <p role="alert">Sign out failed. Try again.</p>
     {/if}
     {#key param}
-      <View csrf={auth.session.csrf_token} {param} />
+      {#if View}
+        <View csrf={auth.session.csrf_token} {param} />
+      {/if}
     {/key}
   </Shell>
 {/if}
