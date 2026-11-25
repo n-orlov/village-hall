@@ -426,6 +426,9 @@
             {:else}
               <span data-testid="item-title">{row.title}</span>
             {/if}
+            {#if row.notice === true}
+              <span class="ml-2 inline-block rounded-md border border-border px-2 py-0.5 align-middle text-xs font-normal text-text-muted" data-testid="notice-mark">notice</span>
+            {/if}
           </p>
           {#if marksOf(marks, taskOfHref(row.href)).length > 0}
             <TagChips marks={marksOf(marks, taskOfHref(row.href))} ref={taskOfHref(row.href) ?? ''} />

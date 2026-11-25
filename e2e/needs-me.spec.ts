@@ -369,6 +369,23 @@ for (const vp of viewports) {
       await api.dispose();
     });
 
+    test('an expired notice shows the notice mark on Expired and an ordinary expired lease does not', async ({ page, playwright, baseURL }) => {
+      const { slug, api } = await ground(playwright, baseURL, `mark-${vp.name}`);
+      const plainTask = (await post<{ ref: string }>(api, '/api/v1/tasks', { initiative: slug, title: 'Ran out plain' }, 201)).ref;
+      const noticeTask = (await post<{ ref: string }>(api, '/api/v1/tasks', { initiative: slug, title: 'Ran out notice' }, 201)).ref;
+      const plain = (await post<{ lease: { ref: string } }>(api, '/api/v1/leases', { task: plainTask, intent: 'plain edit', resources: [`repo:mark-plain-${vp.name}`] }, 201)).lease.ref;
+      const notice = (await post<{ lease: { ref: string } }>(api, '/api/v1/leases', { task: noticeTask, intent: 'freeze', resources: [`env:mark-${vp.name}`], notice: true }, 201)).lease.ref;
+      await expireLease(api, plain);
+      await expireLease(api, notice);
+      await page.goto(`/#/now?initiative=${slug}`);
+      const expired = items(page, 'expired_leases');
+      await expect(expired).toHaveCount(2, FIVE_SECONDS);
+      const marked = expired.filter({ hasText: notice });
+      await expect(marked.getByTestId('notice-mark')).toHaveText('notice');
+      await expect(expired.filter({ hasText: plain }).getByTestId('notice-mark')).toHaveCount(0);
+      await api.dispose();
+    });
+
     test('Record check takes a summary and the watch leaves Overdue watches', async ({ page, playwright, baseURL }) => {
       const { slug, api } = await ground(playwright, baseURL, `check-${vp.name}`);
       const task = (

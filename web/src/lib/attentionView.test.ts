@@ -155,6 +155,15 @@ describe('rowsFor', () => {
     ]);
   });
 
+  it('marks an expired notice with notice: true and leaves the mark off an ordinary expired lease', () => {
+    const lease = full.expired_leases![0]!;
+    const rows = rowsFor('expired_leases', { ...full, expired_leases: [{ ...lease, lease: 'L8', notice: true }, lease] }, NOW);
+    expect(rows.map((r) => [r.id, r.notice])).toEqual([
+      ['L8', true],
+      ['L4', undefined],
+    ]);
+  });
+
   it('shows an overdue watch with its owner and the last check when there is one', () => {
     const [checked, fresh] = rowsFor('overdue_watches', full, NOW);
     expect(checked!.details).toEqual(['check was due 2 hours ago', 'last check: all well']);

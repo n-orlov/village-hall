@@ -47,6 +47,8 @@ export interface ItemRow {
   actors: ItemActor[];
   /** The instant the item is ordered by (an ask's creation, a lease's expiry, a watch's due time, when a task was done, when a conflict began). */
   at: string | undefined;
+  /** True on an expired lease that was a notice (§4.4): the view marks it, and every other row leaves it out. */
+  notice?: true;
 }
 
 function actor(role: string, who: Actor): ItemActor {
@@ -97,6 +99,7 @@ function leaseRows(items: NonNullable<Attention['expired_leases']>, now: Date): 
     details: [l.intent, `expired ${relativeTime(l.expired_at, now)}`],
     actors: [actor('held by', l.holder)],
     at: l.expired_at,
+    ...(l.notice === true ? { notice: true as const } : {}),
   }));
 }
 
