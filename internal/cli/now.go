@@ -19,6 +19,7 @@ const nowCap = 5
 // nowView is what GET /api/v1/now answers.
 type nowView struct {
 	Actor        string         `json:"actor"`
+	Notices      []leaseView    `json:"notices"`
 	MyLeases     []nowLease     `json:"my_leases"`
 	OthersLeases []leaseView    `json:"others_leases"`
 	Conflicts    []conflictView `json:"conflicts"`
@@ -85,7 +86,8 @@ func fetchNow(p parsedArgs, env Env) (json.RawMessage, nowView, error) {
 	return raw, v, json.Unmarshal(raw, &v)
 }
 
-// nowText is the check-in: who I am, then the sections `my leases`, `others`,
+// nowText is the check-in: who I am, then the sections `notices` (every live
+// notice, `none` from an old server that omits them), `my leases`, `others`,
 // `conflicts`, `my asks` and `notes`, each one line per item, `none` for an
 // empty one, and the `attention` line with the counts.
 func nowText(v nowView, now time.Time) string {
@@ -101,7 +103,12 @@ func nowText(v nowView, now time.Time) string {
 	for i, c := range v.Conflicts {
 		conflicts[i] = conflictLine(c, now)
 	}
+	notices := make([]string, len(v.Notices))
+	for i, l := range v.Notices {
+		notices[i] = otherLeaseLine(l, now)
+	}
 	return "you: " + v.Actor + "\n" +
+		nowSection("notices", notices, 0, "vh lease ls --notice") +
 		nowSection("my leases", mine, 0, "vh lease ls --mine") +
 		nowSection("others", others, 0, "vh lease ls") +
 		nowSection("conflicts", conflicts, 0, "vh lease ls") +

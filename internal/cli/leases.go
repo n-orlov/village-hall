@@ -19,7 +19,7 @@ import (
 const ExitWarning = 7
 
 // LeaseUsage is the single stderr line for a malformed `vh lease` command line.
-const LeaseUsage = "usage: vh lease start <task> \"<intent>\" [--ttl D] [--res r]... [--notice] [--json] | renew [<L…>|<task>] [--ttl D] [--intent text] [--json] | end [<L…>|<task>] [\"<outcome>\"] [--json] | ack <L…> [--json] | ls [--state live|ended|expired|all] [--mine] [--task ref] [--res r] [--limit N|--all] [--json]"
+const LeaseUsage = "usage: vh lease start <task> \"<intent>\" [--ttl D] [--res r]... [--notice] [--json] | renew [<L…>|<task>] [--ttl D] [--intent text] [--json] | end [<L…>|<task>] [\"<outcome>\"] [--json] | ack <L…> [--json] | ls [--state live|ended|expired|all] [--mine] [--notice] [--task ref] [--res r] [--limit N|--all] [--json]"
 
 // leaseSubcommands are the words after `vh lease` and what runs each.
 var leaseSubcommands = map[string]func([]string, io.Writer, io.Writer, Env) int{

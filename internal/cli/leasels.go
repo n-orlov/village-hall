@@ -17,14 +17,14 @@ var leaseStates = []string{"live", "ended", "expired", "all"}
 // leaseQuery is what `vh lease ls` asks the server for.
 type leaseQuery struct {
 	state, task, resource string
-	mine                  bool
+	mine, notice          bool
 }
 
 // leaseFilter reads the filters of lease ls. A state outside the four is not ok.
 func leaseFilter(p parsedArgs) (leaseQuery, bool) {
 	q := leaseQuery{
 		state: last(p.values["--state"]), task: last(p.values["--task"]),
-		resource: last(p.values["--res"]), mine: p.has("--mine"),
+		resource: last(p.values["--res"]), mine: p.has("--mine"), notice: p.has("--notice"),
 	}
 	return q, q.state == "" || slices.Contains(leaseStates, q.state)
 }
@@ -37,6 +37,9 @@ func (q leaseQuery) command() string {
 	}
 	if q.mine {
 		cmd += " --mine"
+	}
+	if q.notice {
+		cmd += " --notice"
 	}
 	if q.task != "" {
 		cmd += " --task " + quoteArg(q.task)
@@ -88,6 +91,9 @@ func (q leaseQuery) values(actor string) url.Values {
 		if val != "" {
 			v.Set(k, val)
 		}
+	}
+	if q.notice {
+		v.Set("notice", "true")
 	}
 	if q.mine {
 		v.Set("actor", actor)

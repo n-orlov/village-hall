@@ -50,7 +50,7 @@ var (
 	leaseEndFlags   = []flagSpec{{"--json", false}}
 	leaseLsFlags    = []flagSpec{
 		{"--state", true}, {"--mine", false}, {"--task", true}, {"--res", true},
-		{"--limit", true}, {"--all", false}, {"--json", false},
+		{"--notice", false}, {"--limit", true}, {"--all", false}, {"--json", false},
 	}
 	askFlags      = []flagSpec{{"--details", true}, {"--option", true}, {"--poll", true}, {"--stop", false}, {"--blocking", false}, {"--json", false}}
 	askShowFlags  = []flagSpec{{"--json", false}}

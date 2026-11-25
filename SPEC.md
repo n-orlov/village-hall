@@ -2250,10 +2250,10 @@ anything else is 1, except a 409 of `init close`, `init reopen`, `init edit`, `t
   an expired lease records it (§4.4) and clears the `stranded` reason of its task; acknowledging it again prints the same line
   and changes nothing. A lease that has not expired (live or ended) exits 6 with `→ vh lease ls --mine --state all`, an
   unknown lease exits 4 with `→ vh lease ls`.
-- `vh lease ls [--state live|ended|expired|all] [--mine] [--task ref] [--res r] [--limit N|--all] [--json]` calls `GET
+- `vh lease ls [--state live|ended|expired|all] [--mine] [--notice] [--task ref] [--res r] [--limit N|--all] [--json]` calls `GET
   /api/v1/leases` and prints one line per lease, oldest first, `L<n>  <state>  <task>  <holder>  "<intent>"  res a,b  exp
   41m` (the `res` part only when it holds resources; `expired 14m ago` or `ended 3m ago` in place of `exp` for the other
-  states). The state is `live` by default, `--mine` keeps the leases I hold, `--task` and `--res` filter by task and resource;
+  states). The state is `live` by default, `--mine` keeps the leases I hold, `--notice` keeps the notices (sends `notice=true`), `--task` and `--res` filter by task and resource;
   the cap is 20 as for the other lists with a `+K more → vh lease ls … --all` line, and an unknown task exits 4 with `→ vh
   task ls`. A `--state` outside the four is exit 2.
 - **Conflicts.** `lease start` and `lease renew` print each conflict the server answers on its own line after the `ok` line,
@@ -2262,8 +2262,10 @@ anything else is 1, except a 409 of `init close`, `init reopen`, `init edit`, `t
   either way; `--json` prints no `CONFLICT` line (the `conflicts` array carries them) and still exits 7. A no-argument renewal
   counts the conflicts of every lease it renewed.
 - `vh now [--resources r1,r2] [--json]` calls `GET /api/v1/now` (`--resources` is sent as the `resources` query, repeated
-  flags joined by `,`) and prints the check-in: `you: <handle>`, then five sections in this order, each a heading line and one
-  line per item indented by two spaces, then the `attention` line. `my leases:` lists my live leases as `L<n>  <task>
+  flags joined by `,`) and prints the check-in: `you: <handle>`, then six sections in this order, each a heading line and one
+  line per item indented by two spaces, then the `attention` line. `notices:` comes first, before `my leases:`, and lists every live
+  notice (§4.4) of the board, mine too, as `L<n>  <task>  <holder>  "<intent>"  res a,b  exp 41m` (the `notices` array of the answer;
+  an old server that omits it gives `notices: none`), at most 5 lines and then `  +K more → vh lease ls --notice`. `my leases:` lists my live leases as `L<n>  <task>
   <title>  "<intent>"  res a,b  exp 1h52m`, `others:` lists the live leases of other actors as `L<n>  <task>  <holder>  "<intent>"
   res a,b  exp 41m` and `conflicts:` lists the conflicts as the `CONFLICT` lines of `lease start` (the live leases that hold a
   resource of one of my live leases, and those of others that hold a resource given with `--resources`). `my asks:` lists
@@ -2273,7 +2275,7 @@ anything else is 1, except a 409 of `init close`, `init reopen`, `init edit`, `t
   it?"  answered by nik@phone 1m ago: "yes, ship"`. `notes:` lists the notes of the answer, the unread ones that concern me, in the
   line form of `vh notes` (`N<n>  3m ago  <author>  <task|initiative|broadcast>  [<resource>]  <summary>`, ending `  +` when the
   note has a body). Reading `now` moves no cursor; `vh notes --since last --ack` does. The `res` part is absent for a lease
-  without resources, and an empty section is its heading and `none` on one line (`others: none`, `my asks: none`, `notes: none`).
+  without resources, and an empty section is its heading and `none` on one line (`notices: none`, `others: none`, `my asks: none`, `notes: none`).
   Each section shows at most 5 lines (§8.1), then `  +K more → <command>`: `vh lease ls --mine` for my leases, `vh lease
   ls` for the others and the conflicts, `vh ask ls --mine` for my asks, and for the notes `vh notes --since last`, where `K`
   also counts the `notes_more` notes the server left out; `now` has no `--limit` or `--all`. The last line is always
@@ -2396,7 +2398,7 @@ anything else is 1, except a 409 of `init close`, `init reopen`, `init edit`, `t
 vh version | update [--check] [--version vX.Y.Z]
 vh help agent [--version]            # the agent protocol cheat sheet (§8.6)
 vh whoami                            # handle, way back, key name, server reachability
-vh now [--resources r1,r2]           # check-in: my leases, others' live leases, conflicts, my asks, new notes
+vh now [--resources r1,r2]           # check-in: live notices, my leases, others' live leases, conflicts, my asks, new notes
 vh attention [--tag t]... [--init slug] [--limit N|--all]   # the five §5.3 sections, one line per item
 vh init add <slug> "<title>" [--tag t]... | ls [--tag t]... [--status open|closed|all] [--closed-within N] [--limit N|--all] | show <slug>
                 | edit <slug> [--title T] [--description file|-] [--tag t]... [--no-tags] [--start D] [--end D] [--clear-start] [--clear-end]
@@ -2472,7 +2474,7 @@ Shortcuts print the same `ok …` lines as the primitives they replace (one per 
 print, one line per effect, then the `now` summary of `vh now`:
 
 - `vh start <task> "<intent>" [--res r]… [--ttl D] [--notice] [--json]` prints the `vh lease start` line `ok lease L<n> <task> exp <ttl>`
-  with a `CONFLICT` line for each live lease of another that holds one of its resources, and then the `now` summary. `--notice` starts a
+  with a `CONFLICT` line for each live lease of another that holds one of its resources, and then the `now` summary, `notices:` section first (§8.3 `vh now`). `--notice` starts a
   notice lease as `vh lease start --notice` does, and the other-kind refusal exits 6 the same way.
 - `vh new <initiative> "<title>" --start "<intent>" [--tag t]… [--res r]… [--ttl D] [--json]` prints the `vh task add` line
   `ok task <ref> created`, then the same lease line and `CONFLICT` lines, then the `now` summary. `--start` is required.

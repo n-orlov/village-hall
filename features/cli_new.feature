@@ -19,7 +19,8 @@ Feature: Creating and starting a task from the command line, vh new
     And stdout line 1 matches '^ok task aa-1 created$'
     And stdout line 2 matches '^ok lease L1 aa-1 exp 1h30m$'
     And stdout line 3 matches '^you: claude@laptop$'
-    And stdout line 4 matches '^my leases:$'
+    And stdout line 4 matches '^notices: none$'
+    And stdout line 5 matches '^my leases:$'
     And stderr is empty
     And the counts of tasks, leases and events changed by 1, 1 and 2
     And exactly 1 task_created event exists for the task "aa-1"

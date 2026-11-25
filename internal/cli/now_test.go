@@ -18,7 +18,7 @@ func TestNowTextListsTheThreeSections(t *testing.T) {
 	srv := httptest.NewServer(f)
 	defer srv.Close()
 	code, out, errs := runEnv(f.env(srv), "now", "--resources", "repo:x", "--resources=host:z")
-	want := "you: me\nmy leases:\n  L1  aa-1  Wire it  \"wiring\"  res repo:x,host:y  exp 1h52m\nothers:\n" +
+	want := "you: me\nnotices: none\nmy leases:\n  L1  aa-1  Wire it  \"wiring\"  res repo:x,host:y  exp 1h52m\nothers:\n" +
 		"  L2  aa-2  you  \"testing\"  exp 41m\nconflicts:\n  CONFLICT repo:x: L2 you (aa-2) \"testing\" exp 41m\n" +
 		"my asks:\n  A1  open  aa-1  me  \"which one?\"  asked 3m ago\n" +
 		"  ANSWERED A2  answered  aa-1  me  \"ready?\"  answered by you 1m ago: \"yes now\"\n" +
@@ -31,7 +31,7 @@ func TestNowTextListsTheThreeSections(t *testing.T) {
 		t.Errorf("query %q", got)
 	}
 	// The times shown depend on the clock the command ran with, so compare the fixed parts.
-	if !strings.HasPrefix(out, "you: me\nmy leases:\n  L1  aa-1  Wire it  \"wiring\"  res repo:x,host:y  exp ") {
+	if !strings.HasPrefix(out, "you: me\nnotices: none\nmy leases:\n  L1  aa-1  Wire it  \"wiring\"  res repo:x,host:y  exp ") {
 		t.Errorf("got %q", out)
 	}
 	var v nowView
@@ -108,7 +108,7 @@ func mustDecodeNow(t *testing.T, s string, v *nowView) {
 func TestNowTextWithNothingNewStillPrintsTheAttentionLine(t *testing.T) {
 	var v nowView
 	mustDecodeNow(t, `{"actor":"me","my_leases":[],"others_leases":[],"conflicts":[],"my_asks":[],"notes":[],"notes_more":0,"attention":{}}`, &v)
-	want := "you: me\nmy leases: none\nothers: none\nconflicts: none\nmy asks: none\nnotes: none\n" +
+	want := "you: me\nnotices: none\nmy leases: none\nothers: none\nconflicts: none\nmy asks: none\nnotes: none\n" +
 		"attention: asks 0 · done 0 · expired 0 · overdue 0 · conflicts 0\n"
 	if got := nowText(v, time.Now()); got != want {
 		t.Errorf("got %q", got)

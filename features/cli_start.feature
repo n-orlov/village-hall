@@ -19,8 +19,9 @@ Feature: Starting work from the command line, vh start
     Then the exit code is 0
     And stdout line 1 matches '^ok lease L1 aa-1 exp 4h$'
     And stdout line 2 matches '^you: claude@laptop$'
-    And stdout line 3 matches '^my leases:$'
-    And stdout line 4 matches '^  L1  aa-1  Task 1  "fixing it"  res repo:x  exp '
+    And stdout line 3 matches '^notices: none$'
+    And stdout line 4 matches '^my leases:$'
+    And stdout line 5 matches '^  L1  aa-1  Task 1  "fixing it"  res repo:x  exp '
     And stderr is empty
     And the counts of tasks, leases and events changed by 0, 1 and 1
     And exactly 1 lease_started event exists for the lease "L1"

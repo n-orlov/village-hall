@@ -18,7 +18,7 @@ func startAnswer(created bool, conflicts string) string {
 		conflicts + `],"task_created":` + made + `,"now":` + now + `,"protocol":5,"protocol_seen":5}`
 }
 
-const startNowText = "you: me\nmy leases:\n  L1  aa-1  Wire it  \"wiring\"  res repo:x,host:y  exp 1h52m\nothers:\n" +
+const startNowText = "you: me\nnotices: none\nmy leases:\n  L1  aa-1  Wire it  \"wiring\"  res repo:x,host:y  exp 1h52m\nothers:\n" +
 	"  L2  aa-2  you  \"testing\"  exp 41m\nconflicts: none\n" +
 	"my asks:\n  A1  open  aa-1  me  \"which one?\"  asked 3m ago\n" +
 	"  ANSWERED A2  answered  aa-1  me  \"ready?\"  answered by you 1m ago: \"yes now\"\n" +
