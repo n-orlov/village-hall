@@ -1872,8 +1872,10 @@ wait, and requires the label to read "asker waiting" within five seconds with no
 
 The source of every live signal is the `events` table, tailed by `n` (the order of insertion) by the
 change feed of `internal/feed/`, one per `vh serve`. It reads the rows after the last one it delivered
-every `VH_STREAM_POLL` (default `1s`, §13) and a write made through the same server wakes it at once,
-so a local write reaches a subscriber without waiting for the interval. Each subscriber (an SSE stream,
+every `VH_STREAM_POLL` (default `10s`, §13) and a write made through the same server wakes it at once,
+so a local write reaches a subscriber without waiting for the interval. The interval is a backstop for
+the writes of other replicas: a replica on the same database sees a write within it, never later, and an
+idle board reads the table once per interval and not once a second. Each subscriber (an SSE stream,
 §7.1; an ask waiter, §7.2) gets every event after the position its subscription began at, in order of `n`,
 once. A subscriber costs a channel, not a goroutine, and a subscriber that falls too far behind is ended
 so that it resynchronises (the stream sends `reset`) instead of holding the feed back.
@@ -3964,7 +3966,7 @@ also accepted (§13.1).
 | `BOARD_LEASE_MAX_TTL` | `12h` | |
 | `VH_SWEEP_INTERVAL` | `15s` | how often `vh serve` expires due leases and deletes expired sessions and Idempotency-Key rows older than 24 hours (§5.1). A Go duration above zero; `off` (also `0` or `0s`) turns the sweeper off, and reads still expire leases lazily. Any other value exits 1 |
 | `VH_SQLITE_CHECKPOINT` | `10m` | how often `vh serve` on SQLite runs `PRAGMA wal_checkpoint(TRUNCATE)` so the `-wal` file shrinks back to nothing, and it runs once more on clean shutdown (SIGINT or SIGTERM), after the sweeper and the change feed stopped. A Go duration; `0` (also `0s` or `off`) turns the timer off, and the shutdown checkpoint still runs. A reader holding the log open leaves it for the next tick. Postgres is unaffected. Any other value exits 1 |
-| `VH_STREAM_POLL` | `1s` | how often the change feed (§7.3) reads new `events` rows; a write through the same server wakes it at once. A Go duration above zero; any other value exits 1 |
+| `VH_STREAM_POLL` | `10s` | how often the change feed (§7.3) reads new `events` rows, as a backstop for the writes of other replicas; a write through the same server wakes it at once. A Go duration above zero; any other value exits 1 |
 | `VH_NOTIFY_URL` | (unset: alerts off) | where `serve` POSTs an alert (§5.4). Unset, no write enqueues a notification and no row is written. It comes from the environment only |
 | `VH_NOTIFY_ON` | `stranded,asking,done` | the kinds of alert that are enqueued: a comma list of `stranded`, `asking` and `done` (§5.4). Any other word, or an empty one, exits 1, whether or not `VH_NOTIFY_URL` is set |
 | `VH_NOTIFY_TIMEOUT` | `10s` | how long one alert POST may take to get a response status line, connect to status (§5.4); the response body is not read, so a stalled or truncated body after a 2xx does not matter. A Go duration above zero; any other value exits 1, whether or not `VH_NOTIFY_URL` is set. A POST that gets no status line within it fails with `last_error` `timeout` and is retried |

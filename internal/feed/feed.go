@@ -3,8 +3,9 @@
 // order. The SSE stream and the ask long-poll are built on it, so that several
 // servers on one database each see every event, whichever server took the write.
 //
-// The feed polls every VH_STREAM_POLL and a local write wakes it at once
-// through Notify. On Postgres a lower `n` can commit after a higher one, so a
+// A local write wakes the feed at once through Notify; the poll every
+// VH_STREAM_POLL (10 s by default) is the backstop that catches a write made by
+// another server on the same database. On Postgres a lower `n` can commit after a higher one, so a
 // gap in `n` is held back until every transaction that could still commit the
 // missing number has ended; a number still missing after that rolled back.
 package feed
@@ -23,8 +24,11 @@ import (
 	"github.com/n-orlov/village-hall/internal/store"
 )
 
-// DefaultPoll is the poll interval when VH_STREAM_POLL is unset.
-const DefaultPoll = time.Second
+// DefaultPoll is the poll interval when VH_STREAM_POLL is unset. It is a
+// backstop, not the delivery path: a write through this server wakes the feed
+// at once (Notify), so the idle tick only has to find the writes of other
+// replicas, and an idle board does not read the table every second.
+const DefaultPoll = 10 * time.Second
 
 const (
 	defaultBuffer = 256
@@ -45,7 +49,7 @@ func ParseInterval(v string) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("VH_STREAM_POLL=%q: want a duration above zero such as 1s", v)
+		return 0, fmt.Errorf("VH_STREAM_POLL=%q: want a duration above zero such as 10s", v)
 	}
 	return d, nil
 }

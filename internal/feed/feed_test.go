@@ -117,7 +117,7 @@ func TestParseInterval(t *testing.T) {
 		want    time.Duration
 		wantErr bool
 	}{
-		{"", time.Second, false}, {"  ", time.Second, false}, {"250ms", 250 * time.Millisecond, false}, {"3s", 3 * time.Second, false},
+		{"", DefaultPoll, false}, {"  ", DefaultPoll, false}, {"250ms", 250 * time.Millisecond, false}, {"3s", 3 * time.Second, false},
 		{"soon", 0, true}, {"0", 0, true}, {"0s", 0, true}, {"-1s", 0, true}, {"off", 0, true}, {"5", 0, true},
 	} {
 		got, err := ParseInterval(tc.in)
@@ -128,6 +128,148 @@ func TestParseInterval(t *testing.T) {
 			t.Errorf("error %q does not name VH_STREAM_POLL", err)
 		}
 	}
+}
+
+func TestTheIdleTickIsABackstopOfAtLeastTenSeconds(t *testing.T) {
+	if DefaultPoll < 10*time.Second {
+		t.Errorf("DefaultPoll = %v, want at least 10s", DefaultPoll)
+	}
+	if got, err := ParseInterval(""); err != nil || got != DefaultPoll {
+		t.Errorf("ParseInterval(\"\") = %v, %v; want DefaultPoll", got, err)
+	}
+	if got, err := ParseInterval("250ms"); err != nil || got != 250*time.Millisecond {
+		t.Errorf("VH_STREAM_POLL=250ms gave %v, %v", got, err)
+	}
+}
+
+// fakeClock is a clock the test advances by hand: its ticker fires once for
+// every whole interval the clock has moved, and a poll never sleeps.
+type fakeClock struct {
+	mu       sync.Mutex
+	now      time.Time
+	interval time.Duration // what the feed asked its ticker for
+	next     time.Time
+	ch       chan time.Time
+}
+
+func newFakeClock() *fakeClock { return &fakeClock{now: t0, ch: make(chan time.Time, 100)} }
+
+func (c *fakeClock) tick(d time.Duration) (<-chan time.Time, func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.interval, c.next = d, c.now.Add(d)
+	return c.ch, func() {}
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+	for c.interval > 0 && !c.next.After(c.now) {
+		c.ch <- c.next
+		c.next = c.next.Add(c.interval)
+	}
+}
+
+func (c *fakeClock) asked() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.interval
+}
+
+// countingSource counts the reads of the table and says when one has finished.
+type countingSource struct {
+	*fakeSource
+	reads  chan int
+	mu     sync.Mutex
+	nReads int
+}
+
+func (s *countingSource) After(ctx context.Context, n int64, limit int) ([]events.Event, error) {
+	got, err := s.fakeSource.After(ctx, n, limit)
+	s.mu.Lock()
+	s.nReads++
+	k := s.nReads
+	s.mu.Unlock()
+	s.reads <- k
+	return got, err
+}
+
+func (s *countingSource) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.nReads
+}
+
+// awaitRead waits for the read numbered want to finish.
+func awaitRead(t *testing.T, src *countingSource, want int) {
+	t.Helper()
+	for {
+		select {
+		case k := <-src.reads:
+			if k >= want {
+				return
+			}
+		case <-time.After(testWait):
+			t.Fatalf("read %d never finished (%d reads)", want, src.count())
+		}
+	}
+}
+
+func TestTheIdleTickRunsNoPollBeforeTheBackstopButANotifyDoesAndAPollIntervalSetsTheTick(t *testing.T) {
+	src := &countingSource{fakeSource: &fakeSource{}, reads: make(chan int, 100)}
+	clock := newFakeClock()
+	f := NewAt(src, 0, Options{Tick: clock.tick}) // the production default interval
+	s := f.Subscribe()
+	defer s.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { f.Run(ctx); close(done) }()
+	defer func() { cancel(); waitDone(t, done) }()
+
+	awaitRead(t, src, 1) // the initial poll
+	if got := clock.asked(); got != DefaultPoll {
+		t.Fatalf("the feed asked for a tick every %v, want DefaultPoll %v", got, DefaultPoll)
+	}
+	clock.advance(9 * time.Second)
+	time.Sleep(50 * time.Millisecond) // a poll started by that advance would have read by now
+	if n := src.count(); n != 1 {
+		t.Fatalf("%d reads after 9s with no write, want the initial one only", n)
+	}
+
+	src.put(1)
+	f.Notify() // the clock does not move
+	awaitRead(t, src, 2)
+	if e := receive(t, s); e.N != 1 {
+		t.Errorf("got %+v", e)
+	}
+
+	// The backstop still fires once the interval has passed.
+	src.put(2)
+	clock.advance(DefaultPoll)
+	if e := receive(t, s); e.N != 2 {
+		t.Errorf("got %+v after the backstop", e)
+	}
+}
+
+func TestAStreamPollIntervalIsWhatTheFeedAsksItsTickerFor(t *testing.T) {
+	d, err := ParseInterval("3s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := &countingSource{fakeSource: &fakeSource{}, reads: make(chan int, 100)}
+	clock := newFakeClock()
+	f := NewAt(src, 0, Options{Poll: d, Tick: clock.tick})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { f.Run(ctx); close(done) }()
+	defer func() { cancel(); waitDone(t, done) }()
+	awaitRead(t, src, 1)
+	if got := clock.asked(); got != 3*time.Second {
+		t.Fatalf("the feed asked for a tick every %v, want 3s", got)
+	}
+	clock.advance(3 * time.Second)
+	awaitRead(t, src, 2)
 }
 
 func TestPollDeliversInOrderOnceToEverySubscriber(t *testing.T) {
