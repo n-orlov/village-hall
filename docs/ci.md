@@ -395,8 +395,8 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   E2E asks it for only that step (`BOARD_CI_PLAYWRIGHT=only`: Playwright once on
   the web build the Web UI unit stashed, with no repeat of a failed run; no
   Vitest, no Go pass). E2E's bound is 40 minutes on push and `EXTENDED` builds alike; Suite's
-  stays 45 minutes (120 `EXTENDED`). Nothing else about Playwright changed: one
-  worker, no `fullyParallel`, no shards, no added retry, no raised per-test
+  stays 45 minutes (120 `EXTENDED`). Nothing else about Playwright changed: `E2E_WORKERS`
+  workers (2, at most 3; see Playwright worker count above), no `fullyParallel`, no shards, no added retry, no raised per-test
   timeout, no raised thread budget, and every test runs on every push build.
   E2E stashes `res-e2e` (`junit-playwright.xml`, the `playwright/` output,
   `playwright.log`), which Quality unstashes beside
