@@ -282,17 +282,18 @@ func groupFlight(rows []flightRow) []InFlight {
 }
 
 // recent lists the tasks with no live lease whose last event is not older than the
-// window, the latest event first, from one query.
+// window, the latest event first, from one query that walks the events newest
+// first (index events_at_n) and keeps each task's newest event.
 func (s Store) recent(ctx context.Context, sc scope, now time.Time, span time.Duration) ([]Recent, error) {
 	live, args := liveCond(now)
 	cond, more := sc.and(`t.initiative_id`)
 	args = append([]any{store.EncodeBound(now.Add(-span))}, args...)
 	sec := section{
 		cols: flightCols + `, e.type, e.summary, e.at, a.handle, a.way_back, og.handle`,
-		from: `tasks t JOIN initiatives i ON i.id = t.initiative_id
-		 JOIN events e ON e.n = (SELECT MAX(c.n) FROM events c WHERE c.task_id = t.id)
+		from: `events e JOIN tasks t ON t.id = e.task_id JOIN initiatives i ON i.id = t.initiative_id
 		 JOIN actors a ON a.id = e.actor_id LEFT JOIN actors og ON og.id = e.origin
-		 WHERE e.at >= ? AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.task_id = t.id AND ` + live + `)` + cond,
+		 WHERE e.at >= ? AND e.n = (SELECT MAX(c.n) FROM events c WHERE c.task_id = e.task_id)
+		 AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.task_id = t.id AND ` + live + `)` + cond,
 		order: `e.at DESC, e.n DESC`, args: append(args, more...),
 	}
 	return collect(ctx, s, sec, func(r rowScanner) (Recent, error) {

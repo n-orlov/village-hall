@@ -39,6 +39,7 @@
         "packages": [
             "internal/domain",
             "internal/store",
+            "internal/store/storetest",
             "internal/asks",
             "internal/attention",
             "internal/checkin",
@@ -66,7 +67,8 @@
         "lanes": {
             "base": [
                 "internal/domain",
-                "internal/store"
+                "internal/store",
+                "internal/store/storetest"
             ],
             "logic": [
                 "internal/asks",

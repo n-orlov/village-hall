@@ -767,7 +767,7 @@ The Go tools under `ci/` have their own tests, and `ci/run.sh go test -count=1
   the Jenkins Mutation unit (only with `MUTATION=true`, `MUTATION_FULL=true` or the
   nightly of `main`; a push build of `main` skips it). The
   script runs `gremlins unleash` over each package in `mutation_go.packages`
-  (`internal/domain`, `internal/store`, and the application logic Phase 2
+  (`internal/domain`, `internal/store`, its test helper `internal/store/storetest`, and the application logic Phase 2
   introduced or changed: `internal/asks`, `internal/attention`,
   `internal/audit`, `internal/checkin`, `internal/cursors`, `internal/events`,
   `internal/feed`, `internal/idempotency`, `internal/notes`, `internal/tasks`, `internal/server`,
