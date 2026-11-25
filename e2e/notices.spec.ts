@@ -7,7 +7,8 @@ import { actorApi, created } from './now';
 // banner must show on Now, on Tasks and on a task page at 390 px with the holder, the intent, the resources, the time left
 // and a link to the notice's task, with no sideways scroll, with no serious or critical axe violation (the full rule set
 // in the light theme, the colour rules in the dark one, as the other views are scanned), and it must be gone once the
-// notice ends. Signs in through the mock provider, so no API key rides along. Each step waits on the banner itself.
+// notice ends. A second test holds `GET /api/v1/now` back for 500 ms, so the banner arrives after the view is drawn, and
+// measures that it moves nothing: the layout-shift entries add up to 0 and the view's content keeps its top y. Signs in through the mock provider, so no API key rides along. Each step waits on the banner itself.
 const test = base;
 
 const PHONE = { width: 390, height: 844 };
@@ -36,6 +37,17 @@ async function scan(page: Page, theme: string) {
     blocking.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => ({ target: n.target, summary: n.failureSummary })) })),
     'serious or critical axe violations',
   ).toEqual([]);
+}
+
+const NOW_DELAY_MS = 500;
+const AFTER_BANNER_MS = 1000;
+// The view's content container: the first thing in the main area that is not the banner.
+const CONTENT = '#main > :not([data-testid=notices])';
+
+declare global {
+  interface Window {
+    __layoutShift: number;
+  }
 }
 
 interface Seed {
@@ -102,3 +114,56 @@ for (const theme of themes) {
     });
   });
 }
+
+test.describe('notices banner, layout', () => {
+  test.use({ viewport: PHONE });
+
+  test('moves nothing when it arrives late: layout shift 0 and the content keeps its top y, on Now, Tasks and a task page', async ({ page, playwright, baseURL }) => {
+    const slug = 'e2e-notice-shift';
+    const holder = 'notice-ops-shift';
+    const api = await actorApi(playwright, baseURL, holder);
+    let lease = '';
+    try {
+      await created(api, '/api/v1/initiatives', { slug, title: 'Notices shift' });
+      const task = (await created(api, '/api/v1/tasks', { initiative: slug, title: 'Freeze the deploys' })).ref;
+      lease = ((await created<{ lease: { ref: string } }>(api, '/api/v1/leases', { task, intent: 'deploy freeze for the release', resources: ['env:shift-prod'], notice: true })).lease).ref;
+
+      // Every layout-shift entry from the start of each navigation is added up (the entries already buffered included).
+      await page.addInitScript(() => {
+        window.__layoutShift = 0;
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) window.__layoutShift += (entry as unknown as { value: number }).value;
+        }).observe({ type: 'layout-shift', buffered: true });
+      });
+      await page.route('**/api/v1/now', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, NOW_DELAY_MS));
+        await route.continue();
+      });
+
+      const content = page.locator(CONTENT).first();
+      const top = () => content.evaluate((el) => el.getBoundingClientRect().top);
+      const mine = page.getByTestId('notices').getByTestId('notice').filter({ hasText: holder });
+      const targets = [
+        { name: 'Now', hash: '#/now' },
+        { name: 'Tasks', hash: '#/tasks' },
+        { name: 'task page', hash: `#/t/${task}` },
+      ];
+      for (const target of targets) {
+        // A navigation of its own (a change of the fragment alone keeps the page, its banner and its counter).
+        await page.goto('about:blank');
+        await page.goto(`/${target.hash}`);
+        await expect(content, `${target.name}: the content is drawn`).toBeVisible(FIVE_SECONDS);
+        const before = await top();
+        await expect(mine, `${target.name}: the banner shows the notice`).toBeVisible(FIVE_SECONDS);
+        await page.waitForTimeout(AFTER_BANNER_MS);
+        const after = await top();
+        const shift = await page.evaluate(() => window.__layoutShift);
+        expect(shift, `${target.name}: the layout-shift entries add up to`).toBe(0);
+        expect(after, `${target.name}: the top y of the content, first drawn against 1 s after the banner`).toBe(before);
+      }
+    } finally {
+      if (lease !== '') await api.post(`/api/v1/leases/${lease}/end`, { data: {} });
+      await api.dispose();
+    }
+  });
+});

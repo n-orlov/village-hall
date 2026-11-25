@@ -1,8 +1,9 @@
 <script lang="ts">
   import { noticeLines, type Notice } from './lib/notices';
 
-  // The live notices above the content of every view (SPEC 11). It renders nothing while there is none, so a board with
-  // no notice looks as it did. The time left is recomputed every 15 seconds without a read, and a notice whose time has
+  // The live notices of every view (SPEC 11). It renders nothing while there is none, so a board with no notice looks as
+  // it did. It sits after the view in the main area and sticks to the bottom of the screen (above the phone's tab bar),
+  // so the notices read late, when the view is already drawn, move nothing: the view keeps its place. The time left is recomputed every 15 seconds without a read, and a notice whose time has
   // run out leaves the banner the same way.
   let { notices }: { notices: Notice[] } = $props();
 
@@ -17,7 +18,7 @@
 </script>
 
 {#if lines.length > 0}
-  <section aria-label="Notices" class="mb-4 flex flex-col gap-2" data-testid="notices">
+  <section aria-label="Notices" class="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] z-20 mt-4 flex max-h-[40dvh] flex-col gap-2 overflow-y-auto md:bottom-4" data-testid="notices">
     <ul class="flex flex-col gap-2">
       {#each lines as line (line.lease)}
         <li class="min-w-0 rounded-md border border-warning bg-surface-raised px-3 py-2 text-sm text-text" data-testid="notice">

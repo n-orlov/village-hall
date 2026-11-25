@@ -131,11 +131,11 @@
     {#if signOutFailed}
       <p role="alert">Sign out failed. Try again.</p>
     {/if}
-    <NoticeBanner {notices} />
     {#key param}
       {#if View}
         <View csrf={auth.session.csrf_token} {param} />
       {/if}
     {/key}
+    <NoticeBanner {notices} />
   </Shell>
 {/if}
