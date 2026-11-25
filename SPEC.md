@@ -2827,6 +2827,7 @@ refetch; a matching event refetches that view, **at most once per 500 ms burst**
 the timer, the others share its refetch). `attention` messages go to a listener (the nav badge) without a fetch. A
 `reset`, and the stream opening again after an error, refetch every subscribed view; the first open does not. A stream
 the browser gave up on (closed, not retried) is opened again after 3 s, and at once when the browser comes back online.
+**While the document is hidden** (`document.visibilityState`, `Live.setVisible`, driven by `visibilitychange`) no subscriber refetches: an event that matches a subscriber, a `reset` or a reconnect marks it dirty (a debounce running when the tab is hidden is cancelled and counts as an event), and when the document becomes visible each dirty subscriber refetches **once**, at once; a subscriber nothing reached does not refetch. Arrival listeners and `attention` counts still hear everything while hidden. `web/src/lib/live.test.ts` counts the calls: 5 events while hidden give 0 calls, then 1 per subscriber that had one on visible, and a reconnect while hidden gives 0 until visible.
 The **indicator** state is `live` (the stream is open), `reconnecting` (opening, or after an error) or `offline` (the
 browser says it is offline, whatever the stream does). The shell shows it (`web/src/LiveIndicator.svelte`, started with
 the shell) as a coloured dot plus the state's word (`live` success, `reconnecting` warning, `offline` danger), so the state

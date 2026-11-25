@@ -256,6 +256,96 @@ describe('reset and reconnect', () => {
   });
 });
 
+describe('a hidden document', () => {
+  it('sends no refetch for 5 events while hidden, then one per subscriber that had an event once visible', async () => {
+    const { l, sources } = rig();
+    const tasks = vi.fn();
+    const notes = vi.fn();
+    const quiet = vi.fn();
+    l.subscribe((e) => e.type.startsWith('task'), tasks);
+    l.subscribe((e) => e.type.startsWith('note'), notes);
+    l.subscribe((e) => e.type === 'never', quiet);
+    l.start();
+    sources[0].opens();
+    l.setVisible(false);
+    for (const type of ['task_done', 'task_closed', 'note_added', 'task_done', 'task_done']) sources[0].send('board', ev(type));
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 10);
+    expect([tasks, notes, quiet].map((f) => f.mock.calls.length)).toEqual([0, 0, 0]);
+    l.setVisible(true);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 10);
+    expect([tasks, notes, quiet].map((f) => f.mock.calls.length)).toEqual([1, 1, 0]);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 10);
+    expect([tasks, notes, quiet].map((f) => f.mock.calls.length)).toEqual([1, 1, 0]);
+  });
+
+  it('holds a refetch whose debounce was running when the document was hidden, and runs it once on visible', async () => {
+    const { l, sources } = rig();
+    const refetch = vi.fn();
+    l.subscribe(() => true, refetch);
+    l.start();
+    sources[0].send('board', ev('task_done'));
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS / 2);
+    l.setVisible(false);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 4);
+    expect(refetch).not.toHaveBeenCalled();
+    l.setVisible(true);
+    l.setVisible(true);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 4);
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refetch on becoming visible when no event came while hidden', async () => {
+    const { l, sources } = rig();
+    const refetch = vi.fn();
+    l.subscribe(() => true, refetch);
+    l.start();
+    sources[0].opens();
+    l.setVisible(false);
+    l.setVisible(true);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 4);
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
+  it('refetches nothing for a reconnect or a reset while hidden until visible, then once per subscriber', async () => {
+    const { l, sources } = rig();
+    const one = vi.fn();
+    const two = vi.fn();
+    l.subscribe(() => false, one);
+    l.subscribe(() => false, two);
+    l.start();
+    sources[0].opens();
+    l.setVisible(false);
+    sources[0].errors();
+    sources[0].opens();
+    sources[0].send('reset', {});
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 10);
+    expect([one, two].map((f) => f.mock.calls.length)).toEqual([0, 0]);
+    l.setVisible(true);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 10);
+    expect([one, two].map((f) => f.mock.calls.length)).toEqual([1, 1]);
+  });
+
+  it('still tells arrival listeners about events while hidden, and drops what is owed on stop or unsubscribe', async () => {
+    const { l, sources } = rig();
+    const arrived: unknown[] = [];
+    l.onArrival((e) => arrived.push(e?.type));
+    const stopped = vi.fn();
+    const gone = vi.fn();
+    l.subscribe(() => true, stopped);
+    const off = l.subscribe(() => true, gone);
+    l.start();
+    l.setVisible(false);
+    sources[0].send('board', ev('task_done'));
+    expect(arrived).toEqual(['task_done']);
+    off();
+    l.stop();
+    l.setVisible(true);
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 4);
+    expect(stopped).not.toHaveBeenCalled();
+    expect(gone).not.toHaveBeenCalled();
+  });
+});
+
 describe('indicator states', () => {
   it('goes reconnecting, live, reconnecting after an error, live again', () => {
     const { l, sources, states } = rig();
@@ -317,6 +407,8 @@ describe('the tab-wide instance', () => {
     const made: FakeSource[] = [];
     vi.stubGlobal('window', { location: { pathname: '/board/' }, addEventListener: (t: string, f: () => void) => handlers.set(t, f) });
     vi.stubGlobal('navigator', { onLine: false });
+    const doc = { visibilityState: 'visible', addEventListener: (t: string, f: () => void) => handlers.set(t, f) };
+    vi.stubGlobal('document', doc);
     vi.stubGlobal(
       'EventSource',
       class extends FakeSource {
@@ -340,6 +432,15 @@ describe('the tab-wide instance', () => {
     made[0].send('board', ev('task_done'));
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
     expect(refetch).toHaveBeenCalledTimes(1);
+    doc.visibilityState = 'hidden';
+    handlers.get('visibilitychange')?.();
+    made[0].send('board', ev('task_done'));
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    doc.visibilityState = 'visible';
+    handlers.get('visibilitychange')?.();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+    expect(refetch).toHaveBeenCalledTimes(2);
     first.stop();
   });
 });

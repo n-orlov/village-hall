@@ -4,7 +4,9 @@
 // A `reset` and a reconnect after an error refetch every subscribed (visible) view. An arrival listener hears each
 // event the moment it arrives (before any debounce), and `undefined` when events may have been missed (a reset or a
 // reconnect), so a view can tell a read begun before an event from one begun after it. Nothing here
-// polls: the only timers are the debounce and the reopen of a stream the browser gave up on.
+// polls: the only timers are the debounce and the reopen of a stream the browser gave up on. While the document is hidden
+// no subscriber refetches: each one an event (or a reset, or a reconnect) reached is marked dirty, and becoming visible
+// runs one refetch per dirty subscriber.
 import type { components } from './api/schema';
 import { apiUrl, currentApiBase } from './apibase';
 
@@ -37,6 +39,8 @@ interface Subscription {
   matches: (event: BoardEvent) => boolean;
   refetch: () => unknown;
   timer?: unknown;
+  /** An event reached it while the document was hidden: one refetch is owed when it is visible again. */
+  dirty?: boolean;
 }
 
 function parse<T>(data: string): T | undefined {
@@ -54,6 +58,7 @@ export class Live {
   private arrivals = new Set<(event: BoardEvent | undefined) => void>();
   private states = new Set<(state: LiveState) => void>();
   private online = true;
+  private visible = true;
   private open = false;
   private errored = false;
   private reopenTimer?: unknown;
@@ -73,13 +78,16 @@ export class Live {
     if (this.source === undefined) this.connect();
   }
 
-  /** Closes the stream and drops every pending refetch. Subscribers stay registered. */
+  /** Closes the stream and drops every pending refetch (and every refetch owed to a hidden document). Subscribers stay registered. */
   stop(): void {
     this.source?.close();
     this.source = undefined;
     this.open = false;
     this.cancelReopen();
-    for (const sub of this.subs) this.cancel(sub);
+    for (const sub of this.subs) {
+      this.cancel(sub);
+      sub.dirty = false;
+    }
     this.publish();
   }
 
@@ -117,6 +125,26 @@ export class Live {
     this.online = online;
     this.publish();
     if (online && this.source !== undefined && !this.open) this.reopenNow();
+  }
+
+  /**
+   * The document's visibility. Hidden: pending refetches are cancelled and their subscribers marked dirty, and no
+   * refetch runs until visible. Visible again: each dirty subscriber refetches once.
+   */
+  setVisible(visible: boolean): void {
+    if (visible === this.visible) return;
+    this.visible = visible;
+    for (const sub of [...this.subs]) {
+      if (!visible) {
+        if (sub.timer !== undefined) {
+          this.cancel(sub);
+          sub.dirty = true;
+        }
+      } else if (sub.dirty === true) {
+        sub.dirty = false;
+        this.run(sub);
+      }
+    }
   }
 
   private connect(): void {
@@ -179,6 +207,10 @@ export class Live {
 
   /** Starts the burst's timer unless one is running: events inside the burst share one refetch. */
   private schedule(sub: Subscription): void {
+    if (!this.visible) {
+      sub.dirty = true;
+      return;
+    }
     if (sub.timer !== undefined) return;
     sub.timer = this.env.setTimer(() => {
       sub.timer = undefined;
@@ -218,6 +250,10 @@ export function live(): Live {
       clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     });
     shared.setOnline(navigator.onLine);
+    if (typeof document !== 'undefined') {
+      shared.setVisible(document.visibilityState !== 'hidden');
+      document.addEventListener('visibilitychange', () => shared?.setVisible(document.visibilityState !== 'hidden'));
+    }
     window.addEventListener('online', () => shared?.setOnline(true));
     window.addEventListener('offline', () => shared?.setOnline(false));
   }
