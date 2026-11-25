@@ -3885,6 +3885,13 @@ network requests (all assets embedded).
   absent). A checkout whose web/ has not been built embeds a one-line placeholder page
   instead, so the Go packages still compile; the container build and `ci/suite.sh` build
   the real UI first.
+- **Cache headers (PRD R6).** A file under `/assets/` (Vite names it by content hash) answers
+  `Cache-Control: public, max-age=31536000, immutable`; an unknown name there, and `/assets`
+  itself, is a 404 with no cache header. `GET /` and `GET /index.html` are served by the
+  server itself (no redirect of `/index.html`) with `Cache-Control: no-cache`, an `ETag` (a
+  quoted SHA-256 prefix of the page) and `Content-Type: text/html; charset=utf-8`; an
+  `If-None-Match` that matches gets `304` with no body, any other value `200`. API answers
+  never carry `immutable`. `internal/server/ui_test.go` covers each against the real build.
 - Asset URLs are relative, and the API base comes from the page's own path
   (`web/src/lib/apibase.ts`): the mount prefix of the page plus `/api`, always a
   path, never an absolute or protocol-relative URL, so the UI works behind a

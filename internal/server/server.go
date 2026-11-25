@@ -78,7 +78,7 @@ func newHandler(ready Readiness, verify KeyVerifier, login *Login, keys *auth.Ke
 	if ui == nil {
 		ui = webui.Files()
 	}
-	mux.Handle("GET /", http.FileServerFS(ui))
+	mux.Handle("GET /", uiHandler(ui))
 	// The feed is woken outside idempotent, once a keyed write has committed.
 	h := idempotent(mux, ops.idem)
 	if ops.hub != nil {
