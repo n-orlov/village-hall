@@ -200,11 +200,17 @@ func (s Store) scope(ctx context.Context, f *filter, q Query) error {
 	return nil
 }
 
+// notClosedSQL keeps the tasks whose status is not closed. A status is open, done or closed (a CHECK on the column),
+// so it is the open ids and the done ids, each a range of the (status, id) index: the planner then walks the tasks in
+// id order through the primary key, with no scan of tasks and no temp B-tree for ORDER BY id. The plain
+// status <> 'closed' it replaces plans as a SCAN of tasks.
+const notClosedSQL = `t.id IN (SELECT id FROM tasks WHERE status = 'open' UNION ALL SELECT id FROM tasks WHERE status = 'done')`
+
 // statusAndKind adds the status, closed_within and kind conditions.
 func (f *filter) statusAndKind(q Query) error {
 	switch q.Status {
 	case "", StatusNotClosed:
-		f.add(`t.status <> 'closed'`)
+		f.add(notClosedSQL)
 	case StatusOpen, StatusDone, StatusClosed:
 		f.add(`t.status = ?`, q.Status)
 	case StatusAll:

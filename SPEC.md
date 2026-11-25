@@ -735,7 +735,9 @@ an upgrade survive it. `events.task_id` is a plain nullable column with no forei
   `events(task_id, n)` (the newest event of a task), `events(task_id, type, n)` (the newest event of one type of a task,
   such as `check_recorded`), `events(at, n)` (events since a time and the timeline's markers, in time order),
   `events(actor_id, type, n)` (the newest event of one type by an actor, such as `catchup`) and `tasks(status, id)` (the task
-  list by status, in id order).
+  list by status, in id order). The default task list (status not closed, in id order, one page) reads the tasks whose id is in
+  the open ids plus the done ids, each a range of `tasks(status, id)`, which plans as a search of `tasks` by primary key in id
+  order with no temporary sort; the plain `status <> 'closed'` it replaces planned as a scan of `tasks`.
 - `notifications(event_id, kind)` (unique) and `notifications(state, next_attempt_at)`: one row per event and kind, and the rows a delivery is due on.
 
 ### 4.11 `notifications`
