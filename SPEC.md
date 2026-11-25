@@ -780,7 +780,7 @@ leaves none, and nothing deletes or cancels a row afterwards.
 | created_at | timestamp | when the key was first used; a row older than 24 hours is stale |
 
 The Idempotency-Key rows (§6.1). A request claims its key with one insert that does nothing on a conflict, so two requests with
-one key never both run; the answer is stored, in the same transaction as everything the request wrote, or the claim released, when the request ends (an answer that cannot be stored rolls back what the request wrote and releases the claim, so no write ever stands without its answer). A row older than 24
+one key never both run; the answer is stored, in the same transaction as everything the request wrote, or the claim released, when the request ends (an answer that cannot be stored rolls back what the request wrote and releases the claim, so no write ever stands without its answer). The answer is encoded in full before the one `UPDATE` that seals the key, which does no encoding of its own, and that statement and the commit follow it at once. A row older than 24
 hours is replaced by the next use of its key and deleted by the sweeper (§5.1); the index on `created_at` is for that
 sweep. `00010_idempotency` creates it, with the same DDL on SQLite and Postgres, and is additive: no existing table
 changes.
