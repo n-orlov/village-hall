@@ -31,10 +31,34 @@ async function seedTasks(api: APIRequestContext, slug: string, tasks: number): P
   return refs;
 }
 
-async function openTasks(page: Page, slug: string) {
+// The initiative chips above the table: the page reads the board's initiatives next to the tasks, so the row can still be
+// short (the opened initiative alone) when the first task row shows, and it wraps to another line when the rest arrive (a
+// 28 px chip and its 6 px gap: scrollY 1000 became 1034). Every other spec of a worker has added its initiatives to that
+// worker's board. FOLD is INITIATIVE_FOLD of web/src/lib/chipFilter.ts: a longer list shows its first FOLD chips and the chosen one.
+const FOLD = 14;
+
+async function initiativeSlugs(api: APIRequestContext): Promise<string[]> {
+  const slugs: string[] = [];
+  let after: string | undefined;
+  do {
+    const response = await api.get('/api/v1/initiatives', { params: after === undefined ? { status: 'all' } : { status: 'all', after } });
+    expect(response.status()).toBe(200);
+    const page = (await response.json()) as { items: { slug: string }[]; next_after?: string };
+    slugs.push(...page.items.map((item) => item.slug));
+    after = page.next_after;
+  } while (after !== undefined);
+  return slugs.sort();
+}
+
+// Opens the Tasks view on `slug` and waits until the page above the table is final: the first task row, the Now panel and
+// every initiative chip the board's initiatives give.
+async function openTasks(page: Page, slug: string, api: APIRequestContext) {
   await page.goto(`/#/tasks?initiative=${slug}`);
   await expect(page.getByTestId('task-row').first()).toBeVisible(FIVE_SECONDS);
   await expect(page.getByTestId('now-panel')).toBeVisible(FIVE_SECONDS);
+  const all = await initiativeSlugs(api);
+  const shown = all.length <= FOLD ? all : all.filter((name, n) => n < FOLD || name === slug);
+  await expect(page.getByTestId('chip-initiative')).toHaveCount(shown.length, FIVE_SECONDS);
 }
 
 async function box(page: Page, testid: string) {
@@ -46,8 +70,9 @@ test.describe('wide 2560x1080', () => {
 
   test('the Now panel is a side column right of the task table and stays in place when the page scrolls', async ({ page, playwright, baseURL }) => {
     const slug = 'e2e-tw-side';
-    await seedTasks(await apiContext(playwright, baseURL), slug, 60); // Compact rows are short: 60 keep the page taller than the 1000 px scrolled below
-    await openTasks(page, slug);
+    const api = await apiContext(playwright, baseURL);
+    await seedTasks(api, slug, 60); // Compact rows are short: 60 keep the page taller than the 1000 px scrolled below
+    await openTasks(page, slug, api);
 
     const table = (await page.locator('[data-testid=tasks-view] table').boundingBox())!;
     const now = await box(page, 'now-panel');
@@ -83,7 +108,7 @@ test.describe('wide 2560x1080', () => {
       leases.push(started.lease.ref);
     }
     try {
-      await openTasks(page, slug);
+      await openTasks(page, slug, api);
       await expect(page.getByTestId('now-lease').filter({ hasText: 'Seeded lease 17' })).toHaveCount(1, FIVE_SECONDS);
 
       const side = page.getByTestId('now-side');
@@ -111,8 +136,9 @@ test.describe('ultrawide 3440x1440', () => {
 
   test('the table and Now panel pair is at most 2560 px wide and centred in the main column', async ({ page, playwright, baseURL }) => {
     const slug = 'e2e-tw-ultra';
-    await seedTasks(await apiContext(playwright, baseURL), slug, 3);
-    await openTasks(page, slug);
+    const api = await apiContext(playwright, baseURL);
+    await seedTasks(api, slug, 3);
+    await openTasks(page, slug, api);
 
     const column = await page.locator('#main').evaluate((el) => {
       const rect = el.getBoundingClientRect();
@@ -141,8 +167,9 @@ test.describe('desktop 1440x900', () => {
 
   test('below 1536 px the Now panel is still above the table', async ({ page, playwright, baseURL }) => {
     const slug = 'e2e-tw-desktop';
-    await seedTasks(await apiContext(playwright, baseURL), slug, 3);
-    await openTasks(page, slug);
+    const api = await apiContext(playwright, baseURL);
+    await seedTasks(api, slug, 3);
+    await openTasks(page, slug, api);
 
     const table = (await page.locator('[data-testid=tasks-view] table').boundingBox())!;
     const now = await box(page, 'now-panel');
