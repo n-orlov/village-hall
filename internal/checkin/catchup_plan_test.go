@@ -67,7 +67,6 @@ func TestPreviousCatchupReadPlansWithIndexesAndNoTempSort(t *testing.T) {
 	}
 }
 
-
 // TestPreviousCatchupAnswersTheNewestCatchupOfOnlyThatActor checks the rows the
 // read answers: of several catchup events it returns the newest one of the
 // actor asked about, never another actor's, and none for an actor that never
