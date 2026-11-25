@@ -21,6 +21,8 @@ type Start struct {
 	Intent    string
 	TTL       *int64
 	Resources []string
+	// Notice starts a notice lease (SPEC 4.4) instead of an ordinary one.
+	Notice bool
 }
 
 // Renew is the request to renew a lease. A nil field keeps the stored value.
@@ -95,7 +97,9 @@ const (
 // Start starts a lease for the actor on the task and returns it with its
 // conflicts. When the actor already holds a live lease on the task, that lease
 // is renewed instead (same lease, event lease_renewed, Renewed true); otherwise
-// it is a new lease numbered L<n> and the event is lease_started. It returns
+// it is a new lease numbered L<n> and the event is lease_started. A live lease
+// of the other kind (notice or ordinary) is a ConflictError naming it and
+// saying to end it first; nothing is written then. It returns
 // ErrInvalid for an intent or resource that is wrong (checked before anything is
 // read; a missing task is ErrInvalid too), ErrNotFound for an unknown task, and ErrConflict for a done or closed task, and writes nothing then.
 func (s Store) Start(ctx context.Context, actor audit.Actor, principal string, in Start) (Result, error) {
@@ -170,6 +174,9 @@ func (s Store) start(ctx context.Context, tx *sql.Tx, actor audit.Actor, princip
 	if err != nil {
 		return Result{}, err
 	}
+	if renewing && held.Notice != in.Notice {
+		return Result{}, otherKindHeld(held, task)
+	}
 	var l Lease
 	if renewing {
 		r := Renew{TTL: ttlOf(in.TTL), Intent: &in.Intent}
@@ -187,6 +194,20 @@ func (s Store) start(ctx context.Context, tx *sql.Tx, actor audit.Actor, princip
 		return Result{}, err
 	}
 	return s.result(ctx, tx, l, now, renewing)
+}
+
+// otherKindHeld is the refusal of a start whose kind differs from the live
+// lease the actor already holds on the task: a task holds one live lease per
+// actor, so the held one is ended first.
+func otherKindHeld(held Lease, task taskRow) error {
+	have, asked := "an ordinary lease", "a notice"
+	if held.Notice {
+		have, asked = "a notice lease", "an ordinary lease"
+	}
+	return ConflictError{
+		Msg:  fmt.Sprintf("you already hold %s on task %s, %s, and cannot start %s on it as well", held.Ref, task.Ref, have, asked),
+		Next: fmt.Sprintf("Run vh lease end %s first, then start the new lease.", held.Ref),
+	}
 }
 
 // ttlOf is the ttl a start asks for: the default when none was sent.
@@ -229,8 +250,8 @@ func (s Store) insert(ctx context.Context, tx *sql.Tx, actorID, principal string
 	expires := store.EncodeTime(now.Add(time.Duration(ttl) * time.Second))
 	var n int64
 	err = tx.QueryRowContext(ctx, d.Rebind(d.InsertReturning("leases",
-		[]string{"id", "task_id", "actor_id", "intent", "ttl_seconds", "started_at", "renewed_at", "expires_at", "state"}, "n")),
-		id, task.ID, actorID, in.Intent, ttl, at, at, expires, domain.LeaseLive).Scan(&n)
+		[]string{"id", "task_id", "actor_id", "intent", "ttl_seconds", "started_at", "renewed_at", "expires_at", "state", "notice"}, "n")),
+		id, task.ID, actorID, in.Intent, ttl, at, at, expires, domain.LeaseLive, d.EncodeBool(in.Notice)).Scan(&n)
 	if err != nil {
 		return "", fmt.Errorf("start lease: %w", err)
 	}
@@ -238,11 +259,15 @@ func (s Store) insert(ctx context.Context, tx *sql.Tx, actorID, principal string
 		return "", err
 	}
 	ref := domain.FormatLeaseRef(n)
+	data := map[string]any{"ref": ref, "task": task.Ref, "intent": in.Intent, "ttl_seconds": ttl,
+		"expires_at": store.DecodeTime(expires).Format(time.RFC3339Nano), "resources": resources}
+	if in.Notice {
+		data["notice"] = true
+	}
 	return id, audit.AppendAs(ctx, tx, d, actorID, now, audit.Event{
 		Principal: principal, Type: EventStarted, InitiativeID: task.InitiativeID, TaskID: task.ID, RefID: id,
 		Summary: ref + " started on " + task.Ref + ": " + domain.OneLine(in.Intent),
-		Data: map[string]any{"ref": ref, "task": task.Ref, "intent": in.Intent, "ttl_seconds": ttl,
-			"expires_at": store.DecodeTime(expires).Format(time.RFC3339Nano), "resources": resources},
+		Data:    data,
 	})
 }
 

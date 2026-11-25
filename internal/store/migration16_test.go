@@ -102,8 +102,8 @@ func TestMigration00016HotReadIndexes(t *testing.T) {
 			t.Fatal(err)
 		}
 		expect("after Up again", true)
-		if v, err := s.SchemaVersion(ctx); err != nil || v != 16 {
-			t.Fatalf("latest version = %d, %v; want 16", v, err)
+		if v, err := s.SchemaVersion(ctx); err != nil || v != 17 {
+			t.Fatalf("latest version = %d, %v; want 17", v, err)
 		}
 		if err := s.Ready(ctx); err != nil {
 			t.Errorf("not ready at the latest version: %v", err)

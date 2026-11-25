@@ -9,7 +9,7 @@ Feature: Migrating an empty store
     Given a new database for the board commands
     When I run "vh admin migrate"
     Then the exit code is 0
-    And stdout is exactly "ok migrated, schema version 16"
+    And stdout is exactly "ok migrated, schema version 17"
     And the database holds every Phase 0 table
 
   Scenario: migrating twice leaves the store as one migration did
@@ -17,7 +17,7 @@ Feature: Migrating an empty store
     When I run "vh admin migrate"
     And I run "vh admin migrate"
     Then the exit code is 0
-    And stdout is exactly "ok migrated, schema version 16"
+    And stdout is exactly "ok migrated, schema version 17"
     And the database holds every Phase 0 table
 
   Scenario: a server started on an empty store with BOARD_MIGRATE unset migrates it and is ready

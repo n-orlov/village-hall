@@ -92,6 +92,9 @@ type Lease struct {
 	// WayBack is the way back on record for the holder when the lease was read,
 	// empty for none.
 	WayBack string
+	// Notice is true for a notice lease: a broadcast that every agent and view
+	// sees until it ends or expires (SPEC 4.4).
+	Notice bool
 }
 
 // Holding is the lease as the conflict computation sees it.
@@ -122,7 +125,7 @@ func (s Store) now() time.Time {
 // leaseColumns are the columns of a lease read, in the order scan takes them.
 const leaseColumns = `l.n, l.id, l.task_id, i.slug, t.seq, a.handle, l.actor_id, l.intent, l.ttl_seconds,
 	l.started_at, l.renewed_at, l.expires_at, l.state, l.ended_at, eb.handle, l.outcome, l.acked_at, ab.handle, t.title,
-	COALESCE(a.way_back, '')`
+	COALESCE(a.way_back, ''), l.notice`
 
 // leaseFrom is what leaseColumns read from.
 const leaseFrom = ` FROM leases l JOIN tasks t ON t.id = l.task_id JOIN initiatives i ON i.id = t.initiative_id
@@ -152,7 +155,7 @@ func scanWith(r rowScanner, extra ...any) (Lease, error) {
 		endedBy, outcome, ackBy sql.NullString
 	)
 	err := r.Scan(append([]any{&l.N, &l.ID, &l.TaskID, &slug, &seq, &l.Actor, &l.ActorID, &l.Intent, &l.TTLSeconds,
-		&started, &renewed, &exp, &l.State, &ended, &endedBy, &outcome, &acked, &ackBy, &l.Title, &l.WayBack}, extra...)...)
+		&started, &renewed, &exp, &l.State, &ended, &endedBy, &outcome, &acked, &ackBy, &l.Title, &l.WayBack, &l.Notice}, extra...)...)
 	if err != nil {
 		return Lease{}, err
 	}

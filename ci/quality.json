@@ -188,6 +188,7 @@
                 "links.go",
                 "list.go",
                 "tags.go",
+                "tagsources.go",
                 "task.go",
                 "tasks.go",
                 "transitions.go",

@@ -100,7 +100,7 @@ func TestAdminMigrateAppliesAndReportsTheVersion(t *testing.T) {
 	for i := 0; i < 2; i++ { // the second run is a no-op
 		var out, errb bytes.Buffer
 		if code := Run([]string{"admin", "migrate"}, &out, &errb, env); code != ExitOK ||
-			out.String() != "ok migrated, schema version 16\n" || errb.Len() != 0 {
+			out.String() != "ok migrated, schema version 17\n" || errb.Len() != 0 {
 			t.Fatalf("run %d: code=%d out=%q err=%q", i, code, out.String(), errb.String())
 		}
 	}

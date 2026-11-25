@@ -469,6 +469,7 @@ one is `ErrNotFound` with nothing written. `Store.Links` reads a task's `Deps` a
 | ended_at, ended_by | | `ended_by` set when someone other than the holder ends it, and by a forced done or a close (§4.3) |
 | outcome | text, nullable | short summary written at end |
 | acked_at, acked_by | ts, fk actor, nullable | the acknowledgement of an expired lease (§5.3); null until acknowledged |
+| notice | bool, default false | true for a notice lease, a broadcast that every agent and view sees until it ends or expires; false for an ordinary lease |
 
 `lease_resources(lease_id, resource)`: PK both, index on `resource`.
 
@@ -476,12 +477,14 @@ Both tables exist (migration `00004_leases`, in both dialects) with `n` (the sho
 `domain.FormatLeaseRef`), the indexes `leases(state, expires_at)` and `lease_resources(resource)` (§4.10), and extra indexes
 on `leases(task_id)` and `leases(actor_id)`; migration `00015_lease_task_state_index` (one common form, a Down that drops
 it) adds `leases(task_id, state, expires_at)`, so whether one task holds a live lease is a look-up of that task's leases
-on SQLite too, not a walk of every live lease per task. The database holds the ttl within [60, 43200] and the state to the three values.
+on SQLite too, not a walk of every live lease per task. Migration `00017_lease_notice` (one file per dialect, each with a Down that drops
+the column) adds `leases.notice`: `INTEGER NOT NULL DEFAULT 0 CHECK (notice IN (0, 1))` on SQLite, `BOOLEAN NOT NULL DEFAULT FALSE` on
+Postgres, so every lease written before it is ordinary. The database holds the ttl within [60, 43200] and the state to the three values.
 
 A lease is started only on an `open` task: a `done` or a `closed` task is `ErrConflict` (`cannot start a lease on task aa-1: it is
 done`, next `Run vh task reopen aa-1 first, or start the lease on an open task.`) and nothing is written. A task never
 holds a live lease once it is done or closed: both transitions end the leases on it (§4.3). An actor may hold several live leases (different tasks). Starting a lease on a task where the
-same actor already has a live lease **renews** that lease instead (idempotent start).
+same actor already has a live lease of the same kind **renews** that lease instead (idempotent start); the kind is the notice flag.
 
 `internal/leases` (`Store`: `Start`, `Renew`, `End`, `Ack`, `ExpireDue`, `Get`) writes each change in one transaction with its
 event (`lease_started`, `lease_renewed`, `lease_ended`, `lease_acked`, `lease_expired`; `ref_id` is the lease's ULID, `data.ref`
@@ -491,8 +494,12 @@ is `L<n>`, `data.task` the task's ref). The rules, with the pure parts in `inter
 - **intent** 1 to 200 characters. **Resources** (`domain.NormalizeResources`): duplicates removed (first kept), each 1 to 100
   characters, at most 20 after deduplication. Violations are `ErrInvalid`, checked before anything is read or written.
 - **Start** on an unknown task is `ErrNotFound`, on a `closed` task `ErrConflict`. When the actor holds a live lease on the task,
-  the start renews it (`Result.Renewed`, event `lease_renewed`, resources kept unless sent); otherwise it is a new lease and
-  `lease_started`. The result carries the conflicts (§5.2).
+  of the kind asked for (`Start.Notice`), the start renews it (`Result.Renewed`, event `lease_renewed`, resources kept unless sent);
+  when it holds a live lease of the other kind (a notice where an ordinary lease was asked for, or the reverse) the start is
+  `ErrConflict` naming that lease (`you already hold L5 on task aa-1, a notice lease, and cannot start an ordinary lease on it as
+  well`, next `Run vh lease end L5 first, then start the new lease.`) and writes no row and no event; with no live lease of its own on
+  the task it is a new lease of the kind asked for (`Lease.Notice`) and `lease_started`, whose `data` carries `notice: true` for a
+  notice and no `notice` key for an ordinary lease. The result carries the conflicts (§5.2).
 - **Renew** pushes `expires_at` to now plus the ttl and may replace intent and resources. A lease past its expiry is `ErrGone`, a
   `GoneError` carrying `ExpiredAt`, whether or not the sweep has marked it; an ended lease is `ErrConflict`. Any actor may renew.
 - **End** sets `ended_at` and `outcome` (at most 200 characters); `ended_by` is set, and `data.ended_by` written, only when
@@ -712,7 +719,7 @@ and is indexed on `expires_at` for that sweep.
 Phase 0 creates `actors`, `initiatives`, `initiative_tags`, `events`, `api_keys` and `sessions`; Phase 1 adds
 `tasks` and `task_deps` (migration `00003_tasks`, which also adds `initiatives.next_task_seq`) and `leases` and
 `lease_resources` (migration `00004_leases`, §4.4); Phase 2 adds `asks` (`00005_asks`, §4.5) and `notes` and
-`cursors` (`00006_notes`, §4.7, §4.8), `00007_ask_ended_at` adds `asks.ended_at` and `00008_ask_end_commit` adds `asks.end_commit_ns`; Phase 3 adds `notifications` (`00009_notifications`, §4.11); Phase 4 adds `idempotency_keys` (`00010_idempotency`, §4.12) and `00011_notes_concern_indexes` (indexes only, §4.10); Phase 5 drops the one-operator index (`00012_many_operators`, §4.1) and adds key owner and origin (`00013_key_owner_and_origin`, above) and a task's own tags (`00014_task_tags`, §4.3), an index of a task's leases by state (`00015_lease_task_state_index`, §4.4), and the indexes the hot reads need (`00016_hot_read_indexes`, §4.10). The other tables of this section arrive with the phases that use them. Migrations are additive and forward-only, and rows written before
+`cursors` (`00006_notes`, §4.7, §4.8), `00007_ask_ended_at` adds `asks.ended_at` and `00008_ask_end_commit` adds `asks.end_commit_ns`; Phase 3 adds `notifications` (`00009_notifications`, §4.11); Phase 4 adds `idempotency_keys` (`00010_idempotency`, §4.12) and `00011_notes_concern_indexes` (indexes only, §4.10); Phase 5 drops the one-operator index (`00012_many_operators`, §4.1) and adds key owner and origin (`00013_key_owner_and_origin`, above) and a task's own tags (`00014_task_tags`, §4.3), an index of a task's leases by state (`00015_lease_task_state_index`, §4.4), and the indexes the hot reads need (`00016_hot_read_indexes`, §4.10), and the notice flag of a lease (`00017_lease_notice`, §4.4). The other tables of this section arrive with the phases that use them. Migrations are additive and forward-only, and rows written before
 an upgrade survive it. `events.task_id` is a plain nullable column with no foreign key. The indexes `events(task_id, id)` and `events(initiative_id, id)` exist, as does
 `initiative_tags(tag)`.
 

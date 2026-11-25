@@ -539,7 +539,7 @@ func TestEmbeddedMigrationsCoverBothDialects(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(files) != 16 || files[15] != "00016_hot_read_indexes.sql" || files[14] != "00015_lease_task_state_index.sql" || files[13] != "00014_task_tags.sql" || files[12] != "00013_key_owner_and_origin.sql" || files[11] != "00012_many_operators.sql" || files[10] != "00011_notes_concern_indexes.sql" || files[9] != "00010_idempotency.sql" || files[8] != "00009_notifications.sql" || files[7] != "00008_ask_end_commit.sql" || files[6] != "00007_ask_ended_at.sql" || files[5] != "00006_notes.sql" || files[4] != "00005_asks.sql" || files[3] != "00004_leases.sql" || files[0] != "00001_core_tables.sql" || files[1] != "00002_join_tables_sessions_indexes.sql" || files[2] != "00003_tasks.sql" {
+		if len(files) != 17 || files[16] != "00017_lease_notice.sql" || files[15] != "00016_hot_read_indexes.sql" || files[14] != "00015_lease_task_state_index.sql" || files[13] != "00014_task_tags.sql" || files[12] != "00013_key_owner_and_origin.sql" || files[11] != "00012_many_operators.sql" || files[10] != "00011_notes_concern_indexes.sql" || files[9] != "00010_idempotency.sql" || files[8] != "00009_notifications.sql" || files[7] != "00008_ask_end_commit.sql" || files[6] != "00007_ask_ended_at.sql" || files[5] != "00006_notes.sql" || files[4] != "00005_asks.sql" || files[3] != "00004_leases.sql" || files[0] != "00001_core_tables.sql" || files[1] != "00002_join_tables_sessions_indexes.sql" || files[2] != "00003_tasks.sql" {
 			t.Errorf("%s migrations = %v", name, files)
 		}
 		if _, err := fs.ReadFile(mig, files[1]); err != nil {
