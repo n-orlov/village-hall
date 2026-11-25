@@ -89,6 +89,23 @@ func (s Store) List(ctx context.Context, q Query) (Page, error) {
 	return p, nil
 }
 
+// Count returns how many tasks q selects, in one COUNT over the same conditions List reads, with the same errors
+// (ErrInvalid for a field that is wrong, ErrNoInitiative for an initiative that names nothing). The text Q, After
+// and Limit of the query are not read: a count has no page and no text search.
+func (s Store) Count(ctx context.Context, q Query) (int, error) {
+	f := &filter{now: s.now(), dialect: s.Store.Dialect()}
+	q.After = ""
+	if err := s.conditions(ctx, f, q); err != nil {
+		return 0, err
+	}
+	var n int
+	row := s.Store.ReaderFor(ctx).QueryRowContext(ctx, s.Store.Dialect().Rebind(`SELECT COUNT(*) FROM tasks t`+f.where()), f.args...)
+	if err := row.Scan(&n); err != nil {
+		return 0, fmt.Errorf("count tasks: %w", err)
+	}
+	return n, nil
+}
+
 // matching returns the first limit tasks the filter and the text q select, in id order. A text search reads
 // in batches of limit rows: each batch is the filter, the looser SQL prefilter of q and `LIMIT limit`, and the
 // Go matcher then drops the rows the prefilter let through. A batch that ran full but kept fewer than limit

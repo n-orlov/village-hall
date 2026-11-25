@@ -29,6 +29,13 @@ describe('TasksApi', () => {
     expect(fetchFn.mock.calls[0]![1]).toMatchObject({ credentials: 'same-origin', headers: { Accept: 'application/json' } });
   });
 
+  it('counts the tasks of a query with the count form: one request, the count and no rows', async () => {
+    const { api: a, fetchFn } = api(async () => json({ count: 7 }));
+    expect(await a.count(new URLSearchParams({ status: 'open', active: 'true' }))).toBe(7);
+    expect(fetchFn.mock.calls.map((c) => c[0])).toEqual(['/api/v1/tasks/count?status=open&active=true']);
+    expect(fetchFn.mock.calls[0]![1]).toMatchObject({ credentials: 'same-origin', headers: { Accept: 'application/json' } });
+  });
+
   it('reads the open tasks of every initiative', async () => {
     const { api: a, fetchFn } = api(async () => json({ items: [task('aa-1')] }));
     expect((await a.openTasks()).map((t) => t.ref)).toEqual(['aa-1']);

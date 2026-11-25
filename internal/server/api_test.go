@@ -224,6 +224,7 @@ func (brokenResponse) VisitRecordTaskCheckResponse(http.ResponseWriter) error   
 func (brokenResponse) VisitRecordTaskMilestoneResponse(http.ResponseWriter) error { return errBroken }
 func (brokenResponse) VisitListTaskEventsResponse(http.ResponseWriter) error      { return errBroken }
 func (brokenResponse) VisitListTasksResponse(http.ResponseWriter) error           { return errBroken }
+func (brokenResponse) VisitCountTasksResponse(http.ResponseWriter) error          { return errBroken }
 func (brokenResponse) VisitListEventsResponse(http.ResponseWriter) error          { return errBroken }
 func (brokenResponse) VisitListNotificationsResponse(http.ResponseWriter) error   { return errBroken }
 func (brokenResponse) VisitGetTimelineResponse(http.ResponseWriter) error         { return errBroken }
@@ -449,6 +450,12 @@ func (s stubOperations) RecordTaskMilestone(context.Context, RecordTaskMilestone
 func (s stubOperations) ListTasks(context.Context, ListTasksRequestObject) (ListTasksResponseObject, error) {
 	r, err := s.outcome()
 	resp, _ := r.(ListTasksResponseObject)
+	return resp, err
+}
+
+func (s stubOperations) CountTasks(context.Context, CountTasksRequestObject) (CountTasksResponseObject, error) {
+	r, err := s.outcome()
+	resp, _ := r.(CountTasksResponseObject)
 	return resp, err
 }
 
@@ -859,6 +866,10 @@ func TestDeclaredProblemResponsesWriteAProblemDocument(t *testing.T) {
 		{"list tasks 401", 401, ListTasks401ApplicationProblemPlusJSONResponse{UnauthorizedApplicationProblemPlusJSONResponse(problem)}.VisitListTasksResponse},
 		{"list tasks 404", 404, ListTasks404ApplicationProblemPlusJSONResponse{NotFoundApplicationProblemPlusJSONResponse(problem)}.VisitListTasksResponse},
 		{"list tasks 503", 503, ListTasks503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse(problem)}.VisitListTasksResponse},
+		{"count tasks 400", 400, CountTasks400ApplicationProblemPlusJSONResponse{BadRequestApplicationProblemPlusJSONResponse(problem)}.VisitCountTasksResponse},
+		{"count tasks 401", 401, CountTasks401ApplicationProblemPlusJSONResponse{UnauthorizedApplicationProblemPlusJSONResponse(problem)}.VisitCountTasksResponse},
+		{"count tasks 404", 404, CountTasks404ApplicationProblemPlusJSONResponse{NotFoundApplicationProblemPlusJSONResponse(problem)}.VisitCountTasksResponse},
+		{"count tasks 503", 503, CountTasks503ApplicationProblemPlusJSONResponse{UnavailableApplicationProblemPlusJSONResponse(problem)}.VisitCountTasksResponse},
 		{"list task events 400", 400, ListTaskEvents400ApplicationProblemPlusJSONResponse{BadRequestApplicationProblemPlusJSONResponse(problem)}.VisitListTaskEventsResponse},
 		{"list task events 401", 401, ListTaskEvents401ApplicationProblemPlusJSONResponse{UnauthorizedApplicationProblemPlusJSONResponse(problem)}.VisitListTaskEventsResponse},
 		{"list task events 404", 404, ListTaskEvents404ApplicationProblemPlusJSONResponse{NotFoundApplicationProblemPlusJSONResponse(problem)}.VisitListTaskEventsResponse},

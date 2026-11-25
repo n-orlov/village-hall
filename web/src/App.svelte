@@ -12,7 +12,7 @@
   import TaskPage from './TaskPage.svelte';
   import Tasks from './Tasks.svelte';
   import { live } from './lib/live';
-  import { affectsLiveTasks, countLiveTasks } from './lib/liveTasks';
+  import { watchLiveTasks } from './lib/liveTasks';
   import { TasksApi } from './lib/tasks';
   import { loginUrl, currentBrowser, SessionController, type SessionState } from './lib/session';
   import { replaceHash } from './lib/historyEntry';
@@ -53,7 +53,7 @@
 
   // The Needs me badge in the navigation: the total of the stream's latest `attention` message.
   let attentionTotal = $state(0);
-  // The green badge: how many open tasks hold a live lease, read when the shell is up and on every live event that names a task.
+  // The green badge: how many open tasks hold a live lease, read when the shell is up and on every task_* or lease_* live event.
   let liveTasks = $state(0);
 
   const session = new SessionController(browser, (s) => (auth = s), window.location.hash);
@@ -68,15 +68,7 @@
     if (auth.kind !== 'signed-in') return;
     const csrf = auth.session.csrf_token;
     const api = new TasksApi(browser, () => csrf);
-    const read = async () => {
-      try {
-        liveTasks = await countLiveTasks(api);
-      } catch {
-        // A failed read keeps the count on screen; the next event reads again.
-      }
-    };
-    void read();
-    return live().subscribe(affectsLiveTasks, read);
+    return watchLiveTasks(live(), api, (count) => (liveTasks = count));
   });
 
   async function signOut() {

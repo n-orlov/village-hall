@@ -42,8 +42,8 @@ async function scan(page: Page, theme: string, nav: string) {
 
 
 // For the zero cases the counts must be the test's own, not the shared board's: the page gets a stand-in EventSource the
-// test feeds (`attention` for the red count, `board` events that name a task for the green one), and the tasks read the
-// green badge counts answers with as many tasks as the test says.
+// test feeds (`attention` for the red count, `board` events that name a task for the green one), and the count read the
+// green badge shows answers with the number the test says.
 async function standInStream(page: Page) {
   await page.addInitScript(() => {
     type Listener = (e: { data: string }) => void;
@@ -111,12 +111,12 @@ for (const vp of viewports) {
           }
         };
       });
-      const reads: { refs: string[]; whole: boolean }[] = [];
+      const reads: number[] = [];
       page.on('response', async (response) => {
         const url = new URL(response.url());
-        if (url.pathname !== '/api/v1/tasks' || url.searchParams.get('active') !== 'true' || url.searchParams.has('after')) return;
-        const body = (await response.json().catch(() => null)) as { items: { ref: string }[]; next_after?: string } | null;
-        if (body !== null) reads.push({ refs: body.items.map((i) => i.ref), whole: body.next_after === undefined });
+        if (url.pathname !== '/api/v1/tasks/count' || url.searchParams.get('active') !== 'true') return;
+        const body = (await response.json().catch(() => null)) as { count: number } | null;
+        if (body !== null) reads.push(body.count);
       });
       const attention = () => page.evaluate(() => (window as unknown as { __attention: { total: number }[] }).__attention);
 
@@ -129,13 +129,15 @@ for (const vp of viewports) {
       // The red count has our own open ask in it by now; wait for the stream to say so (it never reads 0 after the ask).
       await expect.poll(() => count(link, 'red'), FIVE_SECONDS).toBeGreaterThan(0);
 
+      const readsBefore = reads.length;
       await created(api, '/api/v1/leases', { task: held, intent: `badge ${vp.name}` });
-      // The page reads the live tasks again on the lease's event; the badge shows the newest read, which holds our task.
+      // The page reads the count form again on the lease's event, and only one number comes back (no rows). The badge
+      // shows the newest read, which holds at least our task.
       await expect
         .poll(async () => {
           const newest = reads.at(-1);
-          if (newest === undefined || !newest.whole || !newest.refs.includes(held)) return 'no read holding the lease yet';
-          return (await count(link, 'green')) === newest.refs.length ? 'shown' : 'not shown yet';
+          if (reads.length <= readsBefore || newest === undefined || newest < 1) return 'no read holding the lease yet';
+          return (await count(link, 'green')) === newest ? 'shown' : 'not shown yet';
         }, FIVE_SECONDS)
         .toBe('shown');
       await expect(green).toBeVisible();
@@ -161,9 +163,7 @@ for (const vp of viewports) {
     test('each badge is hidden at zero, shown with an accessible label naming its meaning above zero, and follows the stream', async ({ page }) => {
       let live = 0;
       await standInStream(page);
-      await page.route('**/api/v1/tasks?*active=true*', (route) =>
-        route.fulfill({ json: { items: Array.from({ length: live }, (_, i) => ({ ref: `T-${i + 1}` })) } }),
-      );
+      await page.route('**/api/v1/tasks/count?*active=true*', (route) => route.fulfill({ json: { count: live } }));
       await page.goto('/#/notes');
       const nav = page.getByTestId(vp.nav);
       await expect(nav).toBeVisible();

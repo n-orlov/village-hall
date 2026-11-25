@@ -388,6 +388,8 @@ func TestListEnumsAcceptOnlyTheDeclaredValues(t *testing.T) {
 		TaskListItemResolutionCompleted, TaskListItemResolutionDropped, TaskListItemResolutionSuperseded, TaskListItemResolutionDuplicate,
 		ListTasksParamsKindWork, ListTasksParamsKindWatch,
 		ListTasksParamsStatusOpen, ListTasksParamsStatusDone, ListTasksParamsStatusClosed, ListTasksParamsStatusNotClosed, ListTasksParamsStatusAll,
+		CountTasksParamsKindWork, CountTasksParamsKindWatch,
+		CountTasksParamsStatusOpen, CountTasksParamsStatusDone, CountTasksParamsStatusClosed, CountTasksParamsStatusNotClosed, CountTasksParamsStatusAll,
 		NowLeaseStateLive, NowLeaseStateEnded, NowLeaseStateExpired,
 		InitiativeDetailStatusOpen, InitiativeDetailStatusClosed,
 		TaskAttentionReasonStranded, TaskAttentionReasonAsking, TaskAttentionReasonDone,
@@ -399,7 +401,7 @@ func TestListEnumsAcceptOnlyTheDeclaredValues(t *testing.T) {
 	}
 	for _, v := range []interface{ Valid() bool }{
 		InitiativeListItemStatus("x"), ListInitiativesParamsStatus("x"), TaskListItemKind("x"), TaskListItemStatus("x"),
-		TaskListItemResolution("x"), ListTasksParamsKind("x"), ListTasksParamsStatus("x"), NowLeaseState("x"),
+		TaskListItemResolution("x"), ListTasksParamsKind("x"), ListTasksParamsStatus("x"), CountTasksParamsKind("x"), CountTasksParamsStatus("x"), NowLeaseState("x"),
 		InitiativeDetailStatus("x"), TaskAttentionReason("x"),
 	} {
 		if v.Valid() {

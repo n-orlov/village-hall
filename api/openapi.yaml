@@ -721,6 +721,110 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /api/v1/tasks/count:
+    get:
+      operationId: countTasks
+      tags: [tasks]
+      summary: Count the tasks
+      description: >-
+        How many tasks the filters keep, as `{count}` and no rows: the count form of `GET /api/v1/tasks`, for a badge that
+        needs a number and not the tasks. The filters are those of the list, with the same meaning and the same defaults
+        (`status` is `not_closed` unless given, so a closed task is not counted unless `status` is `closed` or `all`),
+        except `q`, `limit` and `after`, which it does not read. Overdue leases are expired before the count is read, so a task whose
+        lease ran out is not active. An initiative that names nothing is 404.
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: ref
+          in: query
+          required: false
+          description: Keep only the tasks with this ref, such as `aa-1`, in either letter case. Repeatable; a task is kept when its ref is any of those given, and a ref that names no task keeps nothing. Left out, it keeps every task.
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: initiative
+          in: query
+          required: false
+          description: Keep tasks of this initiative, by slug or ULID. Repeatable.
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: tag
+          in: query
+          required: false
+          description: Keep tasks that match this tag as their own, their initiative's or a derived actor-kind tag. Repeatable; every tag given must match (AND).
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: status
+          in: query
+          required: false
+          description: The task status to keep. Default `not_closed`.
+          schema:
+            type: string
+            enum: [open, done, closed, not_closed, all]
+        - name: kind
+          in: query
+          required: false
+          description: Keep tasks of this kind.
+          schema:
+            type: string
+            enum: [work, watch]
+        - name: active
+          in: query
+          required: false
+          description: "`true` keeps tasks with a live lease, `false` those without."
+          schema:
+            type: boolean
+        - name: blocked
+          in: query
+          required: false
+          description: "`true` keeps tasks with an open dependency or an open blocking ask, `false` those without."
+          schema:
+            type: boolean
+        - name: overdue
+          in: query
+          required: false
+          description: "`true` keeps overdue watch tasks, `false` the tasks that are not overdue."
+          schema:
+            type: boolean
+        - name: attention
+          in: query
+          required: false
+          description: "`true` keeps tasks whose `attention` list is not empty, `false` those whose list is empty."
+          schema:
+            type: boolean
+        - name: closed_within
+          in: query
+          required: false
+          description: "`7d`, `30d`, `90d` or an integer of days. Only with `status` `closed` or `all`."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskCount"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /api/v1/tasks/{ref}:
     get:
       operationId: getTask
@@ -3018,6 +3122,14 @@ components:
             live_leases:
               type: integer
               description: How many live leases sit on the initiative's tasks.
+    TaskCount:
+      type: object
+      description: How many tasks a filter keeps.
+      required: [count]
+      properties:
+        count:
+          type: integer
+          description: The number of tasks kept, 0 for none.
     TaskCounts:
       type: object
       description: How many tasks an initiative holds in each status.

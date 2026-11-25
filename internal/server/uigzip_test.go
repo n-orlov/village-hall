@@ -41,7 +41,8 @@ func builtFile(t *testing.T, glob string) string {
 func TestTextAssetsAreGzipEncodedToGzipClientsAndIdentityOtherwise(t *testing.T) {
 	t.Parallel()
 	paths := []string{
-		builtFile(t, "assets/*.js"), builtFile(t, "assets/*.css"),
+		builtFile(t, "assets/index-*.js"), builtFile(t, "assets/index-*.css"),
+		builtFile(t, "assets/Timeline-*.js"), builtFile(t, "assets/Timeline-*.css"),
 		"/", "/index.html", "/favicon.svg", "/icon.svg", "/manifest.json",
 	}
 	for _, p := range paths {
@@ -90,7 +91,7 @@ func TestTheAPIIsNotGzipEncoded(t *testing.T) {
 
 func TestGzipCaching(t *testing.T) {
 	t.Parallel()
-	js := builtFile(t, "assets/*.js")
+	js := builtFile(t, "assets/index-*.js")
 	if got := uiGet(t, js, "Accept-Encoding", "gzip").Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
 		t.Errorf("the gzip asset answer lost its Cache-Control: %q", got)
 	}
@@ -109,7 +110,7 @@ func TestGzipCaching(t *testing.T) {
 
 func TestAGzipFileIsNotARouteOfItsOwn(t *testing.T) {
 	t.Parallel()
-	for _, p := range []string{builtFile(t, "assets/*.js") + ".gz", "/index.html.gz", "/manifest.json.gz"} {
+	for _, p := range []string{builtFile(t, "assets/index-*.js") + ".gz", "/index.html.gz", "/manifest.json.gz"} {
 		if rec := uiGet(t, p); rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", p, rec.Code)
 		}

@@ -220,3 +220,42 @@ func TestListKeepsOnlyTheTasksWhoseRefIsNamed(t *testing.T) {
 		}
 	}
 }
+
+func TestCountIsTheLengthOfTheListWithoutAPageOrText(t *testing.T) {
+	s := newStore(t)
+	initiative(t, s, "aa")
+	if n, err := s.Count(ctx, Query{}); err != nil || n != 0 {
+		t.Fatalf("no tasks: %d, %v, want 0", n, err)
+	}
+	one := mk(t, s, "aa", "one")
+	mk(t, s, "aa", "two")
+	mk(t, s, "aa", "three")
+	if _, err := s.Done(ctx, who, "key:d", one.Ref, DoneOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Close(ctx, who, "key:c", one.Ref, "dropped"); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		q    Query
+		want int
+	}{
+		"default leaves the closed task out": {Query{}, 2},
+		"not closed":                         {Query{Status: StatusNotClosed}, 2},
+		"closed":                             {Query{Status: StatusClosed}, 1},
+		"all":                                {Query{Status: StatusAll}, 3},
+		"filter matching some":               {Query{Refs: []string{"aa-2"}}, 1},
+		"filter matching none":               {Query{Refs: []string{"aa-9"}}, 0},
+		"page and text are not read":         {Query{Limit: 1, Q: "one", After: "aa-1"}, 2},
+	} {
+		if got, err := s.Count(ctx, c.q); err != nil || got != c.want {
+			t.Errorf("%s: %d, %v, want %d", name, got, err, c.want)
+		}
+	}
+	if _, err := s.Count(ctx, Query{Status: "nope"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("a bad status: %v, want ErrInvalid", err)
+	}
+	if _, err := s.Count(ctx, Query{Initiatives: []string{"zz"}}); !errors.Is(err, ErrNoInitiative) {
+		t.Errorf("unknown initiative: %v, want ErrNoInitiative", err)
+	}
+}

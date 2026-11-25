@@ -12,6 +12,8 @@ import (
 
 func (p problemResponse) VisitListTasksResponse(w http.ResponseWriter) error { return p.write(w) }
 
+func (p problemResponse) VisitCountTasksResponse(w http.ResponseWriter) error { return p.write(w) }
+
 func orEmpty[T any](list *[]T) []T {
 	if list == nil {
 		return nil
@@ -116,4 +118,32 @@ func (o taskOps) listed(ctx context.Context, page tasks.Page, reasons attention.
 		out.Items[i].Attention, out.Items[i].StrandedLease = apiTaskAttention(reasons.Of(t.Ref))
 	}
 	return out, nil
+}
+
+// CountTasks answers how many tasks the filters keep, and no rows: the count form of ListTasks, with its
+// expiry and its attention derivation, over the filters that have no page and no text.
+func (o taskOps) CountTasks(ctx context.Context, req CountTasksRequestObject) (CountTasksResponseObject, error) {
+	if r, off := o.ready(); off {
+		return r, nil
+	}
+	p := req.Params
+	reasons, err := o.expiredAndDerived(ctx, orEmpty(p.Initiative))
+	if err != nil {
+		return nil, err
+	}
+	q := taskQuery(ListTasksParams{
+		Ref: p.Ref, Initiative: p.Initiative, Tag: p.Tag, Active: p.Active, Blocked: p.Blocked, Overdue: p.Overdue,
+		Attention: p.Attention, ClosedWithin: p.ClosedWithin,
+	}, needing(reasons))
+	if p.Status != nil {
+		q.Status = string(*p.Status)
+	}
+	if p.Kind != nil {
+		q.Kind = string(*p.Kind)
+	}
+	n, err := o.tasks.Count(ctx, q)
+	if err != nil {
+		return taskResult[CountTasksResponseObject](err, "there is no task ")
+	}
+	return CountTasks200JSONResponse(TaskCount{Count: n}), nil
 }

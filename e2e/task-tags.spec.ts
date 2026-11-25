@@ -229,7 +229,7 @@ for (const vp of viewports) {
       const lookups: string[] = [];
       page.on('request', (request) => {
         const url = new URL(request.url());
-        // The navigation's live-lease badge reads `GET /tasks?active=true`; what must not happen is a read of tasks by ref.
+        // The navigation's live-lease badge reads the count form, `GET /tasks/count?active=true`; what must not happen is a read of tasks by ref.
         if (request.method() === 'GET' && url.pathname === '/api/v1/tasks' && url.searchParams.has('ref')) lookups.push(url.pathname + url.search);
       });
       const marked = (scope: Page | Locator, tag: string, source: string) => scope.locator(`[data-testid=task-tag][data-tag="${tag}"][data-source~="${source}"]`);

@@ -60,6 +60,12 @@ export class TasksApi {
     return items;
   }
 
+  /** How many tasks the query keeps, from the count form of the list: one request, `{count}` and no rows. */
+  async count(query: URLSearchParams): Promise<number> {
+    const response = await this.call(`/api/v1/tasks/count?${query.toString()}`, 'Counting the tasks', { headers: { Accept: 'application/json' } });
+    return ((await response.json()) as components['schemas']['TaskCount']).count;
+  }
+
   /**
    * The marks of `tag` on the tasks that match it, of any status, under the server's rule (own, initiative or derived actor
    * kind): one mark per source some task shows it by. Empty when no task matches. It reads pages until all three sources

@@ -258,7 +258,7 @@ for (const vp of viewports) {
       test(`shows ${text === '' ? 'no badge' : text} for counts.total ${total}, with an accessible label`, async ({ page }) => {
         await feedStream(page);
         // The green badge counts the shared board's live leases, which other specs start and end: this test is about the red one.
-        await page.route('**/api/v1/tasks?*active=true*', (route) => route.fulfill({ json: { items: [] } }));
+        await page.route('**/api/v1/tasks/count?*active=true*', (route) => route.fulfill({ json: { count: 0 } }));
         await page.goto('/#/tasks');
         const nav = page.getByTestId(vp.nav);
         await expect(nav).toBeVisible();

@@ -280,6 +280,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tasks/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the tasks
+         * @description How many tasks the filters keep, as `{count}` and no rows: the count form of `GET /api/v1/tasks`, for a badge that needs a number and not the tasks. The filters are those of the list, with the same meaning and the same defaults (`status` is `not_closed` unless given, so a closed task is not counted unless `status` is `closed` or `all`), except `q`, `limit` and `after`, which it does not read. Overdue leases are expired before the count is read, so a task whose lease ran out is not active. An initiative that names nothing is 404.
+         */
+        get: operations["countTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks/{ref}": {
         parameters: {
             query?: never;
@@ -1221,6 +1241,11 @@ export interface components {
             counts: components["schemas"]["TaskCounts"];
             /** @description How many live leases sit on the initiative's tasks. */
             live_leases: number;
+        };
+        /** @description How many tasks a filter keeps. */
+        TaskCount: {
+            /** @description The number of tasks kept, 0 for none. */
+            count: number;
         };
         /** @description How many tasks an initiative holds in each status. */
         TaskCounts: {
@@ -2953,6 +2978,51 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    countTasks: {
+        parameters: {
+            query?: {
+                /** @description Keep only the tasks with this ref, such as `aa-1`, in either letter case. Repeatable; a task is kept when its ref is any of those given, and a ref that names no task keeps nothing. Left out, it keeps every task. */
+                ref?: string[];
+                /** @description Keep tasks of this initiative, by slug or ULID. Repeatable. */
+                initiative?: string[];
+                /** @description Keep tasks that match this tag as their own, their initiative's or a derived actor-kind tag. Repeatable; every tag given must match (AND). */
+                tag?: string[];
+                /** @description The task status to keep. Default `not_closed`. */
+                status?: "open" | "done" | "closed" | "not_closed" | "all";
+                /** @description Keep tasks of this kind. */
+                kind?: "work" | "watch";
+                /** @description `true` keeps tasks with a live lease, `false` those without. */
+                active?: boolean;
+                /** @description `true` keeps tasks with an open dependency or an open blocking ask, `false` those without. */
+                blocked?: boolean;
+                /** @description `true` keeps overdue watch tasks, `false` the tasks that are not overdue. */
+                overdue?: boolean;
+                /** @description `true` keeps tasks whose `attention` list is not empty, `false` those whose list is empty. */
+                attention?: boolean;
+                /** @description `7d`, `30d`, `90d` or an integer of days. Only with `status` `closed` or `all`. */
+                closed_within?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             503: components["responses"]["Unavailable"];
         };
     };

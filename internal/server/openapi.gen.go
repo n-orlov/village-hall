@@ -955,6 +955,51 @@ func (e ListTasksParamsKind) Valid() bool {
 	}
 }
 
+// Defines values for CountTasksParamsStatus.
+const (
+	CountTasksParamsStatusAll       CountTasksParamsStatus = "all"
+	CountTasksParamsStatusClosed    CountTasksParamsStatus = "closed"
+	CountTasksParamsStatusDone      CountTasksParamsStatus = "done"
+	CountTasksParamsStatusNotClosed CountTasksParamsStatus = "not_closed"
+	CountTasksParamsStatusOpen      CountTasksParamsStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the CountTasksParamsStatus enum.
+func (e CountTasksParamsStatus) Valid() bool {
+	switch e {
+	case CountTasksParamsStatusAll:
+		return true
+	case CountTasksParamsStatusClosed:
+		return true
+	case CountTasksParamsStatusDone:
+		return true
+	case CountTasksParamsStatusNotClosed:
+		return true
+	case CountTasksParamsStatusOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CountTasksParamsKind.
+const (
+	CountTasksParamsKindWatch CountTasksParamsKind = "watch"
+	CountTasksParamsKindWork  CountTasksParamsKind = "work"
+)
+
+// Valid indicates whether the value is a known member of the CountTasksParamsKind enum.
+func (e CountTasksParamsKind) Valid() bool {
+	switch e {
+	case CountTasksParamsKindWatch:
+		return true
+	case CountTasksParamsKindWork:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetTimelineParamsRows.
 const (
 	GetTimelineParamsRowsAll    GetTimelineParamsRows = "all"
@@ -2404,6 +2449,12 @@ type TaskClose struct {
 	Resolution string `json:"resolution"`
 }
 
+// TaskCount How many tasks a filter keeps.
+type TaskCount struct {
+	// Count The number of tasks kept, 0 for none.
+	Count int `json:"count"`
+}
+
 // TaskCounts How many tasks an initiative holds in each status.
 type TaskCounts struct {
 	Closed int `json:"closed"`
@@ -3194,6 +3245,45 @@ type CreateTaskParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// CountTasksParams defines parameters for CountTasks.
+type CountTasksParams struct {
+	// Ref Keep only the tasks with this ref, such as `aa-1`, in either letter case. Repeatable; a task is kept when its ref is any of those given, and a ref that names no task keeps nothing. Left out, it keeps every task.
+	Ref *[]string `form:"ref,omitempty" json:"ref,omitempty"`
+
+	// Initiative Keep tasks of this initiative, by slug or ULID. Repeatable.
+	Initiative *[]string `form:"initiative,omitempty" json:"initiative,omitempty"`
+
+	// Tag Keep tasks that match this tag as their own, their initiative's or a derived actor-kind tag. Repeatable; every tag given must match (AND).
+	Tag *[]string `form:"tag,omitempty" json:"tag,omitempty"`
+
+	// Status The task status to keep. Default `not_closed`.
+	Status *CountTasksParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// Kind Keep tasks of this kind.
+	Kind *CountTasksParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// Active `true` keeps tasks with a live lease, `false` those without.
+	Active *bool `form:"active,omitempty" json:"active,omitempty"`
+
+	// Blocked `true` keeps tasks with an open dependency or an open blocking ask, `false` those without.
+	Blocked *bool `form:"blocked,omitempty" json:"blocked,omitempty"`
+
+	// Overdue `true` keeps overdue watch tasks, `false` the tasks that are not overdue.
+	Overdue *bool `form:"overdue,omitempty" json:"overdue,omitempty"`
+
+	// Attention `true` keeps tasks whose `attention` list is not empty, `false` those whose list is empty.
+	Attention *bool `form:"attention,omitempty" json:"attention,omitempty"`
+
+	// ClosedWithin `7d`, `30d`, `90d` or an integer of days. Only with `status` `closed` or `all`.
+	ClosedWithin *string `form:"closed_within,omitempty" json:"closed_within,omitempty"`
+}
+
+// CountTasksParamsStatus defines parameters for CountTasks.
+type CountTasksParamsStatus string
+
+// CountTasksParamsKind defines parameters for CountTasks.
+type CountTasksParamsKind string
+
 // RecordTaskCheckParams defines parameters for RecordTaskCheck.
 type RecordTaskCheckParams struct {
 	// IdempotencyKey Makes the write safe to retry. 1 to 255 printable ASCII characters (anything else is 400), scoped to the caller's principal. Within 24 hours the same method, path, query, actor and body sent again with the key is answered with the first request's status and body plus the header `Idempotent-Replayed: true`, and writes nothing. The same key with a different request is 422. A duplicate that arrives while the first is still running is 409. A key older than 24 hours counts as new. A 5xx answer is not stored, so the retry runs again. Without the header the request runs as it always did.
@@ -3472,6 +3562,9 @@ type ServerInterface interface {
 	// CreateTask Create a task
 	// (POST /api/v1/tasks)
 	CreateTask(w http.ResponseWriter, r *http.Request, params CreateTaskParams)
+	// CountTasks Count the tasks
+	// (GET /api/v1/tasks/count)
+	CountTasks(w http.ResponseWriter, r *http.Request, params CountTasksParams)
 	// GetTask Read a task
 	// (GET /api/v1/tasks/{ref})
 	GetTask(w http.ResponseWriter, r *http.Request, ref TaskRef)
@@ -5236,6 +5329,72 @@ func (siw *ServerInterfaceWrapper) CreateTask(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// CountTasks operation middleware
+func (siw *ServerInterfaceWrapper) CountTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CountTasksParams
+
+	bind := siw.queryBinder(w, r)
+
+	// ------------- Optional query parameter "ref" -------------
+
+	bind.check("ref", runtime.BindQueryParameterWithOptions("form", true, false, "ref", r.URL.Query(), &params.Ref, runtime.BindQueryParameterOptions{Type: "array", Format: ""}))
+
+	// ------------- Optional query parameter "initiative" -------------
+
+	bind.check("initiative", runtime.BindQueryParameterWithOptions("form", true, false, "initiative", r.URL.Query(), &params.Initiative, runtime.BindQueryParameterOptions{Type: "array", Format: ""}))
+
+	// ------------- Optional query parameter "tag" -------------
+
+	bind.check("tag", runtime.BindQueryParameterWithOptions("form", true, false, "tag", r.URL.Query(), &params.Tag, runtime.BindQueryParameterOptions{Type: "array", Format: ""}))
+
+	// ------------- Optional query parameter "status" -------------
+
+	bind.check("status", runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""}))
+
+	// ------------- Optional query parameter "kind" -------------
+
+	bind.check("kind", runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""}))
+
+	// ------------- Optional query parameter "active" -------------
+
+	bind.check("active", runtime.BindQueryParameterWithOptions("form", true, false, "active", r.URL.Query(), &params.Active, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""}))
+
+	// ------------- Optional query parameter "blocked" -------------
+
+	bind.check("blocked", runtime.BindQueryParameterWithOptions("form", true, false, "blocked", r.URL.Query(), &params.Blocked, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""}))
+
+	// ------------- Optional query parameter "overdue" -------------
+
+	bind.check("overdue", runtime.BindQueryParameterWithOptions("form", true, false, "overdue", r.URL.Query(), &params.Overdue, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""}))
+
+	// ------------- Optional query parameter "attention" -------------
+
+	bind.check("attention", runtime.BindQueryParameterWithOptions("form", true, false, "attention", r.URL.Query(), &params.Attention, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""}))
+
+	// ------------- Optional query parameter "closed_within" -------------
+
+	bind.check("closed_within", runtime.BindQueryParameterWithOptions("form", true, false, "closed_within", r.URL.Query(), &params.ClosedWithin, runtime.BindQueryParameterOptions{Type: "string", Format: ""}))
+
+	if bind.failed {
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CountTasks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTask operation middleware
 func (siw *ServerInterfaceWrapper) GetTask(w http.ResponseWriter, r *http.Request) {
 
@@ -6028,6 +6187,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/initiatives/{slug}/reopen", wrapper.ReopenInitiative)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tasks", wrapper.ListTasks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/tasks", wrapper.CreateTask)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tasks/count", wrapper.CountTasks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tasks/{ref}", wrapper.GetTask)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/tasks/{ref}", wrapper.PatchTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/tasks/{ref}/done", wrapper.DoneTask)
@@ -10152,6 +10312,92 @@ func (response CreateTask503ApplicationProblemPlusJSONResponse) VisitCreateTaskR
 	return err
 }
 
+type CountTasksRequestObject struct {
+	Params CountTasksParams
+}
+
+type CountTasksResponseObject interface {
+	VisitCountTasksResponse(w http.ResponseWriter) error
+}
+
+type CountTasks200JSONResponse TaskCount
+
+func (response CountTasks200JSONResponse) VisitCountTasksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CountTasks400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CountTasks400ApplicationProblemPlusJSONResponse) VisitCountTasksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CountTasks401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CountTasks401ApplicationProblemPlusJSONResponse) VisitCountTasksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CountTasks404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CountTasks404ApplicationProblemPlusJSONResponse) VisitCountTasksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CountTasks503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CountTasks503ApplicationProblemPlusJSONResponse) VisitCountTasksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTaskRequestObject struct {
 	Ref TaskRef `json:"ref"`
 }
@@ -12077,6 +12323,9 @@ type StrictServerInterface interface {
 	// CreateTask Create a task
 	// (POST /api/v1/tasks)
 	CreateTask(ctx context.Context, request CreateTaskRequestObject) (CreateTaskResponseObject, error)
+	// CountTasks Count the tasks
+	// (GET /api/v1/tasks/count)
+	CountTasks(ctx context.Context, request CountTasksRequestObject) (CountTasksResponseObject, error)
 	// GetTask Read a task
 	// (GET /api/v1/tasks/{ref})
 	GetTask(ctx context.Context, request GetTaskRequestObject) (GetTaskResponseObject, error)
@@ -13443,6 +13692,32 @@ func (sh *strictHandler) CreateTask(w http.ResponseWriter, r *http.Request, para
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateTaskResponseObject); ok {
 		if err := validResponse.VisitCreateTaskResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CountTasks operation middleware
+func (sh *strictHandler) CountTasks(w http.ResponseWriter, r *http.Request, params CountTasksParams) {
+	var request CountTasksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CountTasks(ctx, request.(CountTasksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CountTasks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CountTasksResponseObject); ok {
+		if err := validResponse.VisitCountTasksResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
