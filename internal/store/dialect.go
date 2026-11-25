@@ -38,6 +38,10 @@ type Dialect interface {
 	// array of strings (TextSet), for `col IN (InSet())`: one parameter however
 	// many values the array holds.
 	InSet() string
+	// RefSet is a subquery of the (slug, seq) columns of a single `?`
+	// parameter, a JSON array of [slug, seq] pairs (RefSetParam): one parameter
+	// however many refs the array holds.
+	RefSet() string
 	// Upsert builds an insert that, on a conflict over the conflict columns,
 	// updates the named columns from the proposed row.
 	Upsert(table string, cols, conflict, update []string) string
@@ -142,6 +146,16 @@ func (SQLite) InSet() string { return "SELECT value FROM json_each(?)" }
 
 // InSet implements Dialect.
 func (Postgres) InSet() string { return "SELECT jsonb_array_elements_text(?::jsonb)" }
+
+// RefSet implements Dialect.
+func (SQLite) RefSet() string {
+	return "SELECT json_extract(value, '$[0]') AS slug, json_extract(value, '$[1]') AS seq FROM json_each(?)"
+}
+
+// RefSet implements Dialect.
+func (Postgres) RefSet() string {
+	return "SELECT e->>0 AS slug, (e->>1)::integer AS seq FROM jsonb_array_elements(?::jsonb) AS e"
+}
 
 // TextSet is the parameter of Dialect.InSet: values as a JSON array, [] for none.
 func TextSet(values []string) string {

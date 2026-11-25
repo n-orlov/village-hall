@@ -69,7 +69,7 @@ func (s Store) List(ctx context.Context, q Query) (Page, error) {
 	if err != nil {
 		return Page{}, InvalidError{Msg: err.Error(), Next: "Send a limit between 1 and 1000, or leave it out for 100."}
 	}
-	f := &filter{now: s.now()}
+	f := &filter{now: s.now(), dialect: s.Store.Dialect()}
 	if err := s.conditions(ctx, f, q); err != nil {
 		return Page{}, err
 	}
@@ -124,6 +124,8 @@ type filter struct {
 	conds []string
 	args  []any
 	now   time.Time
+	// dialect writes the parts of a condition that differ between databases.
+	dialect store.Dialect
 }
 
 func (f *filter) add(cond string, args ...any) {
@@ -302,17 +304,15 @@ func (f *filter) refs(want *bool, refs []string) {
 	if want == nil {
 		return
 	}
-	if len(refs) == 0 {
-		if *want {
-			f.add(`1 = 0`)
-		}
-		return
+	sql, arg, ok := store.TaskIDsOfRefs(f.dialect, refs)
+	switch {
+	case ok && *want:
+		f.add(`t.id IN (`+sql+`)`, arg)
+	case ok:
+		f.add(`t.id NOT IN (`+sql+`)`, arg)
+	case *want:
+		f.add(`1 = 0`)
 	}
-	cond := `(i.slug || '-' || CAST(t.seq AS TEXT)) IN (` + marks(len(refs)) + `)`
-	if !*want {
-		cond = `NOT ` + cond
-	}
-	f.add(cond, anys(refs)...)
 }
 
 // onlyRefs keeps the tasks whose ref is one of refs, in either letter case; no refs keeps every task.
@@ -324,5 +324,10 @@ func (f *filter) onlyRefs(refs []string) {
 	for i, ref := range refs {
 		lowered[i] = strings.ToLower(ref)
 	}
-	f.add(`(i.slug || '-' || CAST(t.seq AS TEXT)) IN (`+marks(len(lowered))+`)`, anys(lowered)...)
+	sql, arg, ok := store.TaskIDsOfRefs(f.dialect, lowered)
+	if !ok {
+		f.add(`1 = 0`)
+		return
+	}
+	f.add(`t.id IN (`+sql+`)`, arg)
 }

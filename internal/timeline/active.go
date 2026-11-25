@@ -1,11 +1,9 @@
 package timeline
 
 import (
-	"strings"
 	"time"
 
 	"github.com/n-orlov/village-hall/internal/attention"
-	"github.com/n-orlov/village-hall/internal/domain"
 	"github.com/n-orlov/village-hall/internal/store"
 )
 
@@ -32,33 +30,16 @@ func activeSpan(q Query) (time.Duration, error) {
 // The active tasks are one id list, built from the leases and the events inside
 // the window by index range reads, so the task read starts from those ids
 // instead of asking every task whether it is active.
-func (f *filter) activeFilter(q Query, now time.Time, span time.Duration) {
+func (f *filter) activeFilter(q Query, d store.Dialect, now time.Time, span time.Duration) {
 	if !q.Active {
 		return
 	}
 	list := `SELECT al.task_id FROM leases al WHERE al.state = 'live' AND al.expires_at >= ?` +
 		` UNION ALL SELECT ae.task_id FROM events ae WHERE ae.at >= ?`
 	args := []any{store.EncodeBound(now), store.EncodeBound(now.Add(-span))}
-	if refs := attentionRefs(q.Attention); len(refs) > 0 {
-		list += ` UNION ALL SELECT rt.id FROM (VALUES ` + strings.TrimSuffix(strings.Repeat("(CAST(? AS TEXT), CAST(? AS INTEGER)), ", len(refs)), ", ") + `) AS r` +
-			` JOIN initiatives ri ON ri.slug = r.column1 JOIN tasks rt ON rt.initiative_id = ri.id AND rt.seq = r.column2`
-		for _, ref := range refs {
-			args = append(args, ref.Slug, ref.Seq)
-		}
+	if sql, a, ok := store.TaskIDsOfRefs(d, q.Attention); ok {
+		list += ` UNION ALL ` + sql
+		args = append(args, a)
 	}
 	f.add(`t.id IN (`+list+`)`, args...)
-}
-
-// attentionRefs are the refs of q.Attention as the (slug, seq) of the task each
-// names, so the filter looks them up by the (initiative, seq) index. A ref that
-// is not exactly the short ref of a task (a ULID, another case, a leading zero,
-// no number) names no task, as it never matched the computed ref text.
-func attentionRefs(refs []string) []domain.TaskRef {
-	var out []domain.TaskRef
-	for _, ref := range refs {
-		if r, err := domain.ParseTaskRef(ref); err == nil && r.ID == "" && domain.FormatTaskRef(r.Slug, r.Seq) == ref {
-			out = append(out, r)
-		}
-	}
-	return out
 }

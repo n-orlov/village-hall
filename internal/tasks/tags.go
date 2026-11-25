@@ -107,9 +107,12 @@ func (s Store) TaggedByRef(ctx context.Context, refs []string) (map[string]Tagge
 // tasksByRef reads the ids of the tasks the refs name (one statement, a stub Task
 // for each) and the canonical ref of each id.
 func (s Store) tasksByRef(ctx context.Context, q tagQuerier, refs []string) ([]Task, map[string]string, error) {
+	where, args := `1 = 0`, []any(nil)
+	if sql, arg, ok := store.TaskIDsOfRefs(s.Store.Dialect(), refs); ok {
+		where, args = `t.id IN (`+sql+`)`, []any{arg}
+	}
 	rows, err := q.QueryContext(ctx, s.Store.Dialect().Rebind(
-		`SELECT t.id, i.slug, t.seq FROM tasks t JOIN initiatives i ON i.id = t.initiative_id
-		 WHERE (i.slug || '-' || CAST(t.seq AS TEXT)) IN (`+s.Store.Dialect().InSet()+`)`), store.TextSet(refs))
+		`SELECT t.id, i.slug, t.seq FROM tasks t JOIN initiatives i ON i.id = t.initiative_id WHERE `+where), args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read tasks by ref: %w", err)
 	}

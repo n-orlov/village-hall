@@ -188,7 +188,7 @@ func (s Store) scope(ctx context.Context, q Query, now, from, to time.Time) (*fi
 	if err != nil {
 		return nil, err
 	}
-	f.activeFilter(q, now, span)
+	f.activeFilter(q, s.Store.Dialect(), now, span)
 	if !all {
 		f.span(from, to)
 	}

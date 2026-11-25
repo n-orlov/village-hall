@@ -737,7 +737,11 @@ an upgrade survive it. `events.task_id` is a plain nullable column with no forei
   `events(actor_id, type, n)` (the newest event of one type by an actor, such as `catchup`) and `tasks(status, id)` (the task
   list by status, in id order). The default task list (status not closed, in id order, one page) reads the tasks whose id is in
   the open ids plus the done ids, each a range of `tasks(status, id)`, which plans as a search of `tasks` by primary key in id
-  order with no temporary sort; the plain `status <> 'closed'` it replaces planned as a scan of `tasks`.
+  order with no temporary sort; the plain `status <> 'closed'` it replaces planned as a scan of `tasks`. The task reads that name tasks by ref (`ref`, the attention filter, the tags and marks lookup of a ref list)
+  look each ref up as the slug and number it is, through the unique initiative slug and `tasks(initiative_id, seq)`, as one JSON-array
+  parameter however many refs there are (`Dialect.RefSet`), instead of computing the ref text of every task to compare it; a ref
+  names a task only when it is exactly its short ref (the `ref` filter also takes capitals), so a ULID, a leading zero or a missing
+  number names none, as before.
 - `notifications(event_id, kind)` (unique) and `notifications(state, next_attempt_at)`: one row per event and kind, and the rows a delivery is due on.
 
 ### 4.11 `notifications`
