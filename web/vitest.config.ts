@@ -1,6 +1,9 @@
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // Compiles .svelte files, so a unit test can render a component (server-side, through svelte/server).
+  plugins: [svelte()],
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
