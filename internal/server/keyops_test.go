@@ -61,6 +61,12 @@ func newKeyServerOn(t *testing.T, url string, b Build) *keyServer {
 	if err := st.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	return newKeyServerOver(t, st, b)
+}
+
+// newKeyServerOver is newKeyServer over the migrated store st.
+func newKeyServerOver(t *testing.T, st *store.Store, b Build) *keyServer {
+	t.Helper()
 	keys, clock := &auth.Keys{Store: st}, newTestClock()
 	token, _, err := keys.Create(context.Background(), "caller", "admin-cli", 0)
 	if err != nil {

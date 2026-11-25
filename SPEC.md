@@ -1251,6 +1251,10 @@ principal may use them. The server answers 503 problem documents when it runs wi
   `false`, is **400** with a `next`; an `initiative` naming nothing is **404**. Before it reads, the list expires the
   leases whose `expires_at` has passed (§5.1: `lease_expired`, once each), so with the sweeper off a task whose lease ran
   out is already not `active` and `active=true` leaves it out.
+  The expiry runs once per request, not once for the list and again inside the attention derivation: the derivation
+  (§5.3) expires the due leases itself, so the list does it only when it has no derivation. An `initiative` filter scopes
+  the derivation to those initiatives, so `attention` and `attention=true` are decided from their tasks alone (a request
+  for the whole board derives the whole board). Its statement counts are pinned in `internal/server/readexpiry_test.go`.
 - **`GET /api/v1/tasks/{ref}`** reads one task by `<slug>-<seq>` or ULID in either letter case; **404** with a `next`
   naming `GET /api/v1/tasks/<ref>` for a ref that names no task, however it is spelled.
 - **`PATCH /api/v1/tasks/{ref}`**, body any of `title`, `description`, `planned_start`, `planned_end`,
@@ -1662,7 +1666,8 @@ is ever written, §5.4, so the list is empty). It writes nothing.
 `GET /api/v1/timeline` is in `api/openapi.yaml` and answers what the Timeline view draws: the tasks, leases and markers
 that fall in a window of time, with the initiatives that hold the tasks. Any authenticated principal may use it (v1 has
 no ACL) and a server without a store answers **503**. It first expires the leases that ran out (§5.1), which writes
-their `lease_expired` events, then reads; it writes nothing else.
+their `lease_expired` events, then reads; it writes nothing else. The expiry runs once per request: the attention
+derivation expires the due leases as part of its own read, so the handler does it itself only without a derivation.
 
 - **The window** is `from` and `to`, RFC 3339 instants (any offset; the answer is in UTC). `from` defaults to 14 days
   before now and `to` to 7 days after now, each default applying on its own. `to` must be after `from` (equal is not

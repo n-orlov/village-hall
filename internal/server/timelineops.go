@@ -59,10 +59,7 @@ func (o timelineOps) GetTimeline(ctx context.Context, req GetTimelineRequestObje
 	if p, bad := o.refusal(ctx, req.Params); bad {
 		return p, nil
 	}
-	if _, err := o.leases.ExpireDue(ctx); err != nil {
-		return nil, err
-	}
-	reasons, err := o.derivation(ctx)
+	reasons, err := o.expiredAndDerivation(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +73,17 @@ func (o timelineOps) GetTimeline(ctx context.Context, req GetTimelineRequestObje
 		return nil, err
 	}
 	return GetTimeline200JSONResponse(document(got, reasons)), nil
+}
+
+// expiredAndDerivation expires the due leases once and derives the attention.
+// The derivation expires them as part of its own read, so the handler does it
+// itself only when there is no derivation.
+func (o timelineOps) expiredAndDerivation(ctx context.Context) (attention.Derivation, error) {
+	if o.derived == nil {
+		_, err := o.leases.ExpireDue(ctx)
+		return attention.Derivation{}, err
+	}
+	return o.derivation(ctx)
 }
 
 // derivation is the attention derivation, empty when the operation has none.

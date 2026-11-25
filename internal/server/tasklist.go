@@ -58,15 +58,15 @@ func apiTaskListItem(t tasks.Task, live []leases.Lease) TaskListItem {
 const nextTaskCursor = "Leave out 'after' to start at the first page, or send the next_after of the previous page."
 
 // ListTasks lists a page of tasks with their live leases. It expires the leases
-// that ran out first, so a task whose lease ran out is not active.
+// that ran out first, once, so a task whose lease ran out is not active. The
+// attention derivation expires them as part of its own read, so the handler
+// expires them itself only when it has no derivation; an initiative filter
+// scopes the derivation to those initiatives.
 func (o taskOps) ListTasks(ctx context.Context, req ListTasksRequestObject) (ListTasksResponseObject, error) {
 	if r, off := o.ready(); off {
 		return r, nil
 	}
-	if _, err := o.leases.ExpireDue(ctx); err != nil {
-		return nil, err
-	}
-	reasons, err := o.derived(ctx)
+	reasons, err := o.expiredAndDerived(ctx, orEmpty(req.Params.Initiative))
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +82,21 @@ func (o taskOps) ListTasks(ctx context.Context, req ListTasksRequestObject) (Lis
 		return nil, err
 	}
 	return ListTasks200JSONResponse(out), nil
+}
+
+// expiredAndDerived expires the due leases once and derives the attention of the
+// tasks of the initiatives. An initiative that names nothing leaves the
+// derivation empty, and the list read refuses it with its own 404.
+func (o taskOps) expiredAndDerived(ctx context.Context, initiatives []string) (attention.Derivation, error) {
+	if o.reasons == nil {
+		_, err := o.leases.ExpireDue(ctx)
+		return attention.Derivation{}, err
+	}
+	d, err := o.derived(ctx, initiatives...)
+	if errors.Is(err, attention.ErrNotFound) {
+		return attention.Derivation{}, nil
+	}
+	return d, err
 }
 
 // listed is the document for a page: each task with its live leases, read for
