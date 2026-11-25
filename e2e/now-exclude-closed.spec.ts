@@ -63,7 +63,7 @@ for (const vp of [
       await expect(checkbox(page)).not.toBeChecked();
       await expectRows(page, s, true);
 
-      await checkbox(page).check();
+      await checkbox(page).click();
       await expectRows(page, s, false);
       await expect(page).toHaveURL(new RegExp(`#/now\\?initiative=${s.slug}&exclude=closed$`));
 
