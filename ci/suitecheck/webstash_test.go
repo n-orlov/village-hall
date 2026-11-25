@@ -7,6 +7,8 @@
 package suitecheck
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -71,6 +73,52 @@ func TestSuiteBuildsTheWebUIWhenNoStashedDistIsPresent(t *testing.T) {
 			}
 			if n := buildsInvoked(run); n != 1 {
 				t.Errorf("%s, mode %q: %d web builds invoked, want one: %q", name, mode, n, run.stubLog())
+			}
+		}
+	}
+}
+
+// A real stash carries hashed assets under assets/, not just index.html: the
+// presence test is the marker plus index.html, so nested files change nothing,
+// and the "with" mode (Vitest and Playwright in one run) builds nothing either.
+func TestSuiteRunsNoWebBuildWhenTheStashedDistCarriesNestedAssets(t *testing.T) {
+	dist := map[string]string{
+		"index.html":             "<html></html>",
+		".ci-stashed-build":      "",
+		"assets/index-abc123.js": "console.log(1)",
+	}
+	for _, mode := range []string{"skip", "only", "with"} {
+		run := runSuiteWithDist(t, mode, dist)
+		if run.err != nil {
+			t.Fatalf("mode %q: ci/suite.sh failed: %v", mode, run.err)
+		}
+		if n := buildsInvoked(run); n != 0 {
+			t.Errorf("mode %q: %d web build(s) invoked with a nested stashed dist: %q", mode, n, run.stubLog())
+		}
+	}
+}
+
+// Suite, E2E and the image all reuse one stash, so they must agree on what a
+// stash is: ci/suite.sh and ci/image-build.sh both test the same marker file and
+// index.html under internal/webui/dist. A script that tested less would rebuild
+// (or embed a half-restored stash) while the other reused it.
+func TestSuiteAndImageBuildAgreeOnWhatCountsAsTheStash(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatalf("repositoryRoot: %v", err)
+	}
+	for _, script := range []string{"suite.sh", "image-build.sh"} {
+		raw, err := os.ReadFile(filepath.Join(root, "ci", script))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		for _, want := range []string{
+			"[ -f internal/webui/dist/.ci-stashed-build ]",
+			"[ -f internal/webui/dist/index.html ]",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("ci/%s does not test %q for the stashed build", script, want)
 			}
 		}
 	}
