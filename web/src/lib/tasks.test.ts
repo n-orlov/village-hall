@@ -23,10 +23,18 @@ describe('TasksApi', () => {
     const items = await a.list({ ...DEFAULT_TASKS_FILTER, kind: 'watch', blocked: 'yes', text: 'a b' });
     expect(items.map((t) => t.ref)).toEqual(['aa-1', 'aa-2']);
     expect(fetchFn.mock.calls.map((c) => c[0])).toEqual([
-      '/api/v1/tasks?status=not_closed&kind=watch&blocked=true&q=a+b',
-      '/api/v1/tasks?status=not_closed&kind=watch&blocked=true&q=a+b&after=aa-1',
+      '/api/v1/tasks?status=not_closed&kind=watch&blocked=true&q=a+b&limit=1000',
+      '/api/v1/tasks?status=not_closed&kind=watch&blocked=true&q=a+b&limit=1000&after=aa-1',
     ]);
     expect(fetchFn.mock.calls[0]![1]).toMatchObject({ credentials: 'same-origin', headers: { Accept: 'application/json' } });
+  });
+
+  it('reads one refresh of 600 not-closed tasks in one list call at limit=1000', async () => {
+    const six = Array.from({ length: 600 }, (_, i) => task(`aa-${i + 1}`));
+    const { api: a, fetchFn } = api(async () => json({ items: six }));
+    const items = await a.list(DEFAULT_TASKS_FILTER);
+    expect(items).toHaveLength(600);
+    expect(fetchFn.mock.calls.map((c) => c[0])).toEqual(['/api/v1/tasks?status=not_closed&limit=1000']);
   });
 
   it('counts the tasks of a query with the count form: one request, the count and no rows', async () => {
@@ -243,10 +251,17 @@ describe('TasksStore refresh (a live event)', () => {
 describe('affectsTasks', () => {
   it('is true for an event that names a task and for an initiative event, false for the rest', () => {
     expect(affectsTasks({ type: 'task_done', task: 'aa-1' })).toBe(true);
-    expect(affectsTasks({ type: 'note_posted', task: 'aa-1' })).toBe(true);
+    expect(affectsTasks({ type: 'ask_raised', task: 'aa-1' })).toBe(true);
     expect(affectsTasks({ type: 'initiative_closed' })).toBe(true);
     expect(affectsTasks({ type: 'note_posted' })).toBe(false);
     expect(affectsTasks({ type: 'key_created' })).toBe(false);
+  });
+
+  it('is false for a note, a milestone and a recorded check, which change no row; true for a lease start', () => {
+    expect(affectsTasks({ type: 'note_added', task: 'aa-1' })).toBe(false);
+    expect(affectsTasks({ type: 'milestone', task: 'aa-1' })).toBe(false);
+    expect(affectsTasks({ type: 'check_recorded', task: 'aa-1' })).toBe(false);
+    expect(affectsTasks({ type: 'lease_started', task: 'aa-1' })).toBe(true);
   });
 });
 

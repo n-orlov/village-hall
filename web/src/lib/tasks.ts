@@ -24,6 +24,9 @@ export type Resolution = 'completed' | 'dropped' | 'superseded' | 'duplicate';
 /** A page of a task's events is as large as the API allows, so a busy task takes few requests. */
 const EVENT_PAGE = '1000';
 
+/** The Tasks list reads pages as large as the API allows, so a refresh of 600 tasks is one call, not three. */
+const LIST_PAGE = '1000';
+
 export class TasksApi {
   private readonly browser: Browser;
   private readonly csrf: () => string;
@@ -97,7 +100,9 @@ export class TasksApi {
 
   /** The tasks a filter keeps, across initiatives. */
   list(filter: TasksFilter): Promise<TaskListItem[]> {
-    return this.listQuery(apiQuery(filter));
+    const query = apiQuery(filter);
+    query.set('limit', LIST_PAGE);
+    return this.listQuery(query);
   }
 
   /** The open tasks of every initiative: what a new task can be blocked by. */
@@ -353,8 +358,12 @@ export class TasksStore {
   }
 }
 
-/** Whether a live event can change the Tasks list: any event that names a task (its lease, asks, notes) and an initiative's own (its close drops tasks). */
+/**
+ * Whether a live event can change the Tasks list: any event that names a task (its lease, asks) and an initiative's own (its
+ * close drops tasks), except those that change no field a row shows: a note, a milestone and a recorded check.
+ */
 export function affectsTasks(event: { type: string; task?: string }): boolean {
+  if (event.type.startsWith('note_') || event.type === 'milestone' || event.type === 'check_recorded') return false;
   return event.task !== undefined || event.type.startsWith('initiative_');
 }
 
