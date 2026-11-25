@@ -24,7 +24,7 @@
     type FlagName,
     type TasksFilter,
   } from './lib/taskFilters';
-  import { TasksApi, TasksStore, affectsTasks, type TasksState } from './lib/tasks';
+  import { TasksApi, TasksStore, watchTasks, type TasksState } from './lib/tasks';
   import { live } from './lib/live';
   import { onDestroy, untrack } from 'svelte';
   import ChipFilter from './ChipFilter.svelte';
@@ -157,7 +157,7 @@
     // Read nothing reactive here: a sort or a filter change must not run the first load again.
     void untrack(start);
     // A change elsewhere refreshes the rows in place under the filter shown: no skeleton, so scroll and an open dialog stay.
-    return live().subscribe(affectsTasks, () => (turns.hasRead() ? Promise.all([store.refresh(), reloadNeeds()]) : undefined));
+    return watchTasks(live(), () => (turns.hasRead() ? Promise.all([store.refresh(), reloadNeeds()]) : undefined));
   });
 
   $effect(() => {

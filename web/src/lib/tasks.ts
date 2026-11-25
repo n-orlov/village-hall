@@ -14,6 +14,7 @@ import type { Ask } from './asks';
 import { readNeeds, type NeedsAttention, type TaskList } from './needsAttention';
 import type { Note, NotePost } from './notes';
 import type { Browser } from './session';
+import type { Live } from './live';
 
 export type TaskDetail = components['schemas']['TaskDetail'];
 export type TaskPatch = components['schemas']['TaskPatch'];
@@ -365,6 +366,11 @@ export class TasksStore {
 export function affectsTasks(event: { type: string; task?: string }): boolean {
   if (event.type.startsWith('note_') || event.type === 'milestone' || event.type === 'check_recorded') return false;
   return event.task !== undefined || event.type.startsWith('initiative_');
+}
+
+/** Refreshes the Tasks view on a live stream for each burst of events `affectsTasks` admits; returns the unsubscribe. */
+export function watchTasks(live: Pick<Live, 'subscribe'>, refresh: () => unknown): () => void {
+  return live.subscribe(affectsTasks, refresh);
 }
 
 export interface NewTaskState {

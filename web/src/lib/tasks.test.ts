@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InitiativesError, type InitiativeListItem, type TaskListItem } from './initiatives';
 import { emptyNewTask } from './newTask';
 import { DEFAULT_TASKS_FILTER } from './taskFilters';
-import { affectsTasks, NewTaskStore, openInitiatives, TasksApi, TasksStore, type NewTaskState, type TasksState } from './tasks';
+import { affectsTasks, NewTaskStore, openInitiatives, TasksApi, TasksStore, watchTasks, type NewTaskState, type TasksState } from './tasks';
+import { DEBOUNCE_MS, Live, type LiveEnv, type StreamSource } from './live';
 import type { Browser } from './session';
 
 const task = (ref: string) => ({ id: 'id-' + ref, ref, title: 'Title ' + ref }) as TaskListItem;
@@ -262,6 +263,73 @@ describe('affectsTasks', () => {
     expect(affectsTasks({ type: 'milestone', task: 'aa-1' })).toBe(false);
     expect(affectsTasks({ type: 'check_recorded', task: 'aa-1' })).toBe(false);
     expect(affectsTasks({ type: 'lease_started', task: 'aa-1' })).toBe(true);
+  });
+});
+
+class FakeStream implements StreamSource {
+  readyState = 1;
+  onopen: ((e: unknown) => void) | null = null;
+  onerror: ((e: unknown) => void) | null = null;
+  private listeners = new Map<string, (e: { data: string }) => void>();
+  addEventListener(type: string, listener: (e: { data: string }) => void): void {
+    this.listeners.set(type, listener);
+  }
+  close(): void {}
+  send(type: string, data: unknown): void {
+    this.listeners.get(type)?.({ data: JSON.stringify(data) });
+  }
+}
+
+describe('watchTasks on a live stream', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const event = (type: string) => ({ id: 'X' + type, ref: 'E1', at: '', type, actor: 'a', principal: 'p', task: 'aa-1', summary: '', data: {} });
+
+  // The Tasks view's own wiring: a real Live on a fake stream, a real TasksStore reading through TasksApi; every list call counted.
+  function rig() {
+    vi.useFakeTimers();
+    const stream = new FakeStream();
+    const env: LiveEnv = { open: () => stream, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) };
+    const live = new Live('/api/v1/stream', env);
+    live.start();
+    const six = Array.from({ length: 600 }, (_, i) => task(`aa-${i + 1}`));
+    const { api: a, fetchFn } = api(async () => json({ items: six }));
+    const store = new TasksStore(a, () => undefined);
+    const stop = watchTasks(live, () => store.refresh());
+    return { stream, fetchFn, store, stop };
+  }
+
+  for (const type of ['note_added', 'milestone', 'check_recorded']) {
+    it(`makes no Tasks refresh for a ${type} on a task`, async () => {
+      const { stream, fetchFn } = rig();
+      stream.send('board', event(type));
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+      expect(fetchFn).toHaveBeenCalledTimes(0);
+    });
+  }
+
+  it('makes one Tasks refresh, one list call at limit=1000 for 600 not-closed tasks, for a lease_started', async () => {
+    const { stream, fetchFn, store } = rig();
+    stream.send('board', event('lease_started'));
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+    expect(fetchFn.mock.calls.map((c) => c[0])).toEqual(['/api/v1/tasks?status=not_closed&limit=1000']);
+    expect(store.state.tasks).toHaveLength(600);
+  });
+
+  it('counts 0, 0, 0 then 1 refresh for the four events in a row, and none once stopped', async () => {
+    const { stream, fetchFn, stop } = rig();
+    const calls: number[] = [];
+    for (const type of ['note_added', 'milestone', 'check_recorded', 'lease_started']) {
+      const before = fetchFn.mock.calls.length;
+      stream.send('board', event(type));
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+      calls.push(fetchFn.mock.calls.length - before);
+    }
+    expect(calls).toEqual([0, 0, 0, 1]);
+    stop();
+    stream.send('board', event('lease_started'));
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 });
 
