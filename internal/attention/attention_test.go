@@ -89,13 +89,6 @@ func (e env) get(t *testing.T, q Query) Result {
 	if c != r.Counts {
 		t.Fatalf("Counts = %+v, but Get counted %+v", c, r.Counts)
 	}
-	live, err := e.Leases.Live(ctx)
-	if err != nil {
-		t.Fatalf("live leases: %v", err)
-	}
-	if c, err = e.A.CountsOf(ctx, q, live); err != nil || c != r.Counts {
-		t.Fatalf("CountsOf = %+v, %v, but Get counted %+v", c, err, r.Counts)
-	}
 	return r
 }
 

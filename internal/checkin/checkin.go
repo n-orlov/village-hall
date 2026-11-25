@@ -74,7 +74,7 @@ func (s Store) Check(ctx context.Context, me string, queried []string) (Result, 
 	if r.Notes, r.NotesMore, err = s.Notes.Concerning(ctx, concern(me, cursor, r.Leases.Mine), NotesLimit); err != nil {
 		return Result{}, err
 	}
-	r.Counts, err = s.Attention.CountsOf(ctx, attention.Query{}, append(append([]leases.Lease{}, r.Leases.Mine...), r.Leases.Others...))
+	r.Counts, err = s.Attention.Counts(ctx, attention.Query{})
 	return r, err
 }
 

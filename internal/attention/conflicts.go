@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/n-orlov/village-hall/internal/leases"
 	"github.com/n-orlov/village-hall/internal/store"
@@ -28,20 +29,27 @@ func (s Store) conflicts(ctx context.Context, sc scope) ([]Conflict, error) {
 	return contested(live, kept, wayBacks), nil
 }
 
-// conflictCount is how many conflicts the scope keeps, from the live leases
-// given, or from those it reads when live is nil. It needs no way backs.
-func (s Store) conflictCount(ctx context.Context, sc scope, live []leases.Lease) (int, error) {
-	if live == nil {
-		var err error
-		if live, err = (leases.Store{Store: s.Store, Now: s.Now}).Live(ctx); err != nil {
-			return 0, err
-		}
+// conflictCount is how many conflicts the scope keeps, in one statement: the
+// resources that two or more live leases hold, where (with a scope) at least one
+// of those leases is on a task the scope keeps. It reads no lease and needs no
+// way backs.
+func (s Store) conflictCount(ctx context.Context, sc scope, now time.Time) (int, error) {
+	cond, scopeArgs := sc.and(`t.initiative_id`)
+	query := `SELECT COUNT(*) FROM (SELECT lr.resource FROM lease_resources lr
+		JOIN leases l ON l.id = lr.lease_id JOIN tasks t ON t.id = l.task_id
+		WHERE l.state = 'live' AND l.expires_at >= ? GROUP BY lr.resource
+		HAVING COUNT(*) > 1`
+	if cond != "" {
+		query += ` AND SUM(CASE WHEN 1 = 1` + cond + ` THEN 1 ELSE 0 END) > 0`
 	}
-	kept, err := s.keptTasks(ctx, sc)
+	query += `) shared`
+	var n int
+	err := s.Store.ReaderFor(ctx).QueryRowContext(ctx, s.Store.Dialect().Rebind(query),
+		append([]any{store.EncodeBound(now)}, scopeArgs...)...).Scan(&n)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("count attention conflicts: %w", err)
 	}
-	return len(contested(live, kept, nil)), nil
+	return n, nil
 }
 
 // contested groups the leases by resource and returns the resources with two or
