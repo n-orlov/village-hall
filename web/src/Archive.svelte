@@ -80,7 +80,7 @@
     return catalog.settled();
   }
   // Every read of a tag's sources (a link's, a restoration's) shares one order: an older answer never overwrites a newer one.
-  const sources = new SourceReads((tag) => tasksApi.tagMarks(tag));
+  const sources = new SourceReads((tags) => tasksApi.tagSources(tags));
   const initiativeMarks = (tags: readonly string[]): TagMark[] => {
     const have = new Set((looked ?? []).flatMap((i) => i.tags));
     return tags.filter((tag) => have.has(tag)).map((tag) => ({ tag, source: 'initiative' as const }));

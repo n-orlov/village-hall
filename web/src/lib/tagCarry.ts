@@ -7,8 +7,11 @@
 import { canonicalTag, type TagMark } from './chipFilter';
 import { TAG_PATTERN } from './taskTags';
 
-/** The marks of a tag on the tasks that match it (one per source); empty when no task matches. Rejects when the answer cannot be had. */
-export type TagProbe = (tag: string) => Promise<readonly TagMark[]>;
+/**
+ * The sources each of `tags` has on the tasks, in ONE request (`GET /tasks/tag-sources`): a tag no task carries has no entry.
+ * Rejects when the answer cannot be had, which fails every tag of the batch.
+ */
+export type TagProbe = (tags: readonly string[]) => Promise<Readonly<Record<string, readonly TagMark['source'][]>>>;
 
 /** The restored tags some task carries, and the marks (each with its source) the probe found for every restored tag. */
 export interface Carried {
@@ -43,7 +46,14 @@ async function probeAll(tags: readonly string[], probe: TagProbe): Promise<Answe
   // Each tag in the server's spelling, once; one the server's grammar refuses cannot be on any task or initiative, so it is unknown
   // without asking (the server would answer 400, which is a failed check and would keep it).
   const wanted = [...new Set(tags.map(canonicalTag))].filter((tag) => TAG_PATTERN.test(tag));
-  return Promise.all(wanted.map((tag) => probe(tag).then((marks): Answer => ({ tag, marks, failed: false }), (): Answer => ({ tag, marks: [], failed: true }))));
+  if (wanted.length === 0) return [];
+  let sources: Awaited<ReturnType<TagProbe>>;
+  try {
+    sources = await probe(wanted);
+  } catch {
+    return wanted.map((tag): Answer => ({ tag, marks: [], failed: true }));
+  }
+  return wanted.map((tag): Answer => ({ tag, marks: (Object.hasOwn(sources, tag) ? sources[tag]! : []).map((source) => ({ tag, source })), failed: false }));
 }
 
 /**

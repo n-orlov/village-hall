@@ -147,3 +147,22 @@ func (o taskOps) CountTasks(ctx context.Context, req CountTasksRequestObject) (C
 	}
 	return CountTasks200JSONResponse(TaskCount{Count: n}), nil
 }
+
+func (p problemResponse) VisitGetTagSourcesResponse(w http.ResponseWriter) error { return p.write(w) }
+
+// GetTagSources answers {tag: [sources]} for the tasks the status keeps: the sources every tag of a view has,
+// in one read, where the list would be paged once per tag. It reads no lease state, so it expires nothing.
+func (o taskOps) GetTagSources(ctx context.Context, req GetTagSourcesRequestObject) (GetTagSourcesResponseObject, error) {
+	if r, off := o.ready(); off {
+		return r, nil
+	}
+	status := ""
+	if req.Params.Status != nil {
+		status = string(*req.Params.Status)
+	}
+	got, err := o.tasks.TagSources(ctx, status, orEmpty(req.Params.Tag))
+	if err != nil {
+		return taskResult[GetTagSourcesResponseObject](err, "there is no task ")
+	}
+	return GetTagSources200JSONResponse(got), nil
+}

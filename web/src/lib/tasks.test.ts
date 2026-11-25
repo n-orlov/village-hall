@@ -51,37 +51,23 @@ describe('TasksApi', () => {
     expect(fetchFn.mock.calls[0]![0]).toBe('/api/v1/tasks?status=open');
   });
 
-  it('reads the marks a tag has on the tasks that match it, one per source, across pages until all three are found', async () => {
-    const m = (tag: string, source: string) => ({ tag, source });
-    const { api: a, fetchFn } = api(async (url) =>
-      url.includes('after=aa-2')
-        ? json({ items: [{ ...task('aa-3'), tag_marks: [m('has', 'actor'), m('has', 'initiative')] }] })
-        : json({ items: [{ ...task('aa-1'), tag_marks: [m('has', 'task'), m('other', 'task')] }, { ...task('aa-2'), tag_marks: [m('has', 'task')] }], next_after: 'aa-2' }),
-    );
-    expect(await a.tagMarks('has')).toEqual([m('has', 'task'), m('has', 'actor'), m('has', 'initiative')]);
-    expect(fetchFn.mock.calls.map((c) => c[0])).toEqual(['/api/v1/tasks?status=all&limit=1000&tag=has', '/api/v1/tasks?status=all&limit=1000&tag=has&after=aa-2']);
-  });
-
-  it('reads the marks of a tag spelled otherwise (padded, upper case) under the server\'s spelling', async () => {
-    const m = (source: string) => ({ tag: 'ralph', source });
-    const { api: a, fetchFn } = api(async () => json({ items: [{ ...task('aa-1'), tag_marks: [m('actor'), { tag: 'other', source: 'task' }] }] }));
-    expect(await a.tagMarks(' RALPH ')).toEqual([m('actor')]);
-    expect(fetchFn.mock.calls[0]![0]).toBe('/api/v1/tasks?status=all&limit=1000&tag=ralph');
-  });
-
-  it('stops reading once every source is found, and has no marks for a tag nothing carries', async () => {
-    const m = (source: string) => ({ tag: 'has', source });
-    const { api: a, fetchFn } = api(async (url) =>
-      url.includes('tag=has') ? json({ items: [{ ...task('aa-1'), tag_marks: [m('task'), m('actor'), m('initiative')] }], next_after: 'aa-1' }) : json({ items: [] }),
-    );
-    expect(await a.tagMarks('has')).toHaveLength(3);
+  it('reads the sources of ten tags in one request, each in the server\'s spelling and once', async () => {
+    const tags = Array.from({ length: 10 }, (_, i) => `tag-${i}`);
+    const { api: a, fetchFn } = api(async () => json({ 'tag-0': ['task', 'initiative'], 'tag-3': ['actor'] }));
+    expect(await a.tagSources([...tags, ' TAG-0 '])).toEqual({ 'tag-0': ['task', 'initiative'], 'tag-3': ['actor'] });
     expect(fetchFn).toHaveBeenCalledTimes(1);
-    expect(await a.tagMarks('none')).toEqual([]);
+    expect(fetchFn.mock.calls[0]![0]).toBe(`/api/v1/tasks/tag-sources?status=all&${tags.map((t) => `tag=${t}`).join('&')}`);
+    expect(fetchFn.mock.calls[0]![1]).toMatchObject({ credentials: 'same-origin', headers: { Accept: 'application/json' } });
+  });
+
+  it('has no entry for a tag nothing carries', async () => {
+    const { api: a } = api(async () => json({}));
+    expect(await a.tagSources(['none'])).toEqual({});
   });
 
   it('refuses the tag read when the server does', async () => {
     const { api: a } = api(async () => problem(500, { title: 'boom' }));
-    await expect(a.tagMarks('x')).rejects.toBeInstanceOf(InitiativesError);
+    await expect(a.tagSources(['x'])).rejects.toBeInstanceOf(InitiativesError);
   });
 
   it('honours the mount prefix', async () => {

@@ -33,22 +33,21 @@ async function seed(api: Api, prefix: string) {
 async function gainInitiativeSource(api: Api, s: Awaited<ReturnType<typeof seed>>) {
   expect((await api.patch(`/api/v1/initiatives/${s.later}`, { data: { tags: [s.tag] } })).status()).toBe(200);
   await created(api, '/api/v1/tasks', { initiative: s.later, title: 'Inherited source' });
-  const fresh = await api.get(`/api/v1/tasks?status=all&limit=1000&tag=${s.tag}`);
+  const fresh = await api.get(`/api/v1/tasks/tag-sources?status=all&tag=${s.tag}`);
   expect(fresh.status()).toBe(200);
   expect(sourcesOf(await fresh.json(), s.tag)).toEqual(['initiative', 'task']);
 }
 
-const sourcesOf = (body: { items: { tag_marks: { tag: string; source: string }[] }[] }, tag: string) =>
-  [...new Set(body.items.flatMap((row) => row.tag_marks.filter((m) => m.tag === tag).map((m) => m.source)))].sort();
+const sourcesOf = (body: Record<string, string[]>, tag: string) => [...(body[tag] ?? [])].sort();
 
-// Once armed, holds the first per-tag read of `tag` at the network (after the server answered) until `release()`.
+// Once armed, holds the first read of the sources of `tag` at the network (after the server answered) until `release()`.
 async function holdLookup(page: Page, tag: string) {
   const snapshot = gate<string[]>();
   const released = gate();
   let armed = false;
   let held = false;
-  const isLookup = (url: URL) => url.pathname === '/api/v1/tasks' && url.searchParams.get('limit') === '1000' && url.searchParams.get('tag') === tag && !url.searchParams.has('initiative');
-  await page.route('**/api/v1/tasks?**', async (route) => {
+  const isLookup = (url: URL) => url.pathname === '/api/v1/tasks/tag-sources' && url.searchParams.getAll('tag').includes(tag);
+  await page.route('**/api/v1/tasks/tag-sources?**', async (route) => {
     if (!armed || held || !isLookup(new URL(route.request().url()))) return route.continue();
     held = true;
     const response = await route.fetch();

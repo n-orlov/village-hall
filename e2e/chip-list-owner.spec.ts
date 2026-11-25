@@ -39,7 +39,7 @@ async function holdRequest(page: Page, mine: (url: URL) => boolean) {
   const seen = gate();
   let armed = false;
   let held = false;
-  await page.route('**/api/v1/tasks?**', async (route) => {
+  await page.route('**/api/v1/tasks**', async (route) => {
     if (!armed || held || !mine(new URL(route.request().url()))) return route.fallback();
     held = true;
     const response = await route.fetch();
@@ -58,12 +58,12 @@ async function holdRequest(page: Page, mine: (url: URL) => boolean) {
   };
 }
 
-// The closed-task lists (the per-tag reads carry `limit=1000`) of the requests `isHeld` picks.
+// The closed-task lists (the reads of tag sources have their own endpoint) of the requests `isHeld` picks.
 const holdLists = (page: Page, isHeld: (query: URLSearchParams) => boolean) =>
   holdRequest(page, (url) => url.pathname === '/api/v1/tasks' && url.searchParams.get('status') === 'closed' && !url.searchParams.has('limit') && isHeld(url.searchParams));
-// The per-tag read of `tag`.
+// The read of the sources of `tag` (one request for all the tags of a round: this one names `tag`).
 const holdLookup = (page: Page, tag: string) =>
-  holdRequest(page, (url) => url.pathname === '/api/v1/tasks' && url.searchParams.get('limit') === '1000' && url.searchParams.get('tag') === tag && !url.searchParams.has('initiative'));
+  holdRequest(page, (url) => url.pathname === '/api/v1/tasks/tag-sources' && url.searchParams.getAll('tag').includes(tag));
 
 // The board's list of initiatives (the catalog a restoration waits for), held at the network after the server answered.
 async function holdBoard(page: Page) {
@@ -365,9 +365,9 @@ for (const viewport of logicViewports) {
         const gateOpen = gate();
         let gated = false;
         // The link's per-tag read and board list wait for the source to go before they ask.
-        await page.route(/\/api\/v1\/(tasks|initiatives)\?/, async (route) => {
+        await page.route(/\/api\/v1\/(tasks\/tag-sources|initiatives)\?/, async (route) => {
           const url = new URL(route.request().url());
-          const lookup = url.pathname === '/api/v1/tasks' && url.searchParams.get('limit') === '1000' && url.searchParams.get('tag') === s.tag;
+          const lookup = url.pathname === '/api/v1/tasks/tag-sources' && url.searchParams.getAll('tag').includes(s.tag);
           const board = url.pathname === '/api/v1/initiatives' && url.searchParams.get('status') === 'all';
           if (!gated || !(lookup || board)) return route.fallback();
           await gateOpen.wait;

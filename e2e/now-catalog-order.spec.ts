@@ -84,25 +84,25 @@ async function openNow(page: Page, hash: string): Promise<void> {
 
 // Holds the page's first task-tag lookup of `tag` at the network (the read that says which sources a restored tag has and whether
 // any task carries it): `captured` resolves with the sources it answered, `release()` lets it land and waits until it is applied.
-const lookupOf = (tag: string) => `/api/v1/tasks?status=all&limit=1000&tag=${tag}`;
+const isLookupOf = (tag: string, url: URL) => url.pathname === '/api/v1/tasks/tag-sources' && url.searchParams.getAll('tag').includes(tag);
 async function holdLookup(page: Page, tag: string) {
   const captured = Promise.withResolvers<string[]>();
   const gate = Promise.withResolvers<void>();
   let armed = true;
-  await page.route('**/api/v1/tasks?**', async (route) => {
+  await page.route('**/api/v1/tasks/tag-sources?**', async (route) => {
     const url = new URL(route.request().url());
-    if (!armed || url.pathname + url.search !== lookupOf(tag)) return route.fallback();
+    if (!armed || !isLookupOf(tag, url)) return route.fallback();
     armed = false;
     const response = await route.fetch();
-    const body = (await response.json()) as { items: { tag_marks: { tag: string; source: string }[] }[] };
-    captured.resolve([...new Set(body.items.flatMap((i) => i.tag_marks.filter((m) => m.tag === tag).map((m) => m.source)))].sort());
+    const body = (await response.json()) as Record<string, string[]>;
+    captured.resolve([...(body[tag] ?? [])].sort());
     await gate.promise;
     await route.fulfill({ response });
   });
   return {
     captured: captured.promise,
     release: async () => {
-      const landed = page.waitForResponse((r) => r.url().endsWith(lookupOf(tag)));
+      const landed = page.waitForResponse((r) => isLookupOf(tag, new URL(r.url())));
       gate.resolve();
       await (await landed).finished();
       await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));

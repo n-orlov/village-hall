@@ -825,6 +825,52 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/Unavailable"
+  /api/v1/tasks/tag-sources:
+    get:
+      operationId: getTagSources
+      tags: [tasks]
+      summary: The sources of tags on the tasks
+      description: >-
+        Answers `{tag: [sources]}`: for every tag some task shows, the sources it has on the tasks the filter keeps, in the order
+        `task` (an own tag), `initiative` (a tag of the task's initiative), `actor` (derived from the kind of a lease holder,
+        live or ended). A tag no kept task carries has no entry, and no task at all answers `{}`. `tag` (repeatable) limits the answer
+        to those tags, trimmed and lowercased as a task tag is, so a view reads the sources of every tag it shows in one request.
+        `status` keeps the list's meaning and default (`not_closed`, so a closed task adds no source unless `status` is
+        `closed` or `all`).
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: tag
+          in: query
+          required: false
+          description: Answer only this tag. Repeatable; left out, every tag is answered.
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: status
+          in: query
+          required: false
+          description: The task status whose tasks count. Default `not_closed`.
+          schema:
+            type: string
+            enum: [open, done, closed, not_closed, all]
+      responses:
+        "200":
+          description: The sources of each tag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagSources"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /api/v1/tasks/{ref}:
     get:
       operationId: getTask
@@ -3403,6 +3449,15 @@ components:
         overdue:
           type: boolean
           description: A watch task, not closed, whose `next_check_at` is before now.
+    TagSources:
+      type: object
+      description: The sources each tag has on the tasks a filter keeps, keyed by tag.
+      additionalProperties:
+        type: array
+        description: The sources of the tag, in the order task, initiative, actor; never empty.
+        items:
+          type: string
+          enum: [task, initiative, actor]
     TagMark:
       type: object
       description: One tag of a task and its source.

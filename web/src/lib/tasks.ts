@@ -71,24 +71,14 @@ export class TasksApi {
   }
 
   /**
-   * The marks of `tag` on the tasks that match it, of any status, under the server's rule (own, initiative or derived actor
-   * kind): one mark per source some task shows it by. Empty when no task matches. It reads pages until all three sources
-   * are found or the tasks end, so a tag's sources do not depend on which task the server lists first.
+   * The sources each of `tags` has on the tasks of any status, under the server's rule (own, initiative or derived actor kind):
+   * one request however many tags (`GET /tasks/tag-sources`). A tag no task carries has no entry.
    */
-  async tagMarks(tag: string): Promise<TagMark[]> {
-    const found = new Map<string, TagMark>();
-    const wanted = canonicalTag(tag);
-    let after: string | undefined;
-    do {
-      const query = new URLSearchParams({ status: 'all', limit: '1000' });
-      query.append('tag', wanted);
-      if (after !== undefined) query.set('after', after);
-      const response = await this.call(`/api/v1/tasks?${query.toString()}`, 'Looking for tasks with the tag', { headers: { Accept: 'application/json' } });
-      const body = (await response.json()) as components['schemas']['TaskList'];
-      for (const task of body.items) for (const mark of task.tag_marks) if (mark.tag === wanted && !found.has(mark.source)) found.set(mark.source, mark);
-      after = found.size < 3 ? body.next_after : undefined;
-    } while (after !== undefined);
-    return [...found.values()];
+  async tagSources(tags: readonly string[]): Promise<Record<string, TagMark['source'][]>> {
+    const query = new URLSearchParams({ status: 'all' });
+    for (const tag of new Set(tags.map(canonicalTag))) query.append('tag', tag);
+    const response = await this.call(`/api/v1/tasks/tag-sources?${query.toString()}`, 'Looking for tasks with the tags', { headers: { Accept: 'application/json' } });
+    return (await response.json()) as components['schemas']['TagSources'] as Record<string, TagMark['source'][]>;
   }
 
   /** The Needs attention section for a `GET /tasks` query: the first 200 tasks that need a person and how many more there are. */

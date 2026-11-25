@@ -1000,6 +1000,33 @@ func (e CountTasksParamsKind) Valid() bool {
 	}
 }
 
+// Defines values for GetTagSourcesParamsStatus.
+const (
+	GetTagSourcesParamsStatusAll       GetTagSourcesParamsStatus = "all"
+	GetTagSourcesParamsStatusClosed    GetTagSourcesParamsStatus = "closed"
+	GetTagSourcesParamsStatusDone      GetTagSourcesParamsStatus = "done"
+	GetTagSourcesParamsStatusNotClosed GetTagSourcesParamsStatus = "not_closed"
+	GetTagSourcesParamsStatusOpen      GetTagSourcesParamsStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the GetTagSourcesParamsStatus enum.
+func (e GetTagSourcesParamsStatus) Valid() bool {
+	switch e {
+	case GetTagSourcesParamsStatusAll:
+		return true
+	case GetTagSourcesParamsStatusClosed:
+		return true
+	case GetTagSourcesParamsStatusDone:
+		return true
+	case GetTagSourcesParamsStatusNotClosed:
+		return true
+	case GetTagSourcesParamsStatusOpen:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetTimelineParamsRows.
 const (
 	GetTimelineParamsRowsAll    GetTimelineParamsRows = "all"
@@ -2349,6 +2376,9 @@ type TagMark struct {
 // TagMarkSource `task`: one of the task's own tags. `initiative`: a tag of its initiative. `actor`: derived, the kind (`ralph`, `claude`, `pi`, `codex` or `deck`) of the holder of a live or ended lease on it, the holder's handle prefix before the first `:`.
 type TagMarkSource string
 
+// TagSources The sources each tag has on the tasks a filter keeps, keyed by tag.
+type TagSources map[string][]string
+
 // Task A task. `active`, `blocked` and `overdue` are derived. `tags` are the task's own tags.
 type Task struct {
 	// Active It has a live lease.
@@ -3284,6 +3314,18 @@ type CountTasksParamsStatus string
 // CountTasksParamsKind defines parameters for CountTasks.
 type CountTasksParamsKind string
 
+// GetTagSourcesParams defines parameters for GetTagSources.
+type GetTagSourcesParams struct {
+	// Tag Answer only this tag. Repeatable; left out, every tag is answered.
+	Tag *[]string `form:"tag,omitempty" json:"tag,omitempty"`
+
+	// Status The task status whose tasks count. Default `not_closed`.
+	Status *GetTagSourcesParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// GetTagSourcesParamsStatus defines parameters for GetTagSources.
+type GetTagSourcesParamsStatus string
+
 // RecordTaskCheckParams defines parameters for RecordTaskCheck.
 type RecordTaskCheckParams struct {
 	// IdempotencyKey Makes the write safe to retry. 1 to 255 printable ASCII characters (anything else is 400), scoped to the caller's principal. Within 24 hours the same method, path, query, actor and body sent again with the key is answered with the first request's status and body plus the header `Idempotent-Replayed: true`, and writes nothing. The same key with a different request is 422. A duplicate that arrives while the first is still running is 409. A key older than 24 hours counts as new. A 5xx answer is not stored, so the retry runs again. Without the header the request runs as it always did.
@@ -3565,6 +3607,9 @@ type ServerInterface interface {
 	// CountTasks Count the tasks
 	// (GET /api/v1/tasks/count)
 	CountTasks(w http.ResponseWriter, r *http.Request, params CountTasksParams)
+	// GetTagSources The sources of tags on the tasks
+	// (GET /api/v1/tasks/tag-sources)
+	GetTagSources(w http.ResponseWriter, r *http.Request, params GetTagSourcesParams)
 	// GetTask Read a task
 	// (GET /api/v1/tasks/{ref})
 	GetTask(w http.ResponseWriter, r *http.Request, ref TaskRef)
@@ -5395,6 +5440,40 @@ func (siw *ServerInterfaceWrapper) CountTasks(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// GetTagSources operation middleware
+func (siw *ServerInterfaceWrapper) GetTagSources(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetTagSourcesParams
+
+	bind := siw.queryBinder(w, r)
+
+	// ------------- Optional query parameter "tag" -------------
+
+	bind.check("tag", runtime.BindQueryParameterWithOptions("form", true, false, "tag", r.URL.Query(), &params.Tag, runtime.BindQueryParameterOptions{Type: "array", Format: ""}))
+
+	// ------------- Optional query parameter "status" -------------
+
+	bind.check("status", runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""}))
+
+	if bind.failed {
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTagSources(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTask operation middleware
 func (siw *ServerInterfaceWrapper) GetTask(w http.ResponseWriter, r *http.Request) {
 
@@ -6188,6 +6267,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tasks", wrapper.ListTasks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/tasks", wrapper.CreateTask)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tasks/count", wrapper.CountTasks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tasks/tag-sources", wrapper.GetTagSources)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/tasks/{ref}", wrapper.GetTask)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/tasks/{ref}", wrapper.PatchTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/tasks/{ref}/done", wrapper.DoneTask)
@@ -10398,6 +10478,76 @@ func (response CountTasks503ApplicationProblemPlusJSONResponse) VisitCountTasksR
 	return err
 }
 
+type GetTagSourcesRequestObject struct {
+	Params GetTagSourcesParams
+}
+
+type GetTagSourcesResponseObject interface {
+	VisitGetTagSourcesResponse(w http.ResponseWriter) error
+}
+
+type GetTagSources200JSONResponse TagSources
+
+func (response GetTagSources200JSONResponse) VisitGetTagSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTagSources400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response GetTagSources400ApplicationProblemPlusJSONResponse) VisitGetTagSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTagSources401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetTagSources401ApplicationProblemPlusJSONResponse) VisitGetTagSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTagSources503ApplicationProblemPlusJSONResponse struct {
+	UnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response GetTagSources503ApplicationProblemPlusJSONResponse) VisitGetTagSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTaskRequestObject struct {
 	Ref TaskRef `json:"ref"`
 }
@@ -12326,6 +12476,9 @@ type StrictServerInterface interface {
 	// CountTasks Count the tasks
 	// (GET /api/v1/tasks/count)
 	CountTasks(ctx context.Context, request CountTasksRequestObject) (CountTasksResponseObject, error)
+	// GetTagSources The sources of tags on the tasks
+	// (GET /api/v1/tasks/tag-sources)
+	GetTagSources(ctx context.Context, request GetTagSourcesRequestObject) (GetTagSourcesResponseObject, error)
 	// GetTask Read a task
 	// (GET /api/v1/tasks/{ref})
 	GetTask(ctx context.Context, request GetTaskRequestObject) (GetTaskResponseObject, error)
@@ -13718,6 +13871,32 @@ func (sh *strictHandler) CountTasks(w http.ResponseWriter, r *http.Request, para
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CountTasksResponseObject); ok {
 		if err := validResponse.VisitCountTasksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTagSources operation middleware
+func (sh *strictHandler) GetTagSources(w http.ResponseWriter, r *http.Request, params GetTagSourcesParams) {
+	var request GetTagSourcesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTagSources(ctx, request.(GetTagSourcesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTagSources")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTagSourcesResponseObject); ok {
+		if err := validResponse.VisitGetTagSourcesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

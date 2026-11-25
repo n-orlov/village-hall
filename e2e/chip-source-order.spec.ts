@@ -18,7 +18,7 @@ const views = [
 ] as const;
 
 type Api = Awaited<ReturnType<typeof actorApi>>;
-type Marks = { items: { tag_marks: { tag: string; source: string }[] }[] };
+type Sources = Record<string, string[]>;
 
 // The initiative `slug` (tag `slug`) with one task, which carries `slug` as its own tag when `own`; the initiative `${slug}-none`
 // (tag `${slug}-none`) holds no task.
@@ -29,22 +29,25 @@ async function seed(api: Api, slug: string, own: boolean): Promise<string> {
   return ref;
 }
 
-const probeOf = (tag: string) => `/api/v1/tasks?status=all&limit=1000&tag=${tag}`;
-const sourcesIn = (tag: string, body: Marks) => [...new Set(body.items.flatMap((i) => i.tag_marks.filter((m) => m.tag === tag).map((m) => m.source)))].sort();
+// A read of the sources of tags is ONE request for all the tags of the round: this one asks about `tag`.
+const isProbeOf = (tag: string, raw: string) => {
+  const url = new URL(raw);
+  return url.pathname === '/api/v1/tasks/tag-sources' && url.searchParams.getAll('tag').includes(tag);
+};
+const sourcesIn = (tag: string, body: Sources) => [...(body[tag] ?? [])].sort();
 
-// Holds the page's first per-tag read of `tag` at the network: `held` resolves with the sources it answered, `release()` lets it land.
+// Holds the page's first read of the sources of `tag` at the network: `held` resolves with the sources it answered, `release()` lets it land.
 async function holdFirstRead(page: Page, tag: string) {
   let seen = false;
   let captured!: (sources: string[]) => void;
   let release!: () => void;
   const held = new Promise<string[]>((resolve) => (captured = resolve));
   const gate = new Promise<void>((resolve) => (release = resolve));
-  await page.route('**/api/v1/tasks?**', async (route: Route) => {
-    const url = new URL(route.request().url());
-    if (seen || url.pathname + url.search !== probeOf(tag)) return route.continue();
+  await page.route('**/api/v1/tasks/tag-sources?**', async (route: Route) => {
+    if (seen || !isProbeOf(tag, route.request().url())) return route.continue();
     seen = true;
     const response = await route.fetch();
-    captured(sourcesIn(tag, (await response.json()) as Marks));
+    captured(sourcesIn(tag, (await response.json()) as Sources));
     await gate;
     await route.fulfill({ response });
   });
@@ -57,10 +60,10 @@ const named = (tag: string, sources: string) => ({ name: `${tag}, ${sources}`, h
 // Lets the held older read land, waits until the page has its whole answer and has drawn two frames since (every step after the
 // body is microtasks), then checks the chip still names what the newer read gave it.
 async function releaseAndKeep(page: Page, tag: string, release: () => void, older: string[], expected: { name: string; hover: string }) {
-  const landed = page.waitForResponse((response) => response.url().endsWith(probeOf(tag)));
+  const landed = page.waitForResponse((response) => isProbeOf(tag, response.url()));
   release();
   const response = await landed;
-  expect(sourcesIn(tag, (await response.json()) as Marks)).toEqual(older);
+  expect(sourcesIn(tag, (await response.json()) as Sources)).toEqual(older);
   await response.finished();
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   expect(await labels(page, tag)).toEqual(expected);

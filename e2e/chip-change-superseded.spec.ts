@@ -44,7 +44,7 @@ async function seed(api: Api, slug: string) {
 
 // Once armed, holds the restoration at the network until `release()`: on `catalog`, the board's list of initiatives (`status=all`);
 // on `lookup`, the restoration's own per-tag reads (Now restores in place against the list it already holds, then looks its tags
-// up). From then on it counts the per-tag reads, and once `changed()` marks the user's change, the per-tag reads and every request
+// up). From then on it counts the reads of each tag's sources, and once `changed()` marks the user's change, the per-tag reads and every request
 // sent under a filter that names `scope` together with `stale` that begin after it.
 async function hold(page: Page, scope: string, stale: string, on: 'catalog' | 'lookup' = 'catalog') {
   const released = gate();
@@ -54,11 +54,9 @@ async function hold(page: Page, scope: string, stale: string, on: 'catalog' | 'l
   const staleRequests: string[] = [];
   let armed = false;
   let after = false;
-  const lookup = (url: URL) => {
-    const tags = url.searchParams.getAll('tag');
-    return url.pathname === '/api/v1/tasks' && url.searchParams.get('limit') === '1000' && tags.length === 1 && !url.searchParams.has('initiative') ? tags[0] : undefined;
-  };
-  await page.route(on === 'catalog' ? '**/api/v1/initiatives*' : '**/api/v1/tasks?**', async (route) => {
+  // A read of the sources of tags is ONE request for all the tags of the round, so it names the tags it reads (none for any other request).
+  const lookup = (url: URL) => (url.pathname === '/api/v1/tasks/tag-sources' ? url.searchParams.getAll('tag') : undefined);
+  await page.route(on === 'catalog' ? '**/api/v1/initiatives*' : '**/api/v1/tasks/tag-sources?**', async (route) => {
     const url = new URL(route.request().url());
     const held = on === 'catalog' ? url.pathname === '/api/v1/initiatives' && url.searchParams.get('status') === 'all' : lookup(url) !== undefined;
     if (!armed || !held) return route.continue();
@@ -70,8 +68,7 @@ async function hold(page: Page, scope: string, stale: string, on: 'catalog' | 'l
   page.on('request', (request) => {
     if (!armed) return;
     const url = new URL(request.url());
-    const tag = lookup(url);
-    if (tag !== undefined) {
+    for (const tag of lookup(url) ?? []) {
       reads.set(tag, (reads.get(tag) ?? 0) + 1);
       if (after) readsAfter.push(tag);
     }

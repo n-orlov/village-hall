@@ -18,7 +18,7 @@ const views = [
 ] as const;
 
 type Api = Awaited<ReturnType<typeof actorApi>>;
-type Marks = { items: { tag_marks: { tag: string; source: string }[] }[] };
+type Sources = Record<string, string[]>;
 
 function gate() {
   let open!: () => void;
@@ -40,7 +40,7 @@ async function seed(api: Api, slug: string, tags: string[]): Promise<{ scope: st
   return { scope, marker };
 }
 
-// Holds the board's list of initiatives at the network until `release()`, and counts (and optionally holds the first of) the per-tag reads.
+// Holds the board's list of initiatives at the network until `release()`, and counts (and optionally holds the first of) the reads of the sources of tags.
 async function hold(page: Page, holdFirstOf?: string) {
   const catalog = gate();
   const catalogStarted = gate();
@@ -54,14 +54,12 @@ async function hold(page: Page, holdFirstOf?: string) {
     await catalog.wait;
     await route.fulfill({ response });
   });
-  await page.route('**/api/v1/tasks?**', async (route) => {
-    const url = new URL(route.request().url());
-    const tag = url.searchParams.get('tag');
-    const probe = url.pathname === '/api/v1/tasks' && url.searchParams.get('limit') === '1000' && tag !== null && !url.searchParams.has('initiative');
-    if (!probe) return route.continue();
-    reads.set(tag, (reads.get(tag) ?? 0) + 1);
+  // A read of the sources of tags is one request for all the tags of the round; each tag it names counts as a read of that tag.
+  await page.route('**/api/v1/tasks/tag-sources?**', async (route) => {
+    const tags = new URL(route.request().url()).searchParams.getAll('tag');
+    for (const tag of tags) reads.set(tag, (reads.get(tag) ?? 0) + 1);
     const response = await route.fetch();
-    if (tag === holdFirstOf && reads.get(tag) === 1) {
+    if (holdFirstOf !== undefined && tags.includes(holdFirstOf) && reads.get(holdFirstOf) === 1) {
       firstStarted.open();
       await firstHeld.wait;
     }
@@ -74,8 +72,8 @@ async function hold(page: Page, holdFirstOf?: string) {
     releaseCatalog: catalog.open,
     releaseFirst: firstHeld.open,
     sourcesOfFirst: async (tag: string, page: Page) => {
-      const answer = await page.request.get(`/api/v1/tasks?status=all&limit=1000&tag=${tag}`);
-      return [...new Set(((await answer.json()) as Marks).items.flatMap((i) => i.tag_marks.filter((m) => m.tag === tag).map((m) => m.source)))].sort();
+      const answer = await page.request.get(`/api/v1/tasks/tag-sources?status=all&tag=${tag}`);
+      return [...((await answer.json()) as Sources)[tag] ?? []].sort();
     },
   };
 }

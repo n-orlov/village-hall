@@ -143,7 +143,7 @@
   // The restored tags no initiative lists are valid when some task carries them (own, or a derived actor kind): the server says.
   const tasksApi = new TasksApi(browser, () => csrf);
   // Every read of a tag's sources (a link's, a restoration's) shares one order: an older answer never overwrites a newer one.
-  const sources = new SourceReads((tag) => tasksApi.tagMarks(tag));
+  const sources = new SourceReads((tags) => tasksApi.tagSources(tags));
   async function carriedOf(filter: TimelineFilter, current: () => boolean): Promise<SourceRead | undefined> {
     return looked === undefined ? undefined : sources.read(filter.tags, looked, current);
   }

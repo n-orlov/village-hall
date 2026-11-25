@@ -300,6 +300,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tasks/tag-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The sources of tags on the tasks
+         * @description Answers `{tag: [sources]}`: for every tag some task shows, the sources it has on the tasks the filter keeps, in the order `task` (an own tag), `initiative` (a tag of the task's initiative), `actor` (derived from the kind of a lease holder, live or ended). A tag no kept task carries has no entry, and no task at all answers `{}`. `tag` (repeatable) limits the answer to those tags, trimmed and lowercased as a task tag is, so a view reads the sources of every tag it shows in one request. `status` keeps the list's meaning and default (`not_closed`, so a closed task adds no source unless `status` is `closed` or `all`).
+         */
+        get: operations["getTagSources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tasks/{ref}": {
         parameters: {
             query?: never;
@@ -1411,6 +1431,10 @@ export interface components {
             blocked: boolean;
             /** @description A watch task, not closed, whose `next_check_at` is before now. */
             overdue: boolean;
+        };
+        /** @description The sources each tag has on the tasks a filter keeps, keyed by tag. */
+        TagSources: {
+            [key: string]: ("task" | "initiative" | "actor")[];
         };
         /** @description One tag of a task and its source. */
         TagMark: {
@@ -3023,6 +3047,34 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["Unavailable"];
+        };
+    };
+    getTagSources: {
+        parameters: {
+            query?: {
+                /** @description Answer only this tag. Repeatable; left out, every tag is answered. */
+                tag?: string[];
+                /** @description The task status whose tasks count. Default `not_closed`. */
+                status?: "open" | "done" | "closed" | "not_closed" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sources of each tag. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagSources"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             503: components["responses"]["Unavailable"];
         };
     };

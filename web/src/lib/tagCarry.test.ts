@@ -1,14 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TagMark } from './chipFilter';
-import { carriedTags, SourceReads, SourceRefresh } from './tagCarry';
+import { carriedTags, SourceReads, SourceRefresh, type TagProbe } from './tagCarry';
 
 const known = [{ tags: ['work'] }, { tags: ['home'] }];
 const mark = (tag: string, source: TagMark['source']): TagMark => ({ tag, source });
 
+// A fixture that answers one tag at a time, as the batch probe the views use: it asks the fixture for each tag of the batch and
+// rejects when any rejects (a failed batch fails every tag in it).
+const perTag =
+  (one: (tag: string) => Promise<readonly TagMark[]>): TagProbe =>
+  async (tags) => {
+    const answers = await Promise.all(tags.map(async (tag) => [tag, (await one(tag)).map((m) => m.source)] as const));
+    return Object.fromEntries(answers.filter(([, sources]) => sources.length > 0));
+  };
+
 describe('carriedTags', () => {
   it('probes every tag once and keeps the unlisted ones a task carries, with every mark found', async () => {
     const probe = vi.fn(async (tag: string) => (tag === 'gone' ? [] : tag === 'ralph' ? [mark('ralph', 'actor')] : [mark(tag, 'task')]));
-    const { tags, marks, answered } = await carriedTags(['work', 'only-own', 'ralph', 'gone', 'only-own'], known, probe);
+    const { tags, marks, answered } = await carriedTags(['work', 'only-own', 'ralph', 'gone', 'only-own'], known, perTag(probe));
     expect([...tags].sort()).toEqual(['only-own', 'ralph']);
     expect([...answered].sort()).toEqual(['gone', 'only-own', 'ralph', 'work']);
     expect(probe.mock.calls.map((c) => c[0]).sort()).toEqual(['gone', 'only-own', 'ralph', 'work']);
@@ -16,20 +25,20 @@ describe('carriedTags', () => {
   });
 
   it('keeps the sources of a tag an initiative lists that a task also carries as its own', async () => {
-    const { tags, marks } = await carriedTags(['work'], known, async () => [mark('work', 'task')]);
+    const { tags, marks } = await carriedTags(['work'], known, perTag(async () => [mark('work', 'task')]));
     expect(tags.size).toBe(0);
     expect(marks).toEqual([mark('work', 'task')]);
   });
 
   it('keeps a tag whose check failed, with no marks: what cannot be checked is not dropped', async () => {
-    const { tags, marks, answered } = await carriedTags(['flaky'], known, () => Promise.reject(new Error('down')));
+    const { tags, marks, answered } = await carriedTags(['flaky'], known, perTag(() => Promise.reject(new Error('down'))));
     expect([...tags]).toEqual(['flaky']);
     expect(marks).toEqual([]);
     expect(answered.size).toBe(0);
   });
 
   it('drops a tag nothing carries and no initiative lists', async () => {
-    const { tags, marks, answered } = await carriedTags(['ghost'], known, async () => []);
+    const { tags, marks, answered } = await carriedTags(['ghost'], known, perTag(async () => []));
     expect(tags.size).toBe(0);
     expect(marks).toEqual([]);
     expect([...answered]).toEqual(['ghost']);
@@ -37,13 +46,13 @@ describe('carriedTags', () => {
 
   it('asks nothing for no tags', async () => {
     const probe = vi.fn(async () => []);
-    expect((await carriedTags([], known, probe)).tags.size).toBe(0);
+    expect((await carriedTags([], known, perTag(probe))).tags.size).toBe(0);
     expect(probe).not.toHaveBeenCalled();
   });
 
   it('reads each tag in the server\'s spelling: a padded or upper-case saved tag is probed and listed as the server holds it', async () => {
     const probe = vi.fn(async (tag: string) => [mark(tag, 'task')]);
-    const { tags, marks } = await carriedTags(['\u0085only-own\u0085', 'WORK', ' Only-Own'], known, probe);
+    const { tags, marks } = await carriedTags(['\u0085only-own\u0085', 'WORK', ' Only-Own'], known, perTag(probe));
     expect(probe.mock.calls.map((c) => c[0]).sort()).toEqual(['only-own', 'work']);
     expect([...tags]).toEqual(['only-own']);
     expect(marks).toEqual([mark('only-own', 'task'), mark('work', 'task')]);
@@ -51,7 +60,7 @@ describe('carriedTags', () => {
 
   it('drops a tag the server\'s grammar refuses without asking: it can be on no task, and the server would answer 400', async () => {
     const probe = vi.fn(async (tag: string) => [mark(tag, 'task')]);
-    const { tags, marks } = await carriedTags(['\ufeffonly-own', 'has space', 'x'.repeat(41), 'fine'], known, probe);
+    const { tags, marks } = await carriedTags(['\ufeffonly-own', 'has space', 'x'.repeat(41), 'fine'], known, perTag(probe));
     expect(probe.mock.calls.map((c) => c[0])).toEqual(['fine']);
     expect([...tags]).toEqual(['fine']);
     expect(marks).toEqual([mark('fine', 'task')]);
@@ -59,12 +68,32 @@ describe('carriedTags', () => {
 });
 
 describe('SourceReads', () => {
+  it('reads the sources of a round of 10 tags in one probe call, whatever the tags are', async () => {
+    const tags = Array.from({ length: 10 }, (_, i) => `tag-${i}`);
+    const probe = vi.fn<TagProbe>(async (asked) => Object.fromEntries(asked.map((tag) => [tag, ['task', 'actor'] as const])));
+    const answer = await new SourceReads(probe).read([...tags, 'TAG-0'], []);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect([...probe.mock.calls[0]![0]].sort()).toEqual([...tags].sort());
+    expect([...answer.fresh().answered].sort()).toEqual([...tags].sort());
+    expect(answer.fresh().marks).toHaveLength(20);
+    expect(answer.fresh().marks).toContainEqual(mark('tag-7', 'actor'));
+  });
+
+  it('fails every tag of a batch the server refused, and answers a tag with no entry as carrying nothing', async () => {
+    const down = await new SourceReads(() => Promise.reject(new Error('down'))).read(['a', 'b']);
+    expect([...down.tags].sort()).toEqual(['a', 'b']);
+    expect(down.fresh().answered.size).toBe(0);
+    const some = await new SourceReads(async () => ({ a: ['task'] as const })).read(['a', 'constructor']);
+    expect([...some.fresh().answered].sort()).toEqual(['a', 'constructor']);
+    expect(some.fresh().marks).toEqual([mark('a', 'task')]);
+  });
+
   // A probe whose answers are released by hand, so the test chooses the order they land in.
   function gated() {
     const pending: { tag: string; release: (marks: TagMark[]) => void; fail: () => void }[] = [];
     const probe = (tag: string) =>
       new Promise<readonly TagMark[]>((resolve, reject) => pending.push({ tag, release: resolve, fail: () => reject(new Error('down')) }));
-    return { pending, reads: new SourceReads(probe) };
+    return { pending, reads: new SourceReads(perTag(probe)) };
   }
 
   it('drops an older answer for a tag that lands after a newer read of it', async () => {
@@ -155,13 +184,13 @@ describe('SourceReads', () => {
   });
 
   it('owes no tag the server\'s grammar refuses: no read can answer for it', async () => {
-    const reads = new SourceReads(async () => []);
+    const reads = new SourceReads(perTag(async () => []));
     void reads.read(['bad tag!']);
     expect(reads.owed(['bad tag!'])).toEqual([]);
   });
 
   it('checks a restored tag against the initiatives it is given', async () => {
-    const reads = new SourceReads(async () => []);
+    const reads = new SourceReads(perTag(async () => []));
     const answer = await reads.read(['work', 'ghost'], known);
     expect([...answer.tags]).toEqual([]);
     expect([...answer.fresh().answered].sort()).toEqual(['ghost', 'work']);
@@ -174,33 +203,33 @@ describe('SourceReads', () => {
     const after = [{ tags: [] as string[] }];
 
     it('keeps a tag a task confirms after the catalog stopped listing it, which the catalog it began under still did', async () => {
-      const answer = await new SourceReads(async (tag) => [mark(tag, 'task'), mark(tag, 'initiative')]).read(['shared'], before);
+      const answer = await new SourceReads(perTag(async (tag) => [mark(tag, 'task'), mark(tag, 'initiative')])).read(['shared'], before);
       expect(answer.tags.size).toBe(0);
       expect([...answer.carriedAgainst(after, true)]).toEqual(['shared']);
       expect([...answer.carriedAgainst(after)]).toEqual(['shared']);
     });
 
     it('does not carry a tag the newest catalog still lists: the initiatives offer it', async () => {
-      const answer = await new SourceReads(async (tag) => [mark(tag, 'task')]).read(['shared'], after);
+      const answer = await new SourceReads(perTag(async (tag) => [mark(tag, 'task')])).read(['shared'], after);
       expect([...answer.tags]).toEqual(['shared']);
       expect(answer.carriedAgainst(before, true).size).toBe(0);
     });
 
     it('drops the initiative marks of an answer that predates a catalog read, and keeps the task and actor ones', async () => {
-      const answer = await new SourceReads(async (tag) => [mark(tag, 'initiative'), mark(tag, 'task'), mark(tag, 'actor')]).read(['shared'], before);
+      const answer = await new SourceReads(perTag(async (tag) => [mark(tag, 'initiative'), mark(tag, 'task'), mark(tag, 'actor')])).read(['shared'], before);
       expect(answer.fresh().marks).toEqual([mark('shared', 'initiative'), mark('shared', 'task'), mark('shared', 'actor')]);
       expect(answer.fresh(true).marks).toEqual([mark('shared', 'task'), mark('shared', 'actor')]);
       expect([...answer.fresh(true).answered]).toEqual(['shared']);
     });
 
     it('drops a tag only an initiative source confirmed once the catalog moved and no initiative lists it', async () => {
-      const answer = await new SourceReads(async (tag) => [mark(tag, 'initiative')]).read(['shared'], before);
+      const answer = await new SourceReads(perTag(async (tag) => [mark(tag, 'initiative')])).read(['shared'], before);
       expect(answer.carriedAgainst(after, false).has('shared')).toBe(true);
       expect(answer.carriedAgainst(after, true).size).toBe(0);
     });
 
     it('keeps a tag whose check failed whatever the catalog says', async () => {
-      const answer = await new SourceReads(() => Promise.reject(new Error('down'))).read(['shared'], before);
+      const answer = await new SourceReads(perTag(() => Promise.reject(new Error('down')))).read(['shared'], before);
       expect([...answer.carriedAgainst(after, true)]).toEqual(['shared']);
     });
   });

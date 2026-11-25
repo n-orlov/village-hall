@@ -115,7 +115,7 @@
   // The restored tags no initiative lists are valid when some task carries them (own, or a derived actor kind): the server says.
   const tasksApi = new TasksApi(browser, () => csrf);
   // Every read of a tag's sources (a link's, a restoration's) shares one order: an older answer never overwrites a newer one.
-  const sources = new SourceReads((tag) => tasksApi.tagMarks(tag));
+  const sources = new SourceReads((tags) => tasksApi.tagSources(tags));
   // The lookup runs while the catalog may be read again (an initiative event): once it answers, the restored tags are checked
   // against the newest catalog (every read begun by then has landed), so a tag a task confirms stays valid after an event took
   // it off its last initiative, and the initiative sources the answer predates are not offered for it.

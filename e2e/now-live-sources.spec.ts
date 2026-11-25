@@ -13,7 +13,7 @@ const aria = (page: Page, tag: string) => tagChip(page, tag).getAttribute('aria-
 // The page's own per-tag lookup of `tag` (the read that names a link's or a restored tag's sources): held until released,
 // `captured` is the sources it answered.
 async function holdLookup(page: Page, tag: string) {
-  const isLookup = (url: URL) => url.pathname === '/api/v1/tasks' && url.searchParams.get('tag') === tag && !url.searchParams.has('initiative') && url.searchParams.get('limit') === '1000';
+  const isLookup = (url: URL) => url.pathname === '/api/v1/tasks/tag-sources' && url.searchParams.getAll('tag').includes(tag);
   const captured = Promise.withResolvers<string[]>();
   const gate = Promise.withResolvers<void>();
   let armed = true;
@@ -21,8 +21,8 @@ async function holdLookup(page: Page, tag: string) {
     if (!armed) return route.fallback();
     armed = false;
     const response = await route.fetch();
-    const body = (await response.json()) as { items: { tag_marks: { tag: string; source: string }[] }[] };
-    captured.resolve([...new Set(body.items.flatMap((i) => i.tag_marks.filter((m) => m.tag === tag).map((m) => m.source)))].sort());
+    const body = (await response.json()) as Record<string, string[]>;
+    captured.resolve([...(body[tag] ?? [])].sort());
     await gate.promise;
     await route.fulfill({ response });
   });
