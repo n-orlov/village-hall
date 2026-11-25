@@ -1845,6 +1845,8 @@ export interface components {
             renewed_at: string;
             /** Format: date-time */
             expired_at: string;
+            /** @description True when the lease was a notice (a lease started with `notice`). An expired notice is listed and acknowledged like any expired lease; false for an ordinary lease. */
+            notice: boolean;
             /** @description The task's own tags, sorted. Empty when it has none. */
             tags: string[];
             /** @description Every tag the task shows with its source, as for `Task`: its own, then its initiative's, then the derived actor-kind tags. */

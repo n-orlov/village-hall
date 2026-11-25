@@ -4133,7 +4133,7 @@ components:
     AttentionExpiredLease:
       type: object
       description: A lease that ran out, was not acknowledged and has no later lease on its task.
-      required: [lease, holder, task, title, intent, renewed_at, expired_at, tags, tag_marks]
+      required: [lease, holder, task, title, intent, renewed_at, expired_at, notice, tags, tag_marks]
       properties:
         lease:
           type: string
@@ -4153,6 +4153,11 @@ components:
         expired_at:
           type: string
           format: date-time
+        notice:
+          type: boolean
+          description: >-
+            True when the lease was a notice (a lease started with `notice`). An expired notice is listed and
+            acknowledged like any expired lease; false for an ordinary lease.
         tags:
           type: array
           description: The task's own tags, sorted. Empty when it has none.

@@ -1404,6 +1404,9 @@ type AttentionExpiredLease struct {
 	// Lease The lease's ref, `L<n>`.
 	Lease string `json:"lease"`
 
+	// Notice True when the lease was a notice (a lease started with `notice`). An expired notice is listed and acknowledged like any expired lease; false for an ordinary lease.
+	Notice bool `json:"notice"`
+
 	// RenewedAt The last renewal of the lease.
 	RenewedAt time.Time `json:"renewed_at"`
 

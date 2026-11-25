@@ -88,8 +88,10 @@ type ExpiredLease struct {
 	Intent    string
 	RenewedAt time.Time
 	ExpiredAt time.Time
-	Tags      []string
-	TagMarks  []tasks.TagMark
+	// Notice is true when the lease was a notice (§4.4); it expires and is acknowledged like any other.
+	Notice   bool
+	Tags     []string
+	TagMarks []tasks.TagMark
 }
 
 // LastCheck is the last check_recorded event of a watch.

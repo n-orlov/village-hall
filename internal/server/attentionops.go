@@ -89,7 +89,7 @@ func apiDoneTask(d attention.DoneTask) AttentionDoneTask {
 
 func apiExpiredLease(l attention.ExpiredLease) AttentionExpiredLease {
 	return AttentionExpiredLease{Lease: l.Lease, Holder: apiActor(l.Holder), Task: l.Task, Title: l.Title, Intent: l.Intent,
-		RenewedAt: l.RenewedAt, ExpiredAt: l.ExpiredAt, Tags: nonNil(l.Tags), TagMarks: apiTagMarks(l.TagMarks)}
+		RenewedAt: l.RenewedAt, ExpiredAt: l.ExpiredAt, Notice: l.Notice, Tags: nonNil(l.Tags), TagMarks: apiTagMarks(l.TagMarks)}
 }
 
 func apiLastCheck(c *attention.LastCheck) *AttentionLastCheck {

@@ -51,7 +51,7 @@ const full: Attention = {
     { task: 'aa-4', title: 'No lease', done_by: sue, done_at: '2026-01-01T11:59:30Z', last_lease: { lease: 'L9', holder: bob, ended_at: '2026-01-01T09:59:00Z' }, tags: [], tag_marks: [] },
     { task: 'aa-5', title: 'Plain', done_by: sue, done_at: '2026-01-01T11:59:30Z', tags: [], tag_marks: [] },
   ],
-  expired_leases: [{ lease: 'L4', holder: bob, task: 'aa-3', title: 'Slow', intent: 'ride', renewed_at: '2026-01-01T08:00:00Z', expired_at: '2026-01-01T09:00:00Z', tags: [], tag_marks: [] }],
+  expired_leases: [{ lease: 'L4', holder: bob, task: 'aa-3', title: 'Slow', intent: 'ride', renewed_at: '2026-01-01T08:00:00Z', expired_at: '2026-01-01T09:00:00Z', notice: false, tags: [], tag_marks: [] }],
   overdue_watches: [
     { task: 'aa-6', title: 'Watch', owner: bob, next_check_at: '2026-01-01T10:00:00Z', last_check: { summary: 'all well', by: sue, at: '2026-01-01T09:00:00Z' }, tags: [], tag_marks: [] },
     { task: 'aa-7', title: 'Fresh', owner: sue, next_check_at: '2026-01-01T10:00:00Z', tags: [], tag_marks: [] },

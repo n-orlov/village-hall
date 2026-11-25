@@ -116,7 +116,7 @@ func (s Store) doneNotClosed(ctx context.Context, sc scope) ([]DoneTask, error) 
 
 func expiredSection(sc scope) section {
 	return scoped(sc, `t.initiative_id`,
-		`l.n, i.slug, t.seq, t.title, l.intent, l.renewed_at, l.expires_at, a.handle, a.way_back`,
+		`l.n, i.slug, t.seq, t.title, l.intent, l.renewed_at, l.expires_at, a.handle, a.way_back, l.notice`,
 		`leases l JOIN tasks t ON t.id = l.task_id JOIN initiatives i ON i.id = t.initiative_id
 		 JOIN actors a ON a.id = l.actor_id
 		 WHERE l.state = 'expired' AND l.acked_at IS NULL AND t.status <> 'closed'
@@ -135,7 +135,7 @@ func (s Store) expiredLeases(ctx context.Context, sc scope) ([]ExpiredLease, err
 			renewed, expires int64
 			wb               sql.NullString
 		)
-		if err := r.Scan(&n, &slug, &seq, &l.Title, &l.Intent, &renewed, &expires, &l.Holder.Handle, &wb); err != nil {
+		if err := r.Scan(&n, &slug, &seq, &l.Title, &l.Intent, &renewed, &expires, &l.Holder.Handle, &wb, &l.Notice); err != nil {
 			return ExpiredLease{}, err
 		}
 		l.Lease, l.Task, l.Holder.WayBack = domain.FormatLeaseRef(n), domain.FormatTaskRef(slug, seq), wb.String

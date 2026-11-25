@@ -78,7 +78,7 @@ func TestAttentionDocumentCarriesEveryField(t *testing.T) {
 			CreatedAt: at, Age: 90*time.Second + 400*time.Millisecond}},
 		DoneNotClosed: []attention.DoneTask{{Task: "aa-1", Title: "t", DoneBy: who, DoneAt: at,
 			LastLease: &attention.LastLease{Lease: "L1", Holder: who, Outcome: "ok", EndedAt: at}}, {Task: "aa-2"}},
-		ExpiredLeases: []attention.ExpiredLease{{Lease: "L2", Holder: who, Task: "aa-1", Title: "t", Intent: "i", RenewedAt: at, ExpiredAt: at}},
+		ExpiredLeases: []attention.ExpiredLease{{Lease: "L2", Holder: who, Task: "aa-1", Title: "t", Intent: "i", RenewedAt: at, ExpiredAt: at, Notice: true}, {Lease: "L3", Task: "aa-2", Holder: who}},
 		OverdueWatches: []attention.OverdueWatch{{Task: "aa-3", Title: "w", Owner: who, NextCheckAt: at,
 			LastCheck: &attention.LastCheck{Summary: "s", By: who, At: at}}, {Task: "aa-4"}},
 		Conflicts: []attention.Conflict{{Resource: "db:x", Tasks: []string{"aa-1", "aa-2"},
@@ -100,8 +100,11 @@ func TestAttentionDocumentCarriesEveryField(t *testing.T) {
 	if c := (*got.Conflicts)[0]; c.Resource != "db:x" || len(c.Holders) != 1 || len(c.Tasks) != 2 || c.Holders[0].Actor.Handle != who.Handle {
 		t.Errorf("conflict = %+v", c)
 	}
-	if l := (*got.ExpiredLeases)[0]; l.Lease != "L2" || l.Intent != "i" || l.Holder.Handle != who.Handle {
-		t.Errorf("expired lease = %+v", l)
+	if l := (*got.ExpiredLeases)[0]; l.Lease != "L2" || l.Intent != "i" || l.Holder.Handle != who.Handle || !l.Notice {
+		t.Errorf("expired lease = %+v, want notice true", l)
+	}
+	if l := (*got.ExpiredLeases)[1]; l.Lease != "L3" || l.Notice {
+		t.Errorf("ordinary expired lease = %+v, want notice false", l)
 	}
 	if got.Counts.Total != 7 || got.Counts.DoneNotClosed != 2 || got.Counts.OverdueWatches != 2 {
 		t.Errorf("counts = %+v", got.Counts)

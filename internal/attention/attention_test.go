@@ -271,6 +271,36 @@ func TestAnExpiredLeaseIsListedAndClearedByAckOrByALaterLeaseOnItsTask(t *testin
 	}
 }
 
+func TestAnExpiredNoticeIsListedWithNoticeTrueAndCanBeAcknowledged(t *testing.T) {
+	e := newEnv(t)
+	ordinary := e.lease(t, me, "aa-1")
+	e.tick(time.Second)
+	ttl := int64(60)
+	notice := must(e.Leases.Start(ctx, bob, "key:x", leases.Start{Task: "bb-1", Intent: "freeze on bb-1", TTL: &ttl, Notice: true})).Lease
+	e.tick(2 * time.Minute)
+
+	r := e.get(t, Query{})
+	if r.Counts.ExpiredLeases != 2 || r.Counts.Total != 2 || len(r.ExpiredLeases) != 2 {
+		t.Fatalf("counts = %+v, sections %d, want both expired leases listed", r.Counts, len(r.ExpiredLeases))
+	}
+	byRef := map[string]ExpiredLease{}
+	for _, l := range r.ExpiredLeases {
+		byRef[l.Lease] = l
+	}
+	if l, ok := byRef[notice.Ref]; !ok || !l.Notice || l.Task != "bb-1" || l.Intent != "freeze on bb-1" {
+		t.Errorf("expired notice = %+v (listed %v), want notice true on the item", l, ok)
+	}
+	if l, ok := byRef[ordinary.Ref]; !ok || l.Notice {
+		t.Errorf("expired ordinary lease = %+v (listed %v), want notice false", l, ok)
+	}
+
+	must(e.Leases.Ack(ctx, op, "oidc:n", notice.Ref))
+	r = e.get(t, Query{})
+	if r.Counts.ExpiredLeases != 1 || r.ExpiredLeases[0].Lease != ordinary.Ref {
+		t.Errorf("after acknowledging the notice: counts %+v, first %+v, want only the ordinary lease", r.Counts, r.ExpiredLeases)
+	}
+}
+
 func TestAnOverdueWatchIsListedWithItsLastCheckAndClearedByRecordingACheck(t *testing.T) {
 	e := newEnv(t)
 	cadence := int64(3600)

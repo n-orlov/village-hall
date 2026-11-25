@@ -841,7 +841,8 @@ prominently. Optional resource prefixes (`host:` vs `repo:`) carry no special me
 2. **Done, not closed** tasks (`done_not_closed`): task, title, who marked done (`done_by`), when
    (`done_at`), and the last ended lease of the task with its outcome text (`last_lease`).
 3. **Expired leases** (`expired_leases`) not yet acknowledged: lease, holder, task, title, intent,
-   last renewal (`renewed_at`) and `expired_at`. The operator acknowledges
+   last renewal (`renewed_at`), `expired_at` and `notice` (true for an expired notice lease, §4.4, which is listed here
+   like any expired lease and acknowledged the same way; false for an ordinary one). The operator acknowledges
    (`POST /api/v1/leases/{id}/ack`) after looking; a later lease by anyone on the same task also
    clears it.
 4. **Overdue watches** (`overdue_watches`): task, title, owner, `next_check_at`, last check event
@@ -1637,7 +1638,7 @@ writes their `lease_expired` events, and judges all five sections at that one in
   ask.
 - **Done task**: `{task, title, done_by, done_at, last_lease?, tags, tag_marks}` with `last_lease` `{lease, holder, outcome?, ended_at}`,
   absent when no lease on the task ended and without `outcome` when the holder wrote none.
-- **Expired lease**: `{lease, holder, task, title, intent, renewed_at, expired_at, tags, tag_marks}`.
+- **Expired lease**: `{lease, holder, task, title, intent, renewed_at, expired_at, notice, tags, tag_marks}`; `notice` is true when the expired lease was a notice.
 - **Overdue watch**: `{task, title, owner, next_check_at, last_check?, tags, tag_marks}` with `last_check` `{summary, by, at}`, absent
   when no check was ever recorded; `owner` is the actor that created the watch.
 - **Task tags on an item**: the done task, the expired lease and the overdue watch each carry their task's `tags` (its own,
