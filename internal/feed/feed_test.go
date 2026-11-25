@@ -149,6 +149,7 @@ type fakeClock struct {
 	now      time.Time
 	interval time.Duration // what the feed asked its ticker for
 	next     time.Time
+	fired    int // ticks sent so far
 	ch       chan time.Time
 }
 
@@ -167,8 +168,15 @@ func (c *fakeClock) advance(d time.Duration) {
 	c.now = c.now.Add(d)
 	for c.interval > 0 && !c.next.After(c.now) {
 		c.ch <- c.next
+		c.fired++
 		c.next = c.next.Add(c.interval)
 	}
+}
+
+func (c *fakeClock) ticks() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.fired
 }
 
 func (c *fakeClock) asked() time.Duration {
@@ -231,8 +239,12 @@ func TestTheIdleTickRunsNoPollBeforeTheBackstopButANotifyDoesAndAPollIntervalSet
 	if got := clock.asked(); got != DefaultPoll {
 		t.Fatalf("the feed asked for a tick every %v, want DefaultPoll %v", got, DefaultPoll)
 	}
+	// The loop polls only on a tick or a Notify, so a 9 s advance that fires no
+	// tick runs no poll; the Notify read below is then the second read exactly.
 	clock.advance(9 * time.Second)
-	time.Sleep(50 * time.Millisecond) // a poll started by that advance would have read by now
+	if n := clock.ticks(); n != 0 {
+		t.Fatalf("advancing 9s fired %d ticks, want none before the backstop", n)
+	}
 	if n := src.count(); n != 1 {
 		t.Fatalf("%d reads after 9s with no write, want the initial one only", n)
 	}
@@ -240,6 +252,9 @@ func TestTheIdleTickRunsNoPollBeforeTheBackstopButANotifyDoesAndAPollIntervalSet
 	src.put(1)
 	f.Notify() // the clock does not move
 	awaitRead(t, src, 2)
+	if n := src.count(); n != 2 {
+		t.Fatalf("%d reads after the Notify, want the initial one and the Notify's", n)
+	}
 	if e := receive(t, s); e.N != 1 {
 		t.Errorf("got %+v", e)
 	}

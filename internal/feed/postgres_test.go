@@ -144,11 +144,16 @@ func openPostgres(t *testing.T, url string) *store.Store {
 	return st
 }
 
-// startFeed runs a feed on st with the production options (Options{}, so the
-// default BOARD_STREAM_POLL of one second) and subscribes to it.
+// crossServerPoll is the poll interval the two-feed tests run at. A feed learns
+// of another server's write only from its poll (Notify wakes only the feed of
+// the server that took the write), so these tests set the interval as
+// VH_STREAM_POLL=1s would rather than wait out the 10 s DefaultPoll backstop.
+const crossServerPoll = time.Second
+
+// startFeed runs a feed on st polling every crossServerPoll and subscribes to it.
 func startFeed(t *testing.T, st *store.Store) *Subscription {
 	t.Helper()
-	f, err := New(context.Background(), StoreSource{Store: st}, Options{})
+	f, err := New(context.Background(), StoreSource{Store: st}, Options{Poll: crossServerPoll})
 	if err != nil {
 		t.Fatal(err)
 	}
