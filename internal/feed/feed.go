@@ -432,6 +432,14 @@ func (f *Feed) Subscribe() *Subscription {
 	return s
 }
 
+// Position is the number of the last event the feed has delivered: every event
+// up to it is already in the subscribers' channels.
+func (f *Feed) Position() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.last
+}
+
 // Events is the channel of events, in order. It is closed when the subscription
 // ends: Err then says why.
 func (s *Subscription) Events() <-chan events.Event { return s.ch }

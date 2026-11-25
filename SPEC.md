@@ -1789,7 +1789,11 @@ message is flushed as it is written. A server with no change feed answers 503.
   recomputed after every event the change feed delivers (§7.3), whichever topics the stream asked for, and at least
   every 30 s (every `VH_STREAM_HEARTBEAT` when that is shorter), because an overdue watch or an expiring lease
   changes with the clock and writes no event. A stream with only this topic receives no `board` message. The
-  counts are read the way `GET /attention` reads them, so the leases that ran out expire first. A read that fails
+  counts are read the way `GET /attention` reads them, so the leases that ran out expire first. The counts of the whole board
+  are computed **once for all the streams of a server that ask for it**, not once per stream: the streams that handle an
+  event of the same change-feed batch (§7.3) share one computation made after the whole batch was delivered, and one
+  recheck computes them once for every stream per interval. A stream scoped to a filter (none is reachable through the
+  API yet) keeps its own computation. A read that fails
   after the stream began is skipped and tried again at the next event or recheck; one that fails on connect is a
   500 before the headers.
 - **Heartbeat**: a comment line, `: ping`, every `VH_STREAM_HEARTBEAT` (default `25s`, §13) while the stream

@@ -320,6 +320,23 @@ func TestSubscriptionAfterMarksWhereTheFeedWas(t *testing.T) {
 	}
 }
 
+func TestPositionIsTheLastEventDelivered(t *testing.T) {
+	src := &fakeSource{}
+	src.put(1, 2, 3, 4)
+	f := NewAt(src, 1, Options{})
+	if got := f.Position(); got != 1 {
+		t.Fatalf("Position before a poll = %d, want 1", got)
+	}
+	s := f.Subscribe()
+	pollWithin(context.Background(), t, f)
+	if got := f.Position(); got != 4 {
+		t.Errorf("Position after delivering 2..4 = %d, want 4", got)
+	}
+	if got := drain(s); !equal(got, []int64{2, 3, 4}) {
+		t.Errorf("subscriber got %v, want 2..4", got)
+	}
+}
+
 func TestNewStartsAtTheNewestEventAndReportsAnUnreadableTable(t *testing.T) {
 	src := &fakeSource{}
 	src.put(1, 2, 3, 4)

@@ -50,8 +50,11 @@ func ParseHeartbeat(v string) (time.Duration, error) {
 // the server shuts down (http.Server.Shutdown does not end a handler).
 type streamHub struct {
 	feed      *feed.Feed
-	events    *events.Store    // where a resuming stream reads what it missed; nil: every id is unknown
-	attention *attention.Store // what the attention topic counts; nil: the topic sends nothing
+	events    *events.Store                                                    // where a resuming stream reads what it missed; nil: every id is unknown
+	attention *attention.Store                                                 // what the attention topic counts; nil: the topic sends nothing
+	countsOf  func(context.Context, attention.Query) (attention.Counts, error) // replaces attention.Counts; set by tests
+	ticks     func() (<-chan time.Time, func())                                // replaces the recheck ticker; set by tests
+	shared    countsShare                                                      // the unscoped counts every stream without a filter shares
 	heartbeat time.Duration
 	stop      chan struct{}
 	once      sync.Once
@@ -124,6 +127,7 @@ type streamResponse struct {
 	hub    *streamHub
 	topics streamTopics
 	lastID string
+	query  attention.Query // what the attention counts are scoped to; the whole board when empty
 }
 
 // VisitGetStreamResponse sends the headers, then the events a resuming client
@@ -171,6 +175,11 @@ func (s *liveStream) startTimers() func() {
 	s.beat = beat.C
 	if s.watch == nil {
 		return beat.Stop
+	}
+	if s.watch.unscoped() {
+		shared, leave := s.r.hub.recheck()
+		s.shared = shared
+		return func() { beat.Stop(); leave() }
 	}
 	recheck := time.NewTicker(recheckEvery(s.r.hub.heartbeat))
 	s.recheck = recheck.C
@@ -244,7 +253,8 @@ type liveStream struct {
 	out         *streamWriter
 	events      <-chan events.Event
 	beat        <-chan time.Time
-	recheck     <-chan time.Time // nil without the attention topic
+	recheck     <-chan time.Time        // a scoped stream's own recheck; nil otherwise
+	shared      <-chan attention.Counts // an unscoped stream's recheck, computed once for all; nil otherwise
 	skipThrough int64
 	watch       *countsWatch // nil without the attention topic
 }
@@ -278,6 +288,8 @@ func (s *liveStream) step() bool {
 		return s.out.comment("ping")
 	case <-s.recheck:
 		return s.sendCounts()
+	case counts := <-s.shared:
+		return s.sendRechecked(counts)
 	}
 }
 
@@ -285,7 +297,7 @@ func (s *liveStream) step() bool {
 // client already has it), then recomputes the counts, which an event may move.
 func (s *liveStream) onEvent(e events.Event) bool {
 	wanted := s.r.topics.events && e.N > s.skipThrough
-	return (!wanted || s.out.message(e)) && s.sendCounts()
+	return (!wanted || s.out.message(e)) && s.sendCountsAfter(e.N)
 }
 
 // streamWriter writes the messages of a stream and flushes each one.
