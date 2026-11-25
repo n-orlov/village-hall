@@ -143,9 +143,11 @@ test.describe('notices banner, layout', () => {
       const content = page.locator(CONTENT).first();
       const top = () => content.evaluate((el) => el.getBoundingClientRect().top);
       const mine = page.getByTestId('notices').getByTestId('notice').filter({ hasText: holder });
+      // Now and Tasks are scoped to this test's initiative: a parallel worker's tasks, arriving live, would otherwise add rows
+      // (and their layout shift) to the very window this test measures.
       const targets = [
-        { name: 'Now', hash: '#/now' },
-        { name: 'Tasks', hash: '#/tasks' },
+        { name: 'Now', hash: `#/now?initiative=${slug}` },
+        { name: 'Tasks', hash: `#/tasks?initiative=${slug}` },
         { name: 'task page', hash: `#/t/${task}` },
       ];
       for (const target of targets) {
