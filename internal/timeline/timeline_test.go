@@ -44,6 +44,12 @@ func newEnv(t *testing.T) env {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	return newEnvOn(t, st)
+}
+
+// newEnvOn builds the timeline test env on an already migrated store.
+func newEnvOn(t *testing.T, st *store.Store) env {
+	t.Helper()
 	n := 0
 	clock := func() time.Time { n++; return from.Add(-time.Hour * 24 * 60).Add(time.Duration(n) * time.Second) }
 	return env{st: st, tl: timeline.Store{Store: st, Now: func() time.Time { return now }}, tk: tasks.Store{Store: st, Now: clock}}
