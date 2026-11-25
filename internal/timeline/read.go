@@ -40,9 +40,24 @@ func instantOf(v sql.NullInt64) *time.Time {
 	return &t
 }
 
+// idSet is the ids of the kept tasks, resolved once by the tasks read, and the
+// one JSON parameter that carries them to every other statement.
+type idSet struct {
+	list  []string
+	param string
+}
+
+func newIDSet(list []string) idSet { return idSet{list: list, param: store.TextSet(list)} }
+
+// cond is the condition that keeps the rows of the task aliased alias.
+func (s Store) cond(alias string) string {
+	return alias + ` IN (` + s.Store.Dialect().InSet() + `)`
+}
+
 // tasks reads the tasks the filter keeps, with the refs of the tasks each is
-// blocked by.
-func (s Store) tasks(ctx context.Context, f *filter) ([]Task, error) {
+// blocked by. It is the one statement that applies the filter: its ids are what
+// the reads of the tags, deps, initiatives, leases and markers start from.
+func (s Store) tasks(ctx context.Context, f *filter) (idSet, []Task, error) {
 	type row struct {
 		task Task
 		ini  int64
@@ -64,7 +79,7 @@ func (s Store) tasks(ctx context.Context, f *filter) ([]Task, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return idSet{}, nil, err
 	}
 	// The tasks come in initiative order, then number: sorted here rather than by
 	// the statement, whose ORDER BY would otherwise sort every task it reads.
@@ -76,31 +91,34 @@ func (s Store) tasks(ctx context.Context, f *filter) ([]Task, error) {
 	})
 	out := make([]Task, len(rows))
 	byID := make(map[string]int, len(rows))
+	list := make([]string, len(rows))
 	for i, r := range rows {
-		out[i], byID[r.task.ID] = r.task, i
+		out[i], byID[r.task.ID], list[i] = r.task, i, r.task.ID
 	}
-	if err := s.deps(ctx, f, out, byID); err != nil {
-		return nil, err
+	ids := newIDSet(list)
+	if len(out) == 0 {
+		return ids, out, nil
 	}
-	return out, s.taskTags(ctx, f, out, byID)
+	if err := s.deps(ctx, ids, out, byID); err != nil {
+		return idSet{}, nil, err
+	}
+	return ids, out, s.taskTags(ctx, ids, out, byID)
 }
 
 // taskTags fills in the Tags and TagMarks of tasks from the three sources a mark has
 // (SPEC 5.5), one statement each over the same filter, whatever the number of tasks.
-func (s Store) taskTags(ctx context.Context, f *filter, list []Task, byID map[string]int) error {
-	if len(list) == 0 {
-		return nil
-	}
-	from := ` FROM tasks t JOIN initiatives i ON i.id = t.initiative_id`
+func (s Store) taskTags(ctx context.Context, ids idSet, list []Task, byID map[string]int) error {
+	from := ` FROM tasks t`
+	where := ` WHERE ` + s.cond(`t.id`)
 	sources := []struct{ what, query string }{
-		{"task tags", `SELECT t.id, tt.tag` + from + ` JOIN task_tags tt ON tt.task_id = t.id` + f.where() + ` ORDER BY t.id, tt.tag`},
-		{"initiative tags", `SELECT t.id, it.tag` + from + ` JOIN initiative_tags it ON it.initiative_id = i.id` + f.where() + ` ORDER BY t.id, it.tag`},
-		{"lease holders", `SELECT DISTINCT t.id, ha.handle` + from + ` JOIN leases hl ON hl.task_id = t.id JOIN actors ha ON ha.id = hl.actor_id` + f.where()},
+		{"task tags", `SELECT t.id, tt.tag` + from + ` JOIN task_tags tt ON tt.task_id = t.id` + where + ` ORDER BY t.id, tt.tag`},
+		{"initiative tags", `SELECT t.id, it.tag` + from + ` JOIN initiative_tags it ON it.initiative_id = t.initiative_id` + where + ` ORDER BY t.id, it.tag`},
+		{"lease holders", `SELECT DISTINCT t.id, ha.handle` + from + ` JOIN leases hl ON hl.task_id = t.id JOIN actors ha ON ha.id = hl.actor_id` + where},
 	}
 	got := make([]map[string][]string, len(sources))
 	for n, src := range sources {
 		got[n] = map[string][]string{}
-		err := s.each(ctx, src.what, src.query, f.args, func(r *sql.Rows) error {
+		err := s.each(ctx, src.what, src.query, []any{ids.param}, func(r *sql.Rows) error {
 			var id, v string
 			if err := r.Scan(&id, &v); err != nil {
 				return err
@@ -121,10 +139,10 @@ func (s Store) taskTags(ctx context.Context, f *filter, list []Task, byID map[st
 
 // deps fills in the Deps of tasks, in the order of the blocking tasks'
 // initiatives and numbers.
-func (s Store) deps(ctx context.Context, f *filter, tasks []Task, byID map[string]int) error {
+func (s Store) deps(ctx context.Context, ids idSet, tasks []Task, byID map[string]int) error {
 	return s.each(ctx, "deps", `SELECT d.task_id, bi.slug, bt.seq
-		FROM task_deps d JOIN tasks t ON t.id = d.task_id JOIN initiatives i ON i.id = t.initiative_id
-		JOIN tasks bt ON bt.id = d.blocked_by_task_id JOIN initiatives bi ON bi.id = bt.initiative_id`+f.where()+` ORDER BY bi.n, bt.seq`, f.args, func(r *sql.Rows) error {
+		FROM task_deps d JOIN tasks bt ON bt.id = d.blocked_by_task_id JOIN initiatives bi ON bi.id = bt.initiative_id
+		WHERE `+s.cond(`d.task_id`)+` ORDER BY bi.n, bt.seq`, []any{ids.param}, func(r *sql.Rows) error {
 		var id, slug string
 		var seq int
 		if err := r.Scan(&id, &slug, &seq); err != nil {
@@ -138,11 +156,11 @@ func (s Store) deps(ctx context.Context, f *filter, tasks []Task, byID map[strin
 
 // initiatives reads the initiatives that hold a task the filter keeps, in
 // board order, with their tags.
-func (s Store) initiatives(ctx context.Context, f *filter) ([]Initiative, error) {
+func (s Store) initiatives(ctx context.Context, ids idSet) ([]Initiative, error) {
 	out := []Initiative{}
 	byID := map[string]int{}
 	err := s.each(ctx, "initiatives", `SELECT DISTINCT i.n, i.id, i.slug, i.title, i.status
-		FROM tasks t JOIN initiatives i ON i.id = t.initiative_id`+f.where()+` ORDER BY i.n`, f.args, func(r *sql.Rows) error {
+		FROM tasks t JOIN initiatives i ON i.id = t.initiative_id WHERE `+s.cond(`t.id`)+` ORDER BY i.n`, []any{ids.param}, func(r *sql.Rows) error {
 		var n int64
 		var id, status string
 		var ini Initiative
@@ -157,12 +175,12 @@ func (s Store) initiatives(ctx context.Context, f *filter) ([]Initiative, error)
 	if err != nil {
 		return nil, err
 	}
-	return out, s.tags(ctx, f, out, byID)
+	return out, s.tags(ctx, ids, out, byID)
 }
 
-func (s Store) tags(ctx context.Context, f *filter, list []Initiative, byID map[string]int) error {
+func (s Store) tags(ctx context.Context, ids idSet, list []Initiative, byID map[string]int) error {
 	return s.each(ctx, "tags", `SELECT DISTINCT it.initiative_id, it.tag
-		FROM initiative_tags it JOIN tasks t ON t.initiative_id = it.initiative_id JOIN initiatives i ON i.id = t.initiative_id`+f.where()+` ORDER BY it.initiative_id, it.tag`, f.args, func(r *sql.Rows) error {
+		FROM initiative_tags it JOIN tasks t ON t.initiative_id = it.initiative_id WHERE `+s.cond(`t.id`)+` ORDER BY it.initiative_id, it.tag`, []any{ids.param}, func(r *sql.Rows) error {
 		var id, tag string
 		if err := r.Scan(&id, &tag); err != nil {
 			return err
@@ -174,12 +192,12 @@ func (s Store) tags(ctx context.Context, f *filter, list []Initiative, byID map[
 }
 
 // leases reads the leases of the kept tasks that overlap [from, to], by lease number.
-func (s Store) leases(ctx context.Context, f *filter, from, to time.Time) ([]Lease, error) {
+func (s Store) leases(ctx context.Context, ids idSet, from, to time.Time) ([]Lease, error) {
 	out := []Lease{}
-	args := append(append([]any{}, f.args...), store.EncodeTime(to), store.EncodeTime(from))
+	args := []any{ids.param, store.EncodeTime(to), store.EncodeTime(from)}
 	err := s.each(ctx, "leases", `SELECT l.n, i.slug, t.seq, a.handle, l.state, l.intent, l.started_at, l.ended_at, l.expires_at
 		FROM leases l JOIN tasks t ON t.id = l.task_id JOIN initiatives i ON i.id = t.initiative_id JOIN actors a ON a.id = l.actor_id`+
-		f.where()+` AND `+leaseOverlap+` ORDER BY l.n`, args, func(r *sql.Rows) error {
+		` WHERE `+s.cond(`t.id`)+` AND `+leaseOverlap+` ORDER BY l.n`, args, func(r *sql.Rows) error {
 		var l Lease
 		var n int64
 		var seq int
@@ -225,17 +243,19 @@ var markerEvents = []string{"milestone", "ask_raised", "check_recorded", "task_d
 var labelKey = map[string]string{"milestone": "summary", "ask_raised": "question", "check_recorded": "summary"}
 
 // markers reads the marker events of the kept tasks inside [from, to], by time
-// then event.
-func (s Store) markers(ctx context.Context, f *filter, from, to time.Time) ([]Marker, error) {
+// then event. The window range is what drives the read (events_at_n, already in
+// time order): the task test is on the computed text `(e.task_id || ”)` so it
+// cannot start the read from the kept ids and sort every event they hold.
+func (s Store) markers(ctx context.Context, ids idSet, from, to time.Time) ([]Marker, error) {
 	out := []Marker{}
-	args := append([]any{}, f.args...)
+	args := []any{ids.param}
 	for _, name := range markerEvents {
 		args = append(args, name)
 	}
 	args = append(args, store.EncodeTime(from), store.EncodeTime(to))
 	err := s.each(ctx, "markers", `SELECT i.slug, t.seq, e.type, e.at, e.summary, e.data
 		FROM events e JOIN tasks t ON t.id = e.task_id JOIN initiatives i ON i.id = t.initiative_id`+
-		f.where()+` AND e.type IN (`+marks(len(markerEvents))+`) AND e.at >= ? AND e.at <= ? ORDER BY e.at, e.n`, args, func(r *sql.Rows) error {
+		` WHERE `+s.cond(`(e.task_id || '')`)+` AND e.type IN (`+marks(len(markerEvents))+`) AND e.at >= ? AND e.at <= ? ORDER BY e.at, e.n`, args, func(r *sql.Rows) error {
 		var slug, typ, summary, data string
 		var seq int
 		var at int64

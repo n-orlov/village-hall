@@ -118,13 +118,52 @@ func (s Store) now() time.Time {
 // reads (the expiry of the leases that ran out) calls it first, so a refused
 // request changes nothing.
 func (s Store) Check(ctx context.Context, q Query) error {
+	_, err := s.Prepare(ctx, q)
+	return err
+}
+
+// Prepared is a query that was checked: the initiatives it names are resolved,
+// so reading it does not look them up again.
+type Prepared struct {
+	s    Store
+	q    Query
+	inis []any
+}
+
+// Prepare checks q as Check does and keeps what the check resolved (the ids of
+// the initiatives q names) for Prepared.Read, so a caller that checks and then
+// reads resolves the initiative scope once.
+func (s Store) Prepare(ctx context.Context, q Query) (Prepared, error) {
 	now := s.now()
 	from, to, err := window(q, now)
 	if err != nil {
-		return err
+		return Prepared{}, err
 	}
-	_, err = s.scope(ctx, q, now, from, to)
-	return err
+	p := Prepared{s: s, q: q}
+	if _, err = s.scope(ctx, q, now, from, to, p.resolve); err != nil {
+		return Prepared{}, err
+	}
+	return p, nil
+}
+
+// WithAttention is the prepared query with Query.Attention set to refs, which
+// the caller derives after it checked (and expired the leases that ran out).
+func (p Prepared) WithAttention(refs []string) Prepared {
+	p.q.Attention = refs
+	return p
+}
+
+// resolve is the initiative lookup of a prepared query's scope: it looks the
+// initiatives up once and answers from the first answer after that.
+func (p *Prepared) resolve(ctx context.Context, refs []string) ([]any, error) {
+	if p.inis == nil {
+		ids, err := p.s.initiativeIDs(ctx, refs)
+		if err != nil {
+			return nil, err
+		}
+		p.inis = ids
+	}
+	return p.inis, nil
 }
 
 // Read answers the window q selects. It returns ErrInvalid for a time that does
@@ -133,26 +172,40 @@ func (s Store) Check(ctx context.Context, q Query) error {
 // the leases as they are: the caller expires those that ran out first
 // (leases.Store.ExpireDue).
 func (s Store) Read(ctx context.Context, q Query) (Result, error) {
+	p := Prepared{s: s, q: q}
+	return p.Read(ctx)
+}
+
+// Read answers the window of the prepared query as Store.Read does. The tasks
+// statement resolves the kept task ids once; the statements that fill in the
+// rest of the answer take those ids instead of repeating the filter.
+func (p Prepared) Read(ctx context.Context) (Result, error) {
+	s := p.s
 	now := s.now()
-	from, to, err := window(q, now)
+	from, to, err := window(p.q, now)
 	if err != nil {
 		return Result{}, err
 	}
-	f, err := s.scope(ctx, q, now, from, to)
+	f, err := s.scope(ctx, p.q, now, from, to, p.resolve)
 	if err != nil {
 		return Result{}, err
 	}
-	out := Result{From: from, To: to}
-	if out.Tasks, err = s.tasks(ctx, f); err != nil {
+	out := Result{From: from, To: to, Initiatives: []Initiative{}, Leases: []Lease{}, Markers: []Marker{}}
+	ids, tasks, err := s.tasks(ctx, f)
+	if err != nil {
 		return Result{}, err
 	}
-	if out.Initiatives, err = s.initiatives(ctx, f); err != nil {
+	out.Tasks = tasks
+	if len(ids.list) == 0 {
+		return out, nil
+	}
+	if out.Initiatives, err = s.initiatives(ctx, ids); err != nil {
 		return Result{}, err
 	}
-	if out.Leases, err = s.leases(ctx, f, from, to); err != nil {
+	if out.Leases, err = s.leases(ctx, ids, from, to); err != nil {
 		return Result{}, err
 	}
-	if out.Markers, err = s.markers(ctx, f, from, to); err != nil {
+	if out.Markers, err = s.markers(ctx, ids, from, to); err != nil {
 		return Result{}, err
 	}
 	return out, nil
@@ -178,7 +231,7 @@ const leaseOverlap = `l.started_at <= ? AND (l.state = 'live' OR COALESCE(l.ende
 
 // scope builds the conditions of the tasks in the window: the status and span,
 // then the initiative, tag and actor filters.
-func (s Store) scope(ctx context.Context, q Query, now, from, to time.Time) (*filter, error) {
+func (s Store) scope(ctx context.Context, q Query, now, from, to time.Time, resolve func(context.Context, []string) ([]any, error)) (*filter, error) {
 	f := &filter{}
 	all, err := allRows(q)
 	if err != nil {
@@ -195,7 +248,7 @@ func (s Store) scope(ctx context.Context, q Query, now, from, to time.Time) (*fi
 	if err := f.closed(q, now); err != nil {
 		return nil, err
 	}
-	if err := s.initiativeFilter(ctx, f, q.Initiatives); err != nil {
+	if err := f.initiativeFilter(ctx, q.Initiatives, resolve); err != nil {
 		return nil, err
 	}
 	if err := f.tagFilter(q.Tags); err != nil {
@@ -266,23 +319,33 @@ func (f *filter) closed(q Query, now time.Time) error {
 	return nil
 }
 
-func (s Store) initiativeFilter(ctx context.Context, f *filter, refs []string) error {
+// initiativeFilter keeps the tasks of the initiatives refs name, which resolve looks up.
+func (f *filter) initiativeFilter(ctx context.Context, refs []string, resolve func(context.Context, []string) ([]any, error)) error {
 	if len(refs) == 0 {
 		return nil
 	}
+	ids, err := resolve(ctx, refs)
+	if err != nil {
+		return err
+	}
+	f.add(`t.initiative_id IN (`+marks(len(ids))+`)`, ids...)
+	return nil
+}
+
+// initiativeIDs looks up the ids of the initiatives refs name, ErrNoInitiative for one that names nothing.
+func (s Store) initiativeIDs(ctx context.Context, refs []string) ([]any, error) {
 	ids := make([]any, 0, len(refs))
 	for _, ref := range refs {
 		ini, err := initiatives.Store{Store: s.Store, Now: s.Now}.Get(ctx, ref)
 		if errors.Is(err, initiatives.ErrNotFound) {
-			return fmt.Errorf("%w: %s", ErrNoInitiative, ref)
+			return nil, fmt.Errorf("%w: %s", ErrNoInitiative, ref)
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		ids = append(ids, ini.ID)
 	}
-	f.add(`t.initiative_id IN (`+marks(len(ids))+`)`, ids...)
-	return nil
+	return ids, nil
 }
 
 func (f *filter) tagFilter(raw []string) error {

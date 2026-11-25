@@ -1668,6 +1668,11 @@ that fall in a window of time, with the initiatives that hold the tasks. Any aut
 no ACL) and a server without a store answers **503**. It first expires the leases that ran out (§5.1), which writes
 their `lease_expired` events, then reads; it writes nothing else. The expiry runs once per request: the attention
 derivation expires the due leases as part of its own read, so the handler does it itself only without a derivation.
+The read resolves its scope once: the request is checked before the expiry (a refused request changes nothing) and
+the initiatives it names are looked up in that check only, not again by the read; the tasks statement is the one that
+applies the status, window, initiative, tag, actor and active conditions, and the statements for the deps, the three
+tag sources, the initiatives and their tags, the leases and the markers take the task ids it returned (one JSON
+parameter) instead of repeating those conditions. A window that keeps no task answers after that one statement.
 
 - **The window** is `from` and `to`, RFC 3339 instants (any offset; the answer is in UTC). `from` defaults to 14 days
   before now and `to` to 7 days after now, each default applying on its own. `to` must be after `from` (equal is not

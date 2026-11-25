@@ -161,3 +161,33 @@ func TestAnInitiativeFilterDerivesAttentionForThatInitiativeOnly(t *testing.T) {
 		t.Errorf("an unknown initiative = %d", rec.Code)
 	}
 }
+
+// GET /timeline resolves the kept task ids once (the tasks statement; the nine timeline statements after it are
+// keyed by them) and each named initiative once (the lookup of its row and its tags, two statements), where Check
+// and Read each looked it up. The pins are exact, measured on recordedBoard, and cover the attention derivation
+// and the due-lease lookup around the read.
+func TestGetTimelineStatementCountIsPinned(t *testing.T) {
+	s, rec := recordedBoard(t)
+	for _, c := range []struct {
+		path   string
+		reader int
+	}{
+		{"/api/v1/timeline", 14},
+		{"/api/v1/timeline?initiative=aa", 16},
+		{"/api/v1/timeline?initiative=aa&initiative=bb", 18},
+	} {
+		reader, writer := readStatements(t, s, rec, c.path)
+		if reader != c.reader || writer != 0 {
+			t.Errorf("GET %s = %d reader and %d writer statements, want exactly %d and 0", c.path, reader, writer, c.reader)
+		}
+		lookups := 0
+		for _, st := range rec.All() {
+			if strings.Contains(st.SQL, "FROM initiatives i JOIN actors c") {
+				lookups++
+			}
+		}
+		if want := strings.Count(c.path, "initiative="); lookups != want {
+			t.Errorf("GET %s looked up %d initiative rows, want %d", c.path, lookups, want)
+		}
+	}
+}

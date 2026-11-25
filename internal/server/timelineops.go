@@ -56,16 +56,15 @@ func (o timelineOps) GetTimeline(ctx context.Context, req GetTimelineRequestObje
 		return r, nil
 	}
 	// A refusal comes before the expiry below, which writes: a refused request changes nothing.
-	if p, bad := o.refusal(ctx, req.Params); bad {
+	prepared, p, bad := o.refusal(ctx, req.Params)
+	if bad {
 		return p, nil
 	}
 	reasons, err := o.expiredAndDerivation(ctx)
 	if err != nil {
 		return nil, err
 	}
-	q := timelineQuery(req.Params)
-	q.Attention = attentionRefs(reasons)
-	got, err := o.timeline.Read(ctx, q)
+	got, err := prepared.WithAttention(attentionRefs(reasons)).Read(ctx)
 	if p, ok := timelineFailure(err); ok {
 		return p, nil
 	}
@@ -154,19 +153,20 @@ func rowsText(r *GetTimelineParamsRows) string {
 }
 
 // refusal is the problem a request that cannot be read is answered with, or
-// false when it can. It is decided before anything is written: a rows value
+// false when it can, and then the checked query, whose initiatives are resolved
+// once for the read that follows. It is decided before anything is written: a rows value
 // that was supplied and is neither window nor all (the empty value included), a
 // window, closed_within or tag that does not read, or an initiative that names
 // nothing. A request that leaves rows out is never refused for it.
-func (o timelineOps) refusal(ctx context.Context, p GetTimelineParams) (problemResponse, bool) {
+func (o timelineOps) refusal(ctx context.Context, p GetTimelineParams) (timeline.Prepared, problemResponse, bool) {
 	if p.Rows != nil {
 		if r, bad := timelineFailure(timeline.ValidRows(string(*p.Rows))); bad {
-			return r, true
+			return timeline.Prepared{}, r, true
 		}
 	}
-	err := o.timeline.Check(ctx, timelineQuery(p))
+	prepared, err := o.timeline.Prepare(ctx, timelineQuery(p))
 	if r, bad := timelineFailure(err); bad {
-		return r, true
+		return timeline.Prepared{}, r, true
 	}
-	return problemResponse{}, false
+	return prepared, problemResponse{}, false
 }
