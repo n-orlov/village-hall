@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/n-orlov/village-hall/internal/domain"
 	"github.com/n-orlov/village-hall/internal/initiatives"
@@ -73,11 +74,7 @@ func (s Store) List(ctx context.Context, q Query) (Page, error) {
 	if err := s.conditions(ctx, f, q); err != nil {
 		return Page{}, err
 	}
-	query := selectTask + f.where() + ` ORDER BY t.id`
-	if q.Q == "" {
-		query += ` LIMIT ` + fmt.Sprint(size+1)
-	}
-	items, err := s.rows(ctx, query, f.args, f.now, textMatcher(q.Q), size+1)
+	items, err := s.matching(ctx, f, q.Q, size+1)
 	if err != nil {
 		return Page{}, err
 	}
@@ -92,20 +89,48 @@ func (s Store) List(ctx context.Context, q Query) (Page, error) {
 	return p, nil
 }
 
+// matching returns the first limit tasks the filter and the text q select, in id order. A text search reads
+// in batches of limit rows: each batch is the filter, the looser SQL prefilter of q and `LIMIT limit`, and the
+// Go matcher then drops the rows the prefilter let through. A batch that ran full but kept fewer than limit
+// rows is followed by the next one, after the last id it read, so a loose prefilter never hides a match.
+func (s Store) matching(ctx context.Context, f *filter, q string, limit int) ([]Task, error) {
+	keep := textMatcher(q)
+	if pre, arg, ok := textPrefilter(q); ok {
+		f.add(pre, arg, arg)
+	}
+	conds, args := len(f.conds), len(f.args)
+	items := []Task{}
+	for {
+		query := selectTask + f.where() + ` ORDER BY t.id LIMIT ` + fmt.Sprint(limit)
+		got, scanned, last, err := s.rows(ctx, query, f.args, f.now, keep, limit-len(items))
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, got...)
+		if len(items) >= limit || scanned < limit {
+			return items, nil
+		}
+		f.conds, f.args = f.conds[:conds], f.args[:args]
+		f.add(`t.id > ?`, last)
+	}
+}
+
 // rows runs a query of selectTask's columns and scans its rows in order, keeping
-// the tasks keep accepts until limit are kept.
-func (s Store) rows(ctx context.Context, query string, args []any, now time.Time, keep func(Task) bool, limit int) ([]Task, error) {
+// the tasks keep accepts until limit are kept. It also returns how many rows it read and the id of the last.
+func (s Store) rows(ctx context.Context, query string, args []any, now time.Time, keep func(Task) bool, limit int) ([]Task, int, string, error) {
 	rows, err := s.Store.ReaderFor(ctx).QueryContext(ctx, s.Store.Dialect().Rebind(query), args...)
 	if err != nil {
-		return nil, fmt.Errorf("list tasks: %w", err)
+		return nil, 0, "", fmt.Errorf("list tasks: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	items := []Task{}
+	scanned, last := 0, ""
 	for len(items) < limit && rows.Next() {
 		t, err := scan(rows)
 		if err != nil {
-			return nil, fmt.Errorf("list tasks: %w", err)
+			return nil, 0, "", fmt.Errorf("list tasks: %w", err)
 		}
+		scanned, last = scanned+1, t.ID
 		if !keep(t) {
 			continue
 		}
@@ -113,9 +138,9 @@ func (s Store) rows(ctx context.Context, query string, args []any, now time.Time
 		items = append(items, t)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list tasks: %w", err)
+		return nil, 0, "", fmt.Errorf("list tasks: %w", err)
 	}
-	return items, nil
+	return items, scanned, last, nil
 }
 
 // filter collects the WHERE conditions of a list and their arguments. now is
@@ -273,6 +298,42 @@ func textMatcher(q string) func(Task) bool {
 	return func(t Task) bool {
 		return strings.Contains(fold(t.Title), needle) || strings.Contains(fold(t.Description), needle)
 	}
+}
+
+// textPrefilter is the SQL that lets through every task textMatcher(q) keeps, and some it does not: the
+// database cannot fold letter case as the Go matcher does (SQLite's LOWER folds ASCII only, Postgres's follows
+// the collation), so it only compares what folds the same everywhere. Each rune of the folded q is one
+// character of a LIKE pattern, as the Go fold keeps one rune per rune: an ASCII rune that no other rune folds to
+// stands for itself and every other rune for `_`, any one character. The arg is that pattern, for the title
+// and for the description. There is no prefilter when no rune of q is such an ASCII rune.
+func textPrefilter(q string) (string, string, bool) {
+	var pat strings.Builder
+	pat.WriteByte('%')
+	literal := false
+	for _, r := range fold(q) {
+		switch {
+		case !foldsToItself(r):
+			pat.WriteByte('_')
+		case r == '%' || r == '_' || r == '!':
+			pat.WriteString("!" + string(r))
+			literal = true
+		default:
+			pat.WriteRune(r)
+			literal = true
+		}
+	}
+	if !literal {
+		return "", "", false
+	}
+	pat.WriteByte('%')
+	return `(LOWER(t.title) LIKE ? ESCAPE '!' OR LOWER(t.description) LIKE ? ESCAPE '!')`, pat.String(), true
+}
+
+// foldsToItself reports whether r is an ASCII rune that only itself and its capital fold to: the database's
+// LOWER leaves such a rune alone or lowers its capital, so a LIKE against it agrees with the Go fold. The
+// Kelvin sign, the dotted and dotless i and the long s fold to k, i and s, so those three are not such runes.
+func foldsToItself(r rune) bool {
+	return r <= unicode.MaxASCII && r != 'i' && r != 'k' && r != 's'
 }
 
 // afterFilter adds the condition that keeps the tasks after the one ref names: a
