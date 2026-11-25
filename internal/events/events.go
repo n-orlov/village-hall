@@ -194,7 +194,13 @@ func (b *builder) point(value, name string, onlyEvents bool) error {
 	case domain.PointID:
 		b.add(`e.id > ?`, p.ID)
 	default:
-		b.add(`e.at >= ?`, store.EncodeTime(p.At))
+		// e.n is bounded by the first event at or after the time, found on
+		// events_at_n, so the read walks the rowid range in n order: no scan
+		// of the table and no sort. The at condition stays, because n and at
+		// need not rise together.
+		at := store.EncodeTime(p.At)
+		b.add(`e.n >= (SELECT MIN(f.n) FROM events f WHERE f.at >= ?)`, at)
+		b.add(`e.at >= ?`, at)
 	}
 	return nil
 }

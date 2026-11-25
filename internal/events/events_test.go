@@ -41,6 +41,11 @@ func newFixture(t *testing.T) fixture {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	return newFixtureOn(st)
+}
+
+// newFixtureOn is the fixture on an already migrated store.
+func newFixtureOn(st *store.Store) fixture {
 	n := 0
 	now := func() time.Time { n++; return t0.Add(time.Duration(n) * time.Second) }
 	return fixture{ev: Store{Store: st, Now: now}, tk: tasks.Store{Store: st, Now: now}, in: initiatives.Store{Store: st, Now: now}}
