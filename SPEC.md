@@ -710,7 +710,7 @@ and is indexed on `expires_at` for that sweep.
 Phase 0 creates `actors`, `initiatives`, `initiative_tags`, `events`, `api_keys` and `sessions`; Phase 1 adds
 `tasks` and `task_deps` (migration `00003_tasks`, which also adds `initiatives.next_task_seq`) and `leases` and
 `lease_resources` (migration `00004_leases`, §4.4); Phase 2 adds `asks` (`00005_asks`, §4.5) and `notes` and
-`cursors` (`00006_notes`, §4.7, §4.8), `00007_ask_ended_at` adds `asks.ended_at` and `00008_ask_end_commit` adds `asks.end_commit_ns`; Phase 3 adds `notifications` (`00009_notifications`, §4.11); Phase 4 adds `idempotency_keys` (`00010_idempotency`, §4.12) and `00011_notes_concern_indexes` (indexes only, §4.10); Phase 5 drops the one-operator index (`00012_many_operators`, §4.1) and adds key owner and origin (`00013_key_owner_and_origin`, above) and a task's own tags (`00014_task_tags`, §4.3), and an index of a task's leases by state (`00015_lease_task_state_index`, §4.4). The other tables of this section arrive with the phases that use them. Migrations are additive and forward-only, and rows written before
+`cursors` (`00006_notes`, §4.7, §4.8), `00007_ask_ended_at` adds `asks.ended_at` and `00008_ask_end_commit` adds `asks.end_commit_ns`; Phase 3 adds `notifications` (`00009_notifications`, §4.11); Phase 4 adds `idempotency_keys` (`00010_idempotency`, §4.12) and `00011_notes_concern_indexes` (indexes only, §4.10); Phase 5 drops the one-operator index (`00012_many_operators`, §4.1) and adds key owner and origin (`00013_key_owner_and_origin`, above) and a task's own tags (`00014_task_tags`, §4.3), an index of a task's leases by state (`00015_lease_task_state_index`, §4.4), and the indexes the hot reads need (`00016_hot_read_indexes`, §4.10). The other tables of this section arrive with the phases that use them. Migrations are additive and forward-only, and rows written before
 an upgrade survive it. `events.task_id` is a plain nullable column with no foreign key. The indexes `events(task_id, id)` and `events(initiative_id, id)` exist, as does
 `initiative_tags(tag)`.
 
@@ -730,6 +730,12 @@ an upgrade survive it. `events.task_id` is a plain nullable column with no forei
 - `asks(state, created_at)`: open asks.
 - `tasks(status, initiative_id)`, `tasks(kind, next_check_at)`, `tasks(closed_at)`: attention and archive.
 - `initiative_tags(tag)`.
+- `00016_hot_read_indexes` (schema v16, indexes only, the same DDL on SQLite and Postgres, each dropped by its Down) adds the
+  indexes the hot reads plan on, so none scans `events` or `tasks` or sorts in a temporary B-tree:
+  `events(task_id, n)` (the newest event of a task), `events(task_id, type, n)` (the newest event of one type of a task,
+  such as `check_recorded`), `events(at, n)` (events since a time and the timeline's markers, in time order),
+  `events(actor_id, type, n)` (the newest event of one type by an actor, such as `catchup`) and `tasks(status, id)` (the task
+  list by status, in id order).
 - `notifications(event_id, kind)` (unique) and `notifications(state, next_attempt_at)`: one row per event and kind, and the rows a delivery is due on.
 
 ### 4.11 `notifications`

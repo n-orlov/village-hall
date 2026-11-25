@@ -95,3 +95,14 @@ func (c countingConn) PrepareContext(ctx context.Context, query string) (driver.
 func (c countingConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	return c.Conn.(driver.ConnBeginTx).BeginTx(ctx, opts)
 }
+
+// DownTo rolls the embedded migrations back to version, for the tests of a
+// migration's Down.
+func (s *Store) DownTo(ctx context.Context, version int64) error {
+	p, err := s.provider()
+	if err != nil {
+		return err
+	}
+	_, err = p.DownTo(ctx, version)
+	return err
+}

@@ -8,7 +8,7 @@ Feature: The store and vh admin migrate
     Given a new database for the board commands
     When I run "vh admin migrate"
     Then the exit code is 0
-    And stdout is exactly "ok migrated, schema version 15"
+    And stdout is exactly "ok migrated, schema version 16"
     And stderr is empty
 
   Scenario: vh admin migrate is idempotent
@@ -16,7 +16,7 @@ Feature: The store and vh admin migrate
     When I run "vh admin migrate"
     And I run "vh admin migrate"
     Then the exit code is 0
-    And stdout is exactly "ok migrated, schema version 15"
+    And stdout is exactly "ok migrated, schema version 16"
 
   Scenario: a database migrated by vh admin migrate is ready without BOARD_MIGRATE
     Given a new database for the board commands
