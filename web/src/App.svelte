@@ -3,6 +3,7 @@
   import Actors from './Actors.svelte';
   import Archive from './Archive.svelte';
     import ApiKeys from './ApiKeys.svelte';
+  import NoticeBanner from './NoticeBanner.svelte';
   import Notes from './Notes.svelte';
   import Now from './Now.svelte';
   import InitiativePage from './InitiativePage.svelte';
@@ -13,6 +14,7 @@
   import Tasks from './Tasks.svelte';
   import { live } from './lib/live';
   import { watchLiveTasks } from './lib/liveTasks';
+  import { readNotices, watchNotices, type Notice } from './lib/notices';
   import { TasksApi } from './lib/tasks';
   import { loginUrl, currentBrowser, SessionController, type SessionState } from './lib/session';
   import { replaceHash } from './lib/historyEntry';
@@ -55,6 +57,8 @@
   let attentionTotal = $state(0);
   // The green badge: how many open tasks hold a live lease, read when the shell is up and on every task_* or lease_* live event.
   let liveTasks = $state(0);
+  // The live notices of every actor, shown in a banner above the view: read when the shell is up and on every lease_* live event.
+  let notices: Notice[] = $state([]);
 
   const session = new SessionController(browser, (s) => (auth = s), window.location.hash);
 
@@ -69,6 +73,11 @@
     const csrf = auth.session.csrf_token;
     const api = new TasksApi(browser, () => csrf);
     return watchLiveTasks(live(), api, (count) => (liveTasks = count));
+  });
+
+  $effect(() => {
+    if (auth.kind !== 'signed-in') return;
+    return watchNotices(live(), () => readNotices(browser), (list) => (notices = list));
   });
 
   async function signOut() {
@@ -122,6 +131,7 @@
     {#if signOutFailed}
       <p role="alert">Sign out failed. Try again.</p>
     {/if}
+    <NoticeBanner {notices} />
     {#key param}
       {#if View}
         <View csrf={auth.session.csrf_token} {param} />
