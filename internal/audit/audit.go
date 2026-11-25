@@ -13,7 +13,6 @@ import (
 )
 
 var (
-	actorColumns = []string{"id", "handle", "kind", "first_seen_at", "last_seen_at"}
 	eventColumns = []string{"id", "at", "actor_id", "principal", "on_behalf_of", "initiative_id", "task_id", "type", "ref_id", "summary", "data", "origin"}
 )
 
@@ -64,56 +63,69 @@ func UpsertActor(ctx context.Context, tx *sql.Tx, d store.Dialect, a Actor, now 
 }
 
 // upsertActor is UpsertActor with the origin handle to record on an agent row,
-// or nil to leave the row's origin as it is.
+// or nil to leave the row's origin as it is. It is one statement,
+// INSERT ... ON CONFLICT DO UPDATE ... RETURNING: it creates the row or moves
+// last_seen_at, promotes an agent row a session acts as, takes the origin an
+// agent row's latest write carries (the operator the handle names, else null),
+// and replaces the way back and meta a request sent, whichever the row held.
 func upsertActor(ctx context.Context, tx *sql.Tx, d store.Dialect, a Actor, now time.Time, origin *string) (string, error) {
 	id, err := domain.NewULID(now)
 	if err != nil {
 		return "", err
 	}
+	handle := strings.TrimSpace(a.Handle)
+	at := store.EncodeTime(now)
+	q, args := actorUpsert(a, id, handle, at, origin)
+	var actorID, kind string
+	var rowOrigin sql.NullString
+	if err := tx.QueryRowContext(ctx, d.Rebind(q), args...).Scan(&actorID, &kind, &rowOrigin); err != nil {
+		return "", fmt.Errorf("record actor: %w", err)
+	}
+	if st := stateFrom(ctx); st != nil && origin != nil {
+		if kind == "agent" {
+			// The statement set the row's origin to the operator the request names.
+			st.remember(tx, nullable(rowOrigin.String))
+		} else {
+			// An operator row may have appeared, or been promoted, in this tx.
+			st.forget()
+		}
+	}
+	return actorID, nil
+}
+
+// actorUpsert is the upsert statement and its arguments. The insert holds the
+// columns the row is created with; the update holds what a use of an existing
+// row changes. An operator row never takes an origin, and an agent row takes one
+// only when the use carries a handle (origin is not nil), null when it names no
+// operator, so a write through an ownerless key clears what an earlier key left.
+func actorUpsert(a Actor, id, handle string, at int64, origin *string) (string, []any) {
 	kind := "agent"
 	if a.Operator {
 		kind = "operator"
 	}
-	handle := strings.TrimSpace(a.Handle)
-	at := store.EncodeTime(now)
-	_, err = tx.ExecContext(ctx, d.Rebind(d.Upsert("actors", actorColumns, []string{"handle"}, []string{"last_seen_at"})),
-		id, handle, kind, at, at)
-	if err != nil {
-		return "", fmt.Errorf("record actor: %w", err)
-	}
-	var actorID string
-	if err := tx.QueryRowContext(ctx, d.Rebind(`SELECT id FROM actors WHERE handle = ?`), handle).Scan(&actorID); err != nil {
-		return "", fmt.Errorf("record actor: %w", err)
-	}
-	return actorID, refineActor(ctx, tx, d, actorID, a, origin)
-}
-
-// refineActor makes the writes a use of the actor row actorID adds to its
-// creation: the promotion of an agent row a session acts as, the origin and the
-// way back and meta the request sent.
-func refineActor(ctx context.Context, tx *sql.Tx, d store.Dialect, actorID string, a Actor, origin *string) error {
+	cols := []string{"id", "handle", "kind", "first_seen_at", "last_seen_at"}
+	marks := []string{"?", "?", "?", "?", "?"}
+	args := []any{id, handle, kind, at, at}
+	set := []string{"last_seen_at = excluded.last_seen_at"}
 	if a.Operator {
-		if _, err := tx.ExecContext(ctx, d.Rebind(`UPDATE actors SET kind = 'operator' WHERE id = ? AND kind <> 'operator'`), actorID); err != nil {
-			return fmt.Errorf("record actor kind: %w", err)
-		}
+		set = append(set, "kind = 'operator'")
+	} else if origin != nil {
+		cols = append(cols, "origin")
+		marks = append(marks, "(SELECT o.id FROM actors o WHERE o.handle = ? AND o.kind = 'operator')")
+		args = append(args, *origin)
+		set = append(set, "origin = CASE WHEN actors.kind = 'agent' THEN excluded.origin ELSE actors.origin END")
 	}
-	if err := setOrigin(ctx, tx, d, actorID, origin); err != nil {
-		return err
-	}
-	return setOptional(ctx, tx, d, actorID, a)
-}
-
-// setOptional stores the way back and meta a request sent, when it sent any.
-func setOptional(ctx context.Context, tx *sql.Tx, d store.Dialect, actorID string, a Actor) error {
 	for _, c := range []struct{ column, value string }{{"way_back", strings.TrimSpace(a.WayBack)}, {"meta", strings.TrimSpace(a.Meta)}} {
 		if c.value == "" {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, d.Rebind(`UPDATE actors SET `+c.column+` = ? WHERE id = ?`), c.value, actorID); err != nil {
-			return fmt.Errorf("record actor %s: %w", c.column, err)
-		}
+		cols = append(cols, c.column)
+		marks = append(marks, "?")
+		args = append(args, c.value)
+		set = append(set, c.column+" = excluded."+c.column)
 	}
-	return nil
+	return "INSERT INTO actors (" + strings.Join(cols, ", ") + ") VALUES (" + strings.Join(marks, ", ") +
+		") ON CONFLICT (handle) DO UPDATE SET " + strings.Join(set, ", ") + " RETURNING id, kind, origin", args
 }
 
 // OnBehalf makes sure the actor a.OnBehalfOf names exists and returns its id, or

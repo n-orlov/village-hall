@@ -339,6 +339,7 @@ that handle's row `operator` and no other handle's, promoting a row an earlier k
 `operator` row is never demoted, so a key write that names the operator's handle after a session write leaves the
 kind `operator` (the event's `principal` still records `key:<name>` or `oidc:<email>`, so the two stay
 distinguishable). Which kind a row has therefore never depends on the order the key and the session arrive in.
+A write records its actor in **one statement**, `INSERT … ON CONFLICT (handle) DO UPDATE … RETURNING` on both dialects: the creation or the `last_seen_at` bump, the promotion, the origin and the way back and meta all ride on it, and no second statement reads the id back. The origin a request carries (§3.1) is resolved once per request: an agent row's upsert takes it in that statement, and the events the request appends reuse it within the transaction that resolved it, looking an operator up by handle at most once.
 A write that carries a non-empty `Board-Actor-Way-Back` or
 `Board-Actor-Meta` replaces that column; a write that carries neither leaves the stored values. Actors are never deleted. No index limits `operator` rows: migration 00012 dropped the unique partial index
 `actors_one_operator` (on `kind WHERE kind = 'operator'`), the `kind` column keeps its two values and every row is

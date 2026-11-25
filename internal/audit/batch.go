@@ -53,20 +53,6 @@ func AppendBatch(ctx context.Context, tx *sql.Tx, d store.Dialect, now time.Time
 	return ids, nil
 }
 
-// requestOrigin is the origin the request carries, as the id of the operator it
-// names; fromRequest is false for a write outside any request.
-func requestOrigin(ctx context.Context, tx *sql.Tx, d store.Dialect) (origin any, fromRequest bool, err error) {
-	handle, ok := OriginFrom(ctx)
-	if !ok {
-		return nil, false, nil
-	}
-	if handle == "" {
-		return nil, true, nil
-	}
-	origin, err = idOrNil(OperatorID(ctx, tx, d, handle))
-	return origin, true, err
-}
-
 // batchRow is the column values of one event of a batch.
 func batchRow(now time.Time, w Written, requestOrigin any, fromRequest bool) ([]any, error) {
 	id, err := domain.NewULID(now)
