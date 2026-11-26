@@ -3231,7 +3231,7 @@ nothing is loaded from a CDN). `App.svelte` loads the Timeline through a dynamic
 shown (R7), so vis-timeline, vis-data, moment and the vis stylesheet are a chunk of their own and the entry chunk stays
 under 450 kB raw; `web/src/bundle.test.ts` builds into a scratch directory with a Vite manifest and fails when the entry
 chunk is over that, when an eagerly loaded chunk holds vis-timeline or vis-data, when the Timeline is not a separate
-chunk, or when a stylesheet the entry loads holds the `.vis-timeline` rules, and `mountChart` hands the groups and items to vis-timeline inside a frame with
+chunk, or when a stylesheet the entry loads holds the `.vis-timeline` rules (the Stryker run leaves this one test out, `web/vitest.mutation.config.ts`: its sandbox build holds the instrumented `src/lib`, over the cap by construction; the Web UI unit still runs it), and `mountChart` hands the groups and items to vis-timeline inside a frame with
 `overflow: hidden`, so the page never scrolls sideways; the chart pans and zooms inside it (`chartOptions`: zoom from an
 hour to a quarter, no stacking and no subgroups, rows in the mapping's order). Until the first read lands it says
 it is loading; a window with no task says so.

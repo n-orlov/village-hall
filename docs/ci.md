@@ -373,7 +373,7 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
   Suite, E2E, Image and Quality unstash it (`needs: ['web-dist']`); Suite, E2E and Image also
   wait for the unit's signal without holding an executor, and do not run when it
   did not pass (Quality then reports their missing results). The extended lane's units
-  (Stability runs, which copies it into each of its three clones, Mutation diff and every full
+  (Stability runs, which copies its contents into the `dist/` each of its three clones already holds, Mutation diff and every full
   mutation unit) unstash it too, because `internal/server`'s UI tests fail without the real
   build; they run after Core, so no signal is needed. With the marker and
   an `index.html` present, `ci/suite.sh` and the release dry run in the Image unit
@@ -480,6 +480,10 @@ nightly's mutation, and so does `EXTENDED=true` on `main`.
     with lane `base`, runs `nproc / 2` test processes at `nice 10`
     (`BOARD_MUTATION_STRYKER_CONCURRENCY`, read by `web/stryker.config.mjs` as
     `STRYKER_CONCURRENCY`; Stryker's own default is one per CPU less one).
+    Stryker's Vitest config (`web/vitest.mutation.config.ts`) leaves out
+    `src/bundle.test.ts`: that test runs a production build, which in a Stryker sandbox
+    holds the instrumented `src/lib` and is over the entry-chunk cap by construction.
+    The Web UI unit still runs it, and the mutated scope is unchanged.
     A worker is busy only about half the time (compiling its mutant, waiting
     for its Postgres testcontainers), so 12 workers keep about `nproc` threads
     busy: #242 ran the CPU 81 to 99 % busy (load 20 to 30, peak 44.6) and its

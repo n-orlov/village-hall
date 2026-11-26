@@ -1014,8 +1014,10 @@ pipeline {
                              # The web build the Web UI unit stashed (unstashed into this
                              # workspace by `needs`): internal/server's UI tests read it, and
                              # a clone carries only tracked files.
-                             mkdir -p "stability-$i/internal/webui"
-                             cp -a internal/webui/dist "stability-$i/internal/webui/dist"
+                             # The clone already holds dist/ (the tracked .gitkeep), so copy the
+                             # directory's contents: `cp -a dist dist` would nest it as dist/dist.
+                             mkdir -p "stability-$i/internal/webui/dist"
+                             cp -a internal/webui/dist/. "stability-$i/internal/webui/dist/"
                              mkdir -p "$BOARD_CI_OUT/stability/run-$i"
                            done
                          '''

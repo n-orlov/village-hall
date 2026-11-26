@@ -71,7 +71,7 @@ func webBuildOnceProblems(jf string) []string {
 	if !strings.Contains(stability, "def u = [name: 'Stability runs', minutes: 40,\n                       needs: ['web-dist'],") {
 		problems = append(problems, "Stability runs does not unstash web-dist")
 	}
-	if !strings.Contains(stability, `cp -a internal/webui/dist "stability-$i/internal/webui/dist"`) {
+	if !strings.Contains(stability, `cp -a internal/webui/dist/. "stability-$i/internal/webui/dist/"`) {
 		problems = append(problems, "Stability's clones do not each get the web build")
 	}
 	mutation, _ := jenkinsStage(jf, "Mutation")
@@ -124,7 +124,7 @@ func TestWebUIIsBuiltOnceAndStashedForSuiteE2EAndQuality(t *testing.T) {
 		"a Stability that does not unstash the web build": replaceOnce(t, jf,
 			"minutes: 40,\n                       needs: ['web-dist'],", "minutes: 40,"),
 		"a Stability clone without the web build": replaceOnce(t, jf,
-			`cp -a internal/webui/dist "stability-$i/internal/webui/dist"`, "true"),
+			`cp -a internal/webui/dist/. "stability-$i/internal/webui/dist/"`, "true"),
 		"a full mutation unit that does not unstash the web build": replaceOnce(t, jf,
 			"maxAttempts: 1,\n             needs: ['web-dist'],", "maxAttempts: 1,"),
 		"a Mutation diff that does not unstash the web build": replaceOnce(t, jf,
@@ -246,5 +246,53 @@ func TestReleaseBuildRunsNoWebBuildWhenTheStashedBuildIsPresent(t *testing.T) {
 	always := replaceOnce(t, build, "if [ -f internal/webui/dist/.ci-stashed-build ]", "if false")
 	if r := runImageOnceWeb(t, true, always, check, true, "release-check.sh", "ci-results"); builds(r) == 0 {
 		t.Error("a release-build.sh that always builds the UI was not caught")
+	}
+}
+
+// A Stability clone already holds internal/webui/dist (the tracked .gitkeep), so the
+// copy must put the stashed build's files directly in it: `cp -a dist dist` into an
+// existing directory nests them as dist/dist, and internal/server's UI tests then
+// find no index.html. Runs the Jenkinsfile's own copy lines against such a clone.
+func TestStabilityCloneGetsTheWebBuildDirectlyInDist(t *testing.T) {
+	stability, ok := jenkinsStage(readRepoFile(t, "Jenkinsfile"), "Stability")
+	if !ok {
+		t.Fatal("the Jenkinsfile has no Stability stage")
+	}
+	var script []string
+	for _, line := range strings.Split(stability, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.Contains(trim, `"stability-$i/internal/webui`) && (strings.HasPrefix(trim, "mkdir ") || strings.HasPrefix(trim, "cp ")) {
+			script = append(script, trim)
+		}
+	}
+	if len(script) == 0 {
+		t.Fatal("the Stability stage copies no web build into its clones")
+	}
+	root := t.TempDir()
+	write := func(rel, text string) {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("internal/webui/dist/index.html", "<html>")
+	write("internal/webui/dist/assets/app.js", "js")
+	write("internal/webui/dist/.ci-stashed-build", "")
+	write("stability-1/internal/webui/dist/.gitkeep", "")
+	cmd := exec.Command("sh", "-ec", "i=1\n"+strings.Join(script, "\n"))
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the copy lines failed: %v\n%s", err, out)
+	}
+	for _, rel := range []string{"index.html", "assets/app.js", ".ci-stashed-build"} {
+		if _, err := os.Stat(filepath.Join(root, "stability-1/internal/webui/dist", rel)); err != nil {
+			t.Errorf("the clone's dist lacks %s: %v", rel, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "stability-1/internal/webui/dist/dist")); err == nil {
+		t.Error("the web build was nested as dist/dist in the clone")
 	}
 }
