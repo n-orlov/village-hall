@@ -665,8 +665,8 @@ const (
 	silentFault answerFault = "silent"
 )
 
-// failAnswers makes every write of a replay answer (the update that marks a key
-// done) fail in the database itself, on either leg, the way fault says, and
+// failAnswers makes every write of a replay answer (the update that stores the
+// encoded answer, the only one that sets a status) fail in the database itself, on either leg, the way fault says, and
 // returns the function that lifts the fault.
 func failAnswers(t *testing.T, w *idemWorld, fault answerFault) (lift func()) {
 	t.Helper()
@@ -678,7 +678,7 @@ func failAnswers(t *testing.T, w *idemWorld, fault answerFault) (lift func()) {
 		}
 		set = []string{
 			`CREATE FUNCTION idem_fail() RETURNS trigger AS $$ BEGIN ` + body + `; END $$ LANGUAGE plpgsql`,
-			`CREATE TRIGGER idem_fail BEFORE UPDATE ON idempotency_keys FOR EACH ROW WHEN (NEW.state = 'done') EXECUTE FUNCTION idem_fail()`,
+			`CREATE TRIGGER idem_fail BEFORE UPDATE ON idempotency_keys FOR EACH ROW WHEN (NEW.status IS NOT NULL) EXECUTE FUNCTION idem_fail()`,
 		}
 		unset = []string{`DROP TRIGGER idem_fail ON idempotency_keys`, `DROP FUNCTION idem_fail()`}
 	} else {
@@ -686,7 +686,7 @@ func failAnswers(t *testing.T, w *idemWorld, fault answerFault) (lift func()) {
 		if fault == silentFault {
 			raise = `RAISE(IGNORE)`
 		}
-		set = []string{`CREATE TRIGGER idem_fail BEFORE UPDATE ON idempotency_keys WHEN NEW.state = 'done' BEGIN SELECT ` + raise + `; END`}
+		set = []string{`CREATE TRIGGER idem_fail BEFORE UPDATE ON idempotency_keys WHEN NEW.status IS NOT NULL BEGIN SELECT ` + raise + `; END`}
 		unset = []string{`DROP TRIGGER idem_fail`}
 	}
 	run := func(stmts []string) {

@@ -21,7 +21,7 @@ const readyTimeout = 3 * time.Second
 // generated code cannot read, and an operation that fails, answer with an RFC
 // 9457 problem document, like every other error.
 func strictOperations(ssi StrictServerInterface, middlewares ...StrictMiddlewareFunc) ServerInterface {
-	return NewStrictHandlerWithOptions(ssi, append([]StrictMiddlewareFunc{withRequest, bindBeforeEncoding}, middlewares...), StrictHTTPServerOptions{
+	return NewStrictHandlerWithOptions(ssi, append([]StrictMiddlewareFunc{withRequest}, middlewares...), StrictHTTPServerOptions{
 		RequestErrorHandlerFunc:  requestUnreadable,
 		ResponseErrorHandlerFunc: responseFailed,
 	})

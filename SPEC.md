@@ -781,14 +781,14 @@ leaves none, and nothing deletes or cancels a row afterwards.
 | principal | text | who sent the key (§3.1); with `key_hash`, the primary key |
 | key_hash | text | SHA-256 (hex) of the principal and the `Idempotency-Key`; the key is never stored |
 | fingerprint | text | SHA-256 (hex) of the first request: method, path with query, actor and body |
-| state | text | `running` from the claim until the request's writes commit, then `done` (a check constraint refuses any other); a `done` row whose `status` is still null has committed its writes but not yet stored its answer, and is in flight |
+| state | text | `running` from the claim until the answer is stored, then `done` (a check constraint refuses any other) |
 | status | integer, null | the answer's status once `done` |
 | content_type | text, null | the answer's `Content-Type` once `done` |
 | body | text, null | the answer's body once `done`, sealed (base64 of the nonce and an AES-256-GCM ciphertext under a key derived from the principal and the key) |
 | created_at | timestamp | when the key was first used; a row older than 24 hours is stale |
 
 The Idempotency-Key rows (§6.1). A request claims its key with one insert that does nothing on a conflict, so two requests with
-one key never both run. Everything the request wrote commits in one transaction with the `UPDATE` that binds the key to it (`running` to `done`, the answer still to come), or the claim is released: a key that cannot be bound rolls back what the request wrote and releases the claim, so no write ever stands while its key could run it again. That transaction commits once the operation has its result and before the answer is encoded, so the answer is encoded with no writer transaction open, and only then does the one `UPDATE` that seals the key (its `status`, `content_type` and sealed `body`) run, on its own. A row older than 24
+one key never both run. The answer is stored, in the same transaction as everything the request wrote, or the claim released, when the request ends (an answer that cannot be stored rolls back what the request wrote and releases the claim, so no write ever stands without its answer). The answer is encoded in full before the one `UPDATE` that seals the key (its `status`, `content_type` and sealed `body`), which does no encoding of its own, and that statement and the commit follow it at once. The write and its answer have to commit together, so the answer cannot be encoded after the unit commits: the one writer connection of SQLite is held by the unit from its start to its commit, and the encoding is the short step between the request's last write and the seal. A row older than 24
 hours is replaced by the next use of its key and deleted by the sweeper (§5.1); the index on `created_at` is for that
 sweep. `00010_idempotency` creates it, with the same DDL on SQLite and Postgres, and is additive: no existing table
 changes.
@@ -1043,21 +1043,19 @@ ref without being one, so they carry no tags of their own; `task_marks` covers t
     until its answer is stored, so a retry sent on receiving it finds the answer, never a running request.
   - A 5xx answer, or a request that panics, before the request's unit of work has committed is not stored and
     releases the key: the retry runs the request again (the CLI's retry on 502, 503 or 504 relies on this). A server
-    that stops between starting a request and storing its answer leaves the key in flight until it is 24 hours old.
+    that stops between starting a request and storing its answer leaves the key running until it is 24 hours old.
     A refusal below 500 whose answer cannot be stored wrote nothing, so it releases the key too.
   - A request with a new key runs in one unit of work: every row it writes (its task, lease, ask, note, key, event or
-    actor rows) and the binding of the key to it commit in one database transaction, on SQLite and on Postgres alike.
-    The unit commits as soon as the operation has its result, before the answer is encoded, so the writer is not held
-    while the answer is marshalled; the encoded answer is then stored for the key by one statement of its own, and
-    the response is sent only after that. Once the effect has committed the key is never released, so the request
-    never runs twice: every retry with the key within 24 hours is its replay, with `Idempotent-Replayed: true` and no
-    new row of any kind, or, in the moment before the answer is stored, a 409. If that answer cannot be stored the
-    response is still sent, and the key stays in flight (409) until it is 24 hours old. When the key cannot be bound
-    (the statement fails, or changes no row) the transaction rolls back, so the request has written nothing, the key
-    is released, and a success is answered 503 with a `next` (send the same request again with the same key): the
-    retry runs the request once, and the retries after it are its replay. A refusal below 500 that cannot commit with
-    its key bound is stored on its own, as it wrote nothing. Reads inside the unit see what it has written; other
-    requests see none of it until it commits. An ask's `ended_at` and end mark (§4.5) are stamped once the unit has committed, so the
+    actor rows) and the answer stored for the key commit in one database transaction, on SQLite and on Postgres alike,
+    and the response is sent only after that commit. A success's status, body and replay state are therefore one
+    durable outcome: once the effect has committed, every retry with the key within 24 hours is its replay, with
+    `Idempotent-Replayed: true` and no new row of any kind. The response is encoded before the statement that stores
+    it, and that statement and the commit follow at once. When the answer cannot be stored (the write fails, or
+    changes no row) the transaction rolls back, so the request has written nothing, the key is released, and a success
+    is answered 503 with a `next` (send the same request again with the same key): the retry runs the request once,
+    and the retries after it are its replay. A refusal below 500 whose answer cannot be stored in that transaction is
+    stored on its own, as it wrote nothing. Reads inside the unit see what it has written; other requests see none of
+    it until it commits. An ask's `ended_at` and end mark (§4.5) are stamped once the unit has committed, so the
     answer of a keyed answer or withdrawal, and its replay, leave `ended_at` out, as for an end whose stamp was never
     written; a later read of the ask shows it.
   - A key older than 24 hours counts as new, whether or not the sweeper has deleted its row yet. The sweeper

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,27 +54,17 @@ func (w *touchedWriter) Write(b []byte) (int, error) {
 
 // TestAnIdempotentAnswerIsEncodedBeforeTheStatementThatSealsItsKey drives a keyed
 // POST through the generated operations and pins where the answer is encoded in
-// the log of writer statements: the request's write and the binding of its key
-// commit first, the answer is then encoded with no writer transaction open, and
-// only after that does the one statement that seals the key with the answer
-// (Complete) run, on its own outside any transaction.
+// the log of writer statements: the request's write, then the encoding of the
+// answer, then the one statement that seals the key with the encoded answer, and
+// only then the commit of the unit, so the write and its answer stand together.
 func TestAnIdempotentAnswerIsEncodedBeforeTheStatementThatSealsItsKey(t *testing.T) {
 	st, rec := storetest.OpenMigrated(t)
 	if _, err := st.Writer().ExecContext(context.Background(), `CREATE TABLE idem_probe (v TEXT)`); err != nil {
 		t.Fatal(err)
 	}
-	encodeFrom, encodedAt := -1, -1
-	// The outermost operation middleware: its code after next runs once the
-	// operation has its result, just before the generated code encodes it.
-	mark := func(next StrictHandlerFunc, _ string) StrictHandlerFunc {
-		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
-			response, err := next(ctx, w, r, request)
-			encodeFrom = len(rec.All())
-			return response, err
-		}
-	}
+	encodedAt := -1
 	mux := http.NewServeMux()
-	HandlerWithOptions(strictOperations(orderProbe{st: st}, mark), StdHTTPServerOptions{BaseRouter: mux, ErrorHandlerFunc: parameterUnreadable})
+	HandlerWithOptions(strictOperations(orderProbe{st: st}), StdHTTPServerOptions{BaseRouter: mux, ErrorHandlerFunc: parameterUnreadable})
 	h := idempotent(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mux.ServeHTTP(&touchedWriter{ResponseWriter: w, touched: func() { encodedAt = len(rec.All()) }}, r)
 	}), &idempotency.Store{Store: st})
@@ -98,22 +89,17 @@ func TestAnIdempotentAnswerIsEncodedBeforeTheStatementThatSealsItsKey(t *testing
 			seal = i
 		}
 	}
-	if wrote < 0 || commit < 0 || seal < 0 || encodeFrom < 0 || encodedAt < encodeFrom {
-		t.Fatalf("write #%d, commit #%d, seal #%d, encoding from #%d to #%d in the writer log: %v", wrote, commit, seal, encodeFrom, encodedAt, log)
+	if wrote < 0 || commit < 0 || seal < 0 || encodedAt < 0 {
+		t.Fatalf("write #%d, commit #%d, seal #%d, encoded at #%d in the writer log: %v", wrote, commit, seal, encodedAt, log)
 	}
-	if commit >= encodeFrom {
-		t.Errorf("the unit holding the write committed at #%d, but encoding began after #%d statements: the writer was held while the answer was encoded", commit, encodeFrom)
-	}
-	for i := commit + 1; i < encodedAt; i++ {
-		if log[i].Kind == storetest.Begin || log[i].InTx {
-			t.Errorf("statement #%d %q ran in a transaction between the unit's commit and the end of encoding", i, log[i].SQL)
-		}
+	if encodedAt <= wrote {
+		t.Errorf("the answer was encoded after #%d statements, before the request's write #%d: it cannot describe it", encodedAt, wrote)
 	}
 	if seal < encodedAt {
 		t.Errorf("the seal statement is #%d, but the answer was encoded only after #%d statements: encoding must come first", seal, encodedAt)
 	}
-	if log[seal].InTx || (log[seal].Pool != store.PoolWriter && log[seal].Pool != store.PoolShared) {
-		t.Errorf("the seal statement ran on pool %q in a transaction=%v, want the writer on its own", log[seal].Pool, log[seal].InTx)
+	if commit <= seal || !log[seal].InTx {
+		t.Errorf("the seal statement #%d (in a transaction: %v) and the commit #%d: the answer must be stored in the unit that holds the write", seal, log[seal].InTx, commit)
 	}
 
 	// The sealed body is the whole answer: the replay returns it unchanged and the
@@ -123,48 +109,129 @@ func TestAnIdempotentAnswerIsEncodedBeforeTheStatementThatSealsItsKey(t *testing
 	if again.Code != out.Code || again.Body.String() != out.Body.String() || again.Header().Get(ReplayedHeader) != "true" {
 		t.Errorf("replay = %d %q replayed=%q, want the stored answer", again.Code, again.Body, again.Header().Get(ReplayedHeader))
 	}
-	var rows int
-	if err := st.Reader().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM idem_probe`).Scan(&rows); err != nil || rows != 1 {
-		t.Errorf("probe rows = %d (%v), want the one write", rows, err)
+	if rows := probeRows(t, st); rows != 1 {
+		t.Errorf("probe rows = %d, want the one write", rows)
 	}
 }
 
-// TestAKeyedWriteWhoseAnswerCannotBeStoredOnceItCommittedIsAnsweredAndNeverRunsAgain
-// fails only the statement that seals the key, after the unit with the write and
-// the binding of the key has committed: the request is answered, its key is not
-// released, and a retry is 409 instead of a second run.
-func TestAKeyedWriteWhoseAnswerCannotBeStoredOnceItCommittedIsAnsweredAndNeverRunsAgain(t *testing.T) {
-	st, _ := storetest.OpenMigrated(t)
+// probeRows is the number of rows the probe handlers committed.
+func probeRows(t *testing.T, st *store.Store) int {
+	t.Helper()
+	var rows int
+	if err := st.Reader().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM idem_probe`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+// failOnlyTheAnswer makes the database refuse the update that stores an encoded
+// answer (the only one that sets a status), and nothing else: the claim of the
+// key and every write of the request go through.
+func failOnlyTheAnswer(t *testing.T, st *store.Store) (lift func()) {
+	t.Helper()
 	for _, q := range []string{
-		`CREATE TABLE idem_probe (v TEXT)`,
+		`CREATE TABLE IF NOT EXISTS idem_probe (v TEXT)`,
 		`CREATE TRIGGER seal_fail BEFORE UPDATE ON idempotency_keys WHEN NEW.status IS NOT NULL BEGIN SELECT RAISE(ABORT, 'injected seal failure'); END`,
 	} {
 		if _, err := st.Writer().ExecContext(context.Background(), q); err != nil {
 			t.Fatal(err)
 		}
 	}
-	calls := 0
-	h := idempotent(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if _, err := st.WriterFor(r.Context()).ExecContext(r.Context(), `INSERT INTO idem_probe (v) VALUES ('x')`); err != nil {
-			t.Error(err)
+	return func() {
+		if _, err := st.Writer().ExecContext(context.Background(), `DROP TRIGGER seal_fail`); err != nil {
+			t.Fatal(err)
 		}
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"made":"it"}`))
-	}), &idempotency.Store{Store: st})
+	}
+}
 
-	first := httptest.NewRecorder()
-	h.ServeHTTP(first, directRequest(strings.NewReader("{}"), "unsealed"))
-	if first.Code != http.StatusCreated || first.Body.String() != `{"made":"it"}` || first.Header().Get(ReplayedHeader) != "" {
-		t.Errorf("first = %d %s (%q), want the answer of the committed write", first.Code, first.Body, first.Header().Get(ReplayedHeader))
+// writingHandler is a handler that writes writes rows into the request's unit
+// of work and answers status with a JSON body; calls counts its runs.
+func writingHandler(t *testing.T, st *store.Store, writes, status int, calls *int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*calls++
+		for i := 0; i < writes; i++ {
+			if _, err := st.WriterFor(r.Context()).ExecContext(r.Context(), `INSERT INTO idem_probe (v) VALUES ('x')`); err != nil {
+				t.Error(err)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"made":"it"}`))
+	})
+}
+
+// TestAKeyedWriteWhoseEncodedAnswerCannotBeStoredCommitsNothingAndItsRetryRunsOnceThenReplays
+// fails only the statement that stores the encoded answer, for successes of
+// different statuses and requests of one and of two writes: nothing the request
+// wrote stays, the key is released, the answer is 503 with a next, the same
+// request then runs once and every send after it is its replay, and a different
+// request under the key is 422.
+func TestAKeyedWriteWhoseEncodedAnswerCannotBeStoredCommitsNothingAndItsRetryRunsOnceThenReplays(t *testing.T) {
+	for _, c := range []struct {
+		name           string
+		writes, status int
+	}{
+		{"one write answered 201", 1, http.StatusCreated},
+		{"two writes answered 201", 2, http.StatusCreated},
+		{"one write answered 200", 1, http.StatusOK},
+		{"two writes answered 202", 2, http.StatusAccepted},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			st, _ := storetest.OpenMigrated(t)
+			lift := failOnlyTheAnswer(t, st)
+			calls := 0
+			h := idempotent(writingHandler(t, st, c.writes, c.status, &calls), &idempotency.Store{Store: st})
+			send := func(body string) *httptest.ResponseRecorder {
+				out := httptest.NewRecorder()
+				h.ServeHTTP(out, directRequest(strings.NewReader(body), "unstored"))
+				return out
+			}
+
+			first := send("{}")
+			var problem struct{ Next string }
+			if err := json.Unmarshal(first.Body.Bytes(), &problem); err != nil || first.Code != http.StatusServiceUnavailable || problem.Next == "" || first.Header().Get(ReplayedHeader) != "" {
+				t.Fatalf("send whose answer cannot be stored = %d %s (%v), want a 503 with a next", first.Code, first.Body, err)
+			}
+			var keys int
+			if err := st.Reader().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM idempotency_keys`).Scan(&keys); err != nil || keys != 0 {
+				t.Errorf("%d key rows (%v), want the key released", keys, err)
+			}
+			if rows := probeRows(t, st); rows != 0 {
+				t.Fatalf("%d rows committed by a request whose answer was not stored, want none", rows)
+			}
+
+			lift()
+			run, replay := send("{}"), send("{}")
+			if run.Code != c.status || run.Header().Get(ReplayedHeader) != "" || run.Body.String() != `{"made":"it"}` {
+				t.Errorf("retry = %d %s (%q), want the request run: %d", run.Code, run.Body, run.Header().Get(ReplayedHeader), c.status)
+			}
+			if replay.Code != c.status || replay.Header().Get(ReplayedHeader) != "true" || replay.Body.String() != run.Body.String() {
+				t.Errorf("second retry = %d %s (%q), want the stored replay", replay.Code, replay.Body, replay.Header().Get(ReplayedHeader))
+			}
+			if other := send(`{"other":1}`); other.Code != http.StatusUnprocessableEntity {
+				t.Errorf("a different request under the key = %d %s, want 422", other.Code, other.Body)
+			}
+			if rows := probeRows(t, st); rows != c.writes || calls != 2 {
+				t.Errorf("%d rows and %d runs after the retry, want %d rows and 2 runs (the failed one and the retry)", rows, calls, c.writes)
+			}
+		})
 	}
-	retry := httptest.NewRecorder()
-	h.ServeHTTP(retry, directRequest(strings.NewReader("{}"), "unsealed"))
-	if retry.Code != http.StatusConflict {
-		t.Errorf("retry = %d %s, want 409: the key stays in flight", retry.Code, retry.Body)
+}
+
+// TestAKeyedRefusalWhoseAnswerCannotBeStoredIsStillAnswered shows the rule at
+// its other edge: a refusal wrote nothing, so an answer that cannot be stored
+// releases the key and the refusal itself is still what the client reads.
+func TestAKeyedRefusalWhoseAnswerCannotBeStoredIsStillAnswered(t *testing.T) {
+	st, _ := storetest.OpenMigrated(t)
+	failOnlyTheAnswer(t, st)
+	calls := 0
+	h := idempotent(writingHandler(t, st, 1, http.StatusConflict, &calls), &idempotency.Store{Store: st})
+	out := httptest.NewRecorder()
+	h.ServeHTTP(out, directRequest(strings.NewReader("{}"), "refused"))
+	if out.Code != http.StatusConflict || out.Body.String() != `{"made":"it"}` {
+		t.Errorf("refusal = %d %s, want it answered as it was", out.Code, out.Body)
 	}
-	var rows int
-	if err := st.Reader().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM idem_probe`).Scan(&rows); err != nil || rows != 1 || calls != 1 {
-		t.Errorf("%d probe rows (%v), %d runs, want one of each", rows, err, calls)
+	if rows := probeRows(t, st); rows != 0 {
+		t.Errorf("%d rows committed with a refusal whose answer was not stored, want none", rows)
 	}
 }
