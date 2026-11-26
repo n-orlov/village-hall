@@ -1,6 +1,6 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
-import { expectInitiatives, expectTags, openChips, pickInitiative, pickTag, tagChip } from './chips';
+import { catalogRead, expectInitiatives, expectTags, openChips, pickInitiative, pickTag, tagChip } from './chips';
 import { backdateTask } from './store';
 import { logicViewports } from './viewports';
 
@@ -111,8 +111,10 @@ for (const vp of logicViewports) {
       page.on('request', (r) => {
         if (r.url().includes('/api/v1/tasks?')) requests.push(r.url());
       });
+      const listed = catalogRead(page, s.two);
       await page.goto('/#/archive');
       await expect.poll(() => rows(page, s.all)).toEqual([mango, apple, zebra, cherry]);
+      await listed;
       await pickInitiative(page, s.one);
       await expect.poll(() => rows(page, s.all)).toEqual([mango, cherry]);
       await pickInitiative(page, s.two);

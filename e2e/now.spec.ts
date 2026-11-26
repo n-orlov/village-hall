@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
-import { initiativeChip, openChips, pickInitiative, pickTag, tagChip } from './chips';
+import { catalogRead, initiativeChip, openChips, pickInitiative, pickTag, tagChip } from './chips';
 import { BANDS_KEY, FLIGHT_KEY, LAYOUT_KEY, actorApi, band, created, openBand, openFold, seedFlight, seedNeedsMe, showAllBands } from './now';
 
 // The Now view's Needs me bands (PRD R1, SPEC 11): the four bands in order with their counts, every band open on the desktop
@@ -445,9 +445,11 @@ for (const vp of [
     test('initiatives combine with OR: two initiatives show both, one shows its own', async ({ page, playwright, baseURL }) => {
       const s = await seedChips(playwright, baseURL, `or-${vp.name}`);
       await showAllBands(page);
+      const listed = catalogRead(page, s.plain.slug);
       await page.goto(`/#/now?initiative=${s.tagged.slug}`);
       await expect(askItem(page, s.tagged.ask)).toHaveCount(1, FIVE_SECONDS);
       await expect(askItem(page, s.plain.ask)).toHaveCount(0);
+      await listed;
       await pickInitiative(page, s.plain.slug);
       await expect(askItem(page, s.plain.ask)).toHaveCount(1, FIVE_SECONDS);
       await expect(askItem(page, s.tagged.ask)).toHaveCount(1);

@@ -1,6 +1,6 @@
 import { expect, type APIRequestContext, type Locator, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
-import { expectInitiatives, foldChips, initiativeChip, pickInitiative, pickTag, tagChip } from './chips';
+import { catalogRead, expectInitiatives, foldChips, initiativeChip, pickInitiative, pickTag, tagChip } from './chips';
 import { showAllBands } from './now';
 
 // Back and Forward restore a page the way it was left (PRD R7, SPEC 11): the Attention view (filters), the Initiatives
@@ -151,9 +151,11 @@ for (const vp of viewports) {
       }
 
       await showAllBands(page);
+      const listed = catalogRead(page, slug);
       await page.goto('/#/now');
       await expect(page.getByTestId('chip-filter')).toBeVisible(FIVE_SECONDS);
       await pickTag(page, tag);
+      await listed;
       await pickInitiative(page, slug);
       await expect(page).toHaveURL((url) => url.hash === `#/now?tag=${tag}&initiative=${slug}`);
       await foldChips(page); // a fresh mount folds the filter on a phone: measure the page as it comes back
@@ -263,7 +265,9 @@ for (const vp of viewports) {
       }
       const own = (p: Page) => p.getByTestId('task-title').allTextContents();
 
+      const listed = catalogRead(page, slug);
       await page.goto('/#/tasks');
+      await listed;
       await pickInitiative(page, slug);
       await expect.poll(() => own(page), FIVE_SECONDS).toHaveLength(18);
       const byDefault = await own(page);
@@ -433,8 +437,10 @@ for (const vp of viewports) {
       // More rows than the chart is tall: the rows scroll inside it.
       for (let i = 0; i < 30; i++) await post(api, '/api/v1/tasks', { initiative: slug, title: `Row ${String(i).padStart(2, '0')}` }, 201);
 
+      const listed = catalogRead(page, slug);
       await page.goto('/#/timeline');
       await expect(page.getByTestId('timeline-view')).toBeVisible();
+      await listed;
       await pickInitiative(page, slug);
       await foldChips(page); // a fresh mount folds a phone's filter, so fold it here: the page is then as tall coming back as it was going
       await page.getByTestId('closed-filter').selectOption('90');

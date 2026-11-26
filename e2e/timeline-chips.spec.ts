@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
-import { expectInitiatives, expectTags, openChips, pickInitiative, pickTag, tagChip } from './chips';
+import { catalogRead, expectInitiatives, expectTags, openChips, pickInitiative, pickTag, tagChip } from './chips';
 
 // R7 on Timeline (SPEC 11, "Timeline"): the shared chip filter replaces the single-tag dropdown. Tag chips narrow with AND,
 // initiative chips widen with OR; the filter goes to `GET /timeline` as repeated `tag` and `initiative`, lives in the fragment
@@ -98,6 +98,7 @@ for (const vp of viewports) {
       expect(sent.at(-1)).toEqual([s.tagA, s.tagB]); // the server filters: both tags, repeated
       expect(JSON.parse((await page.evaluate((k) => localStorage.getItem(k), KEY)) as string).query).toBe(`tag=${s.tagA}&tag=${s.tagB}`);
 
+      const listed = catalogRead(page, s.both);
       await page.reload();
       await expect(row(page, both)).toHaveCount(1, FIVE_SECONDS);
       await expect(row(page, onlyA)).toHaveCount(0);
@@ -105,6 +106,7 @@ for (const vp of viewports) {
       await expectTags(page, [s.tagA, s.tagB]);
 
       // Initiatives are an OR on top of the tags: the A-only initiative adds nothing while B is chosen, and Clear chips empties.
+      await listed;
       await pickInitiative(page, s.both);
       await expectInitiatives(page, [s.both]);
       await expect(row(page, both)).toHaveCount(1, FIVE_SECONDS);

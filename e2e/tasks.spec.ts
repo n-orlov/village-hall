@@ -1,6 +1,6 @@
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test as base } from './fixtures';
-import { expectInitiatives, pickInitiative } from './chips';
+import { catalogRead, expectInitiatives, pickInitiative } from './chips';
 import { logicViewports } from './viewports';
 
 // Signs in through the mock provider, so no API key rides along (see login.spec.ts).
@@ -126,10 +126,12 @@ for (const vp of logicViewports) {
       await post(api, '/api/v1/leases', { task: leased.ref, intent: 'busy' }, 201);
       await post(api, `/api/v1/tasks/${done.ref}/done`, {}, 200);
 
+      const listed = catalogRead(page, slug);
       await page.goto('/#/tasks');
       await expect(page.getByRole('heading', { level: 2, name: 'Tasks' })).toBeVisible();
       await expect(page.getByTestId('status-filter')).toHaveValue('not-closed');
 
+      await listed;
       await pickInitiative(page, slug);
       await expect.poll(async () => (await shownRefs(page)).sort()).toEqual([plain.ref, leased.ref, blocked.ref, watch.ref, done.ref].sort());
       await expect(page).toHaveURL(new RegExp(`#/tasks\\?initiative=${slug}$`));

@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type APIRequestContext, type Page, type PlaywrightTestArgs } from '@playwright/test';
 import { test } from './fixtures';
-import { chosenInitiatives, expectInitiatives, initiativeChip, openChips, pickInitiative, pickTag, tagChip } from './chips';
+import { catalogRead, chosenInitiatives, expectInitiatives, initiativeChip, openChips, pickInitiative, pickTag, tagChip } from './chips';
 
 // R7 on Tasks (SPEC 11, "The chip filter, the shared sort control and the tag colour"): tag chips narrow with AND, initiative
 // chips widen with OR, the filter goes to `GET /tasks` as repeated `tag` and `initiative` and lives in the fragment and the saved
@@ -60,7 +60,9 @@ for (const vp of viewports) {
         if (url.pathname === '/api/v1/tasks' && url.searchParams.get('attention') !== 'true') sent.push(url.searchParams.getAll('tag'));
       });
 
+      const listed = catalogRead(page, s.slug);
       await page.goto('/#/tasks');
+      await listed;
       await pickInitiative(page, s.slug);
       await expect.poll(async () => (await tableRefs(page)).sort()).toEqual([both, onlyA, onlyB, none].sort());
 
@@ -100,8 +102,10 @@ for (const vp of viewports) {
         const url = new URL(request.url());
         if (url.pathname === '/api/v1/tasks' && url.searchParams.get('attention') !== 'true') sent.push(url.searchParams.getAll('initiative'));
       });
+      const listed = catalogRead(page, two.slug);
       await page.goto(`/#/tasks?initiative=${one.slug}`);
       await expect.poll(async () => (await tableRefs(page)).sort()).toEqual(Object.values(one.refs).sort());
+      await listed;
       await pickInitiative(page, two.slug);
       await expect.poll(async () => (await tableRefs(page)).sort()).toEqual([...Object.values(one.refs), ...Object.values(two.refs)].sort());
       expect(sent.at(-1)).toEqual([one.slug, two.slug]);
