@@ -253,8 +253,8 @@ type liveStream struct {
 	out         *streamWriter
 	events      <-chan events.Event
 	beat        <-chan time.Time
-	recheck     <-chan time.Time        // a scoped stream's own recheck; nil otherwise
-	shared      <-chan attention.Counts // an unscoped stream's recheck, computed once for all; nil otherwise
+	recheck     <-chan time.Time    // a scoped stream's own recheck; nil otherwise
+	shared      <-chan sharedCounts // an unscoped stream's recheck, computed once for all; nil otherwise
 	skipThrough int64
 	watch       *countsWatch // nil without the attention topic
 }

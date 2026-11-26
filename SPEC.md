@@ -1844,7 +1844,9 @@ message is flushed as it is written. A server with no change feed answers 503.
   are computed **once for all the streams of a server that ask for it**, not once per stream: the streams that handle an
   event of the same change-feed batch (§7.3) share one computation made after the whole batch was delivered, and one
   recheck computes them once for every stream per interval. A stream scoped to a filter (none is reachable through the
-  API yet) keeps its own computation. A read that fails
+  API yet) keeps its own computation. The shared computations run one at a time and are numbered in the order they ran,
+  and a stream drops a recheck whose number is older than one it has already sent counts from, so a recheck that read
+  the counts before an event moved them never sends them after it as a step back. A read that fails
   after the stream began is skipped and tried again at the next event or recheck; one that fails on connect is a
   500 before the headers.
 - **Heartbeat**: a comment line, `: ping`, every `VH_STREAM_HEARTBEAT` (default `25s`, §13) while the stream

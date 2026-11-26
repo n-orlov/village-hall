@@ -29,6 +29,7 @@ type countsWatch struct {
 	hub   *streamHub
 	query attention.Query
 	last  *attention.Counts
+	gen   int64 // the generation of the newest shared computation this watch has taken counts from
 }
 
 // unscoped reports whether the watch counts the whole board, so its counts are
@@ -40,6 +41,15 @@ func (w *countsWatch) unscoped() bool {
 // poll reads the counts afresh, for the watch's own query. changed is true the
 // first time and whenever they differ from the previous call's.
 func (w *countsWatch) poll(ctx context.Context) (counts attention.Counts, changed bool, err error) {
+	if w.unscoped() {
+		var gen int64
+		counts, gen, err = w.hub.shared.fresh(ctx, w.hub)
+		if err != nil {
+			return counts, false, err
+		}
+		w.gen = max(w.gen, gen)
+		return counts, w.note(counts), nil
+	}
 	counts, err = w.hub.countsFor(ctx, w.query)
 	if err != nil {
 		return counts, false, err
@@ -53,11 +63,24 @@ func (w *countsWatch) pollAfter(ctx context.Context, n int64) (counts attention.
 	if !w.unscoped() {
 		return w.poll(ctx)
 	}
-	counts, err = w.hub.shared.afterEvent(ctx, w.hub, n)
+	counts, gen, err := w.hub.shared.afterEvent(ctx, w.hub, n)
 	if err != nil {
 		return counts, false, err
 	}
+	w.gen = max(w.gen, gen)
 	return counts, w.note(counts), nil
+}
+
+// noteShared records counts the hub's recheck computed at generation gen, and
+// tells whether they differ from the ones sent last. A computation older than one
+// the watch already took counts from is stale (an event moved the counts while it
+// ran), so it is dropped rather than sent as a step back.
+func (w *countsWatch) noteShared(counts attention.Counts, gen int64) bool {
+	if gen < w.gen {
+		return false
+	}
+	w.gen = gen
+	return w.note(counts)
 }
 
 // note records counts as the ones sent last and tells whether they differ from
@@ -82,42 +105,65 @@ func (h *streamHub) countsFor(ctx context.Context, query attention.Query) (atten
 type countsShare struct {
 	mu     sync.Mutex // held while computing, so the streams behind the first reuse its result
 	have   bool
+	gen    int64 // counts the computations made, in the order they ran (under mu)
 	after  int64 // the newest event the feed had delivered when counts were computed
 	counts attention.Counts
 
 	tickMu  sync.Mutex
-	tickers map[chan attention.Counts]struct{}
+	tickers map[chan sharedCounts]struct{}
 	running bool
+}
+
+// sharedCounts is one computation of the unscoped counts and its generation.
+type sharedCounts struct {
+	counts attention.Counts
+	gen    int64
 }
 
 // afterEvent returns counts computed after the feed delivered event n: the last
 // computation when it already was, else a new one made after the feed's whole
 // batch (its position when the computation starts), which every other stream
 // handling an event of that batch then reuses.
-func (c *countsShare) afterEvent(ctx context.Context, h *streamHub, n int64) (attention.Counts, error) {
+func (c *countsShare) afterEvent(ctx context.Context, h *streamHub, n int64) (attention.Counts, int64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.have && c.after >= n {
-		return c.counts, nil
+		return c.counts, c.gen, nil
 	}
+	return c.computeLocked(ctx, h, n)
+}
+
+// fresh computes the unscoped counts now, whatever the last computation holds.
+func (c *countsShare) fresh(ctx context.Context, h *streamHub) (attention.Counts, int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.computeLocked(ctx, h, 0)
+}
+
+// computeLocked computes the counts after the feed's position (or event n, when
+// that is further) and keeps them as the newest computation. The caller holds mu,
+// so computations run, and are numbered, one at a time: a larger generation always
+// read the database later.
+func (c *countsShare) computeLocked(ctx context.Context, h *streamHub, n int64) (attention.Counts, int64, error) {
 	n = max(n, h.feed.Position())
 	counts, err := h.countsFor(ctx, attention.Query{})
 	if err != nil {
-		return counts, err
+		return counts, 0, err
 	}
+	c.gen++
 	c.have, c.after, c.counts = true, n, counts
-	return counts, nil
+	return counts, c.gen, nil
 }
 
 // recheck joins the hub's recheck: the returned channel receives the unscoped
 // counts the hub computes once for every stream, every recheckEvery. stop leaves.
-func (h *streamHub) recheck() (counts <-chan attention.Counts, stop func()) {
+func (h *streamHub) recheck() (counts <-chan sharedCounts, stop func()) {
 	c := &h.shared
-	ch := make(chan attention.Counts, 1)
+	ch := make(chan sharedCounts, 1)
 	c.tickMu.Lock()
 	defer c.tickMu.Unlock()
 	if c.tickers == nil {
-		c.tickers = map[chan attention.Counts]struct{}{}
+		c.tickers = map[chan sharedCounts]struct{}{}
 	}
 	c.tickers[ch] = struct{}{}
 	if !c.running {
@@ -161,11 +207,13 @@ func (h *streamHub) recheckLoop() {
 			c.stopRunning()
 			return
 		}
-		counts, err := h.countsFor(ctx, attention.Query{})
+		c.mu.Lock()
+		counts, gen, err := c.computeLocked(ctx, h, 0)
+		c.mu.Unlock()
 		if err != nil { // the next tick tries again
 			continue
 		}
-		c.deliver(counts)
+		c.deliver(sharedCounts{counts: counts, gen: gen})
 	}
 }
 
@@ -193,7 +241,7 @@ func (c *countsShare) anyTicker() bool {
 }
 
 // deliver hands counts to every stream waiting for the recheck, replacing a pair it has not read yet.
-func (c *countsShare) deliver(counts attention.Counts) {
+func (c *countsShare) deliver(counts sharedCounts) {
 	c.tickMu.Lock()
 	defer c.tickMu.Unlock()
 	for ch := range c.tickers {
@@ -244,6 +292,6 @@ func (s *liveStream) sendCountsAfter(n int64) bool {
 }
 
 // sendRechecked sends the counts of the hub's recheck when they changed.
-func (s *liveStream) sendRechecked(counts attention.Counts) bool {
-	return !s.watch.note(counts) || s.out.attention(counts)
+func (s *liveStream) sendRechecked(shared sharedCounts) bool {
+	return !s.watch.noteShared(shared.counts, shared.gen) || s.out.attention(shared.counts)
 }

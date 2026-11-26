@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,6 +78,7 @@ type shareRig struct {
 	log    *countsLog
 	clock  *testClock
 	ticks  chan time.Time
+	hold   atomic.Pointer[func()] // when set, run once an unscoped computation has read the counts, before it returns them
 	tasks  *tasks.Store
 	leases *leases.Store
 	inits  *initiatives.Store
@@ -111,6 +113,9 @@ func newShareRig(t *testing.T, dbs databases) *shareRig {
 				log.scoped++
 			}
 			log.mu.Unlock()
+			if hold := r.hold.Swap(nil); hold != nil && len(q.Initiatives) == 0 && len(q.Tags) == 0 {
+				(*hold)()
+			}
 			log.done <- struct{}{}
 			return c, err
 		},
@@ -276,6 +281,37 @@ func TestUnscopedAttentionStreamsShareOneCountsComputationPerRecheckTick(t *test
 		for _, s := range open {
 			s.quiet(50 * time.Millisecond)
 		}
+	})
+}
+
+func TestARecheckThatReadTheCountsBeforeAnEventDoesNotSendThemAfterIt(t *testing.T) {
+	t.Parallel()
+	forEachLeg(t, func(t *testing.T, _ string, dbs databases) {
+		r := newShareRig(t, dbs)
+		r.initiative("aa")
+		r.lease(shareActorA, "aa-1", "db:z")
+		r.settle()
+		s, connect := r.open(attention.Query{})
+		if connect != (AttentionCounts{}) {
+			t.Fatalf("counts on connect = %+v, want all zero", connect)
+		}
+		entered, release := make(chan struct{}), make(chan struct{})
+		hold := func() { close(entered); <-release }
+		r.hold.Store(&hold)
+		sendTick(t, r) // the recheck reads zero counts and stays inside the computation
+		select {
+		case <-entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("the recheck did not compute")
+		}
+		r.lease(shareActorB, "aa-2", "db:z") // a conflict: the counts move after the recheck read them
+		time.Sleep(100 * time.Millisecond)
+		close(release)
+		want := AttentionCounts{Conflicts: 1, Total: 1}
+		if got := counts(t, s.nextMessage()); got != want {
+			t.Errorf("counts after the conflict = %+v, want %+v", got, want)
+		}
+		s.quiet(300 * time.Millisecond) // the recheck's older zero counts are not sent as a step back
 	})
 }
 
