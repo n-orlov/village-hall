@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,6 +43,21 @@ type rig struct {
 	feed     *feed.Feed
 }
 
+// firstReadSource is a feed source that says when the feed's first read of the
+// table has returned.
+type firstReadSource struct {
+	feed.StoreSource
+	once sync.Once
+	read chan struct{}
+}
+
+// After implements feed.Source.
+func (s *firstReadSource) After(ctx context.Context, n int64, limit int) ([]events.Event, error) {
+	items, err := s.StoreSource.After(ctx, n, limit)
+	s.once.Do(func() { close(s.read) })
+	return items, err
+}
+
 // openStore opens and migrates the database at url, closed when t ends.
 func openStore(t *testing.T, url string) *store.Store {
 	t.Helper()
@@ -58,12 +74,22 @@ func openStore(t *testing.T, url string) *store.Store {
 func startRig(t *testing.T, st *store.Store, token string, cfg streamSettings) *rig {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	f, err := feed.New(ctx, feed.StoreSource{Store: st}, feed.Options{Poll: cfg.poll})
+	src := &firstReadSource{StoreSource: feed.StoreSource{Store: st}, read: make(chan struct{})}
+	f, err := feed.New(ctx, src, feed.Options{Poll: cfg.poll})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := &rig{t: t, feed: f, token: token, cancel: cancel, done: make(chan error, 1), feedDone: make(chan struct{})}
 	go func() { defer close(r.feedDone); f.Run(ctx) }()
+	// Run starts with one read of its own. A write that wakes the feed before
+	// that read has run would be delivered by it, leaving the wake pending to
+	// deliver whatever is written next: wait for that read, so that one wake is
+	// exactly one read.
+	select {
+	case <-src.read:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the feed made no first read")
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
