@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { affectsNotices, noticeHref, noticeLines, readNotices, watchNotices, type Notice } from './notices';
+import { FIRST_READ_CAP_MS, affectsNotices, noticeHref, noticeLines, readNotices, watchNotices, type Notice } from './notices';
 import { DEBOUNCE_MS, Live, type LiveEnv, type StreamSource } from './live';
 import type { Browser } from './session';
 
@@ -163,5 +163,70 @@ describe('watchNotices on a live stream', () => {
     source.send('board', ev('lease_ended'));
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
     expect(fetch).toHaveBeenCalledTimes(0);
+  });
+
+  describe('settled: the view is drawn once the first read has ended', () => {
+    function streamOf() {
+      const source = new FakeSource();
+      const env: LiveEnv = { open: () => source, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) };
+      const stream = new Live('/api/v1/stream', env);
+      stream.start();
+      return { source, stream };
+    }
+
+    it('after the first read answers, once only, and after the notices are shown', async () => {
+      vi.useFakeTimers();
+      const { source, stream } = streamOf();
+      const order: string[] = [];
+      let answer: (n: Notice[]) => void = () => {};
+      const read = vi.fn(() => new Promise<Notice[]>((resolve) => (answer = resolve)));
+      watchNotices(stream, read, () => order.push('shown'), () => order.push('settled'));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(order).toEqual([]);
+      answer([notice('L1')]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(order).toEqual(['shown', 'settled']);
+
+      source.send('board', ev('lease_started'));
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_MS * 2);
+      await vi.advanceTimersByTimeAsync(FIRST_READ_CAP_MS * 2);
+      expect(order).toEqual(['shown', 'settled']);
+    });
+
+    it('when the first read fails or the server is old (no notices): the view is not held back', async () => {
+      vi.useFakeTimers();
+      const { stream } = streamOf();
+      let settled = 0;
+      watchNotices(stream, () => Promise.reject(new Error('down')), () => {}, () => settled++);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(1);
+
+      let oldServer = 0;
+      const { browser } = browserAnswering({ actor: 'me' });
+      watchNotices(stream, () => readNotices(browser), () => {}, () => oldServer++);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(oldServer).toBe(1);
+    });
+
+    it('when the first read never ends: after the cap, and not before', async () => {
+      vi.useFakeTimers();
+      const { stream } = streamOf();
+      let settled = 0;
+      watchNotices(stream, () => new Promise<Notice[]>(() => {}), () => {}, () => settled++);
+      await vi.advanceTimersByTimeAsync(FIRST_READ_CAP_MS - 1);
+      expect(settled).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(1);
+    });
+
+    it('stopping before the cap cancels it', async () => {
+      vi.useFakeTimers();
+      const { stream } = streamOf();
+      let settled = 0;
+      const stop = watchNotices(stream, () => new Promise<Notice[]>(() => {}), () => {}, () => settled++);
+      stop();
+      await vi.advanceTimersByTimeAsync(FIRST_READ_CAP_MS * 2);
+      expect(settled).toBe(0);
+    });
   });
 });

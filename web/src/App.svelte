@@ -57,8 +57,10 @@
   let attentionTotal = $state(0);
   // The green badge: how many open tasks hold a live lease, read when the shell is up and on every task_* or lease_* live event.
   let liveTasks = $state(0);
-  // The live notices of every actor, shown in a banner above the view: read when the shell is up and on every lease_* live event.
+  // The live notices of every actor, shown in a banner above the view (the view is drawn once the first read has ended): read when the shell is up and on every lease_* live event.
   let notices: Notice[] = $state([]);
+  // False until the first read of the notices has ended: the view is drawn under a banner that is already there, so it never moves.
+  let noticesSettled = $state(false);
 
   const session = new SessionController(browser, (s) => (auth = s), window.location.hash);
 
@@ -77,7 +79,7 @@
 
   $effect(() => {
     if (auth.kind !== 'signed-in') return;
-    return watchNotices(live(), () => readNotices(browser), (list) => (notices = list));
+    return watchNotices(live(), () => readNotices(browser), (list) => (notices = list), () => (noticesSettled = true));
   });
 
   async function signOut() {
@@ -131,11 +133,13 @@
     {#if signOutFailed}
       <p role="alert">Sign out failed. Try again.</p>
     {/if}
-    {#key param}
-      {#if View}
-        <View csrf={auth.session.csrf_token} {param} />
-      {/if}
-    {/key}
     <NoticeBanner {notices} />
+    {#if noticesSettled}
+      {#key param}
+        {#if View}
+          <View csrf={auth.session.csrf_token} {param} />
+        {/if}
+      {/key}
+    {/if}
   </Shell>
 {/if}

@@ -56,18 +56,41 @@ export function affectsNotices(event: { type: string }): boolean {
   return event.type.startsWith('lease_');
 }
 
+/** The longest the first read of the notices holds the view back (ms): a slow or hung read must not hide the board. */
+export const FIRST_READ_CAP_MS = 3000;
+
 /**
  * Shows the notices now and again on each event that can change them (and on a reset or reconnect, which `subscribe` adds).
- * A failed read keeps the banner on screen; the next event reads again. Returns the stop function.
+ * A failed read keeps the banner on screen; the next event reads again. `settled` is called once, when the first read has
+ * ended (answered or failed) or `FIRST_READ_CAP_MS` has passed, whichever is first: the view is drawn from then on, under
+ * a banner that is already there. Returns the stop function.
  */
-export function watchNotices(stream: Pick<Live, 'subscribe'>, read: () => Promise<Notice[]>, show: (notices: Notice[]) => void): () => void {
+export function watchNotices(
+  stream: Pick<Live, 'subscribe'>,
+  read: () => Promise<Notice[]>,
+  show: (notices: Notice[]) => void,
+  settled: () => void = () => {},
+): () => void {
+  let first = true;
+  const settle = () => {
+    if (!first) return;
+    first = false;
+    settled();
+  };
+  const cap = setTimeout(settle, FIRST_READ_CAP_MS);
   const refresh = async () => {
     try {
       show(await read());
     } catch {
       // keep the banner on screen
+    } finally {
+      settle();
     }
   };
   void refresh();
-  return stream.subscribe(affectsNotices, refresh);
+  const stop = stream.subscribe(affectsNotices, refresh);
+  return () => {
+    clearTimeout(cap);
+    stop();
+  };
 }
